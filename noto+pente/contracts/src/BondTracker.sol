@@ -35,6 +35,10 @@ contract BondTracker is NotoTrackerERC20 {
     address internal _custodian;
     InvestorList public investorList;
 
+    // Private (visible to the privacy group only): a lock prepared under `round` settled after
+    // that round ended, so it is accounted here instead of against the current round.
+    event StaleLockSettled(bytes32 indexed lockId, uint256 round, uint256 amount);
+
     // Task #24 (lead-approved fund-safety fix): BondTracker cannot read BondTrackerPublic's state
     // (a private Pente contract has no eth_call), so it keeps its own mirror of the values
     // onPrepareUnlock needs to enforce TokenDistribution.purchase's 2 rules BEFORE a lock is even
@@ -64,6 +68,18 @@ contract BondTracker is NotoTrackerERC20 {
     // difference to compare against Noto is balanceOf(a) - lockedBalanceOf(a).
     function lockedBalanceOf(address account) external view returns (uint256) {
         return _locks.lockedBalance(account);
+    }
+
+    // Counts an in-round sale against the private unsold counter. The public tracker is told
+    // only when the round is sold out, once -- never the amount.
+    function _recordSale(uint256 total) internal {
+        _availableUnitsPrivate -= total;
+        if (total > 0 && _availableUnitsPrivate == 0) {
+            emit PenteExternalCall(
+                _publicTracker,
+                abi.encodeWithSignature("onDistributionComplete()")
+            );
+        }
     }
 
     function availableUnitsPrivate() external view returns (uint256) {
@@ -105,13 +121,10 @@ contract BondTracker is NotoTrackerERC20 {
         _discountPrice = discountPrice;
         _minimumDenomination = minimumDenomination;
         _availableUnitsPrivate = _pendingTrancheAmount;
+        // Price and denomination stay private; the public side only learns the round started.
         emit PenteExternalCall(
             _publicTracker,
-            abi.encodeWithSignature(
-                "beginDistribution(uint256,uint256)",
-                discountPrice,
-                minimumDenomination
-            )
+            abi.encodeWithSignature("beginDistribution()")
         );
     }
 
@@ -232,14 +245,14 @@ contract BondTracker is NotoTrackerERC20 {
         );
         // Audit finding (execution-trace/periphery agents): amount == 0 makes the next
         // TokenDistribution report availableUnits()==0 at construction with no sale ever
-        // happening, so onDistribute() (the only thing that sets DISTRIBUTION_COMPLETE) never
+        // happening, so onDistributionComplete() (the only thing that sets DISTRIBUTION_COMPLETE) never
         // fires -- permanently bricking closeDistribution/setActive/every future reopening.
         require(amount > 0, "Mint amount must be greater than zero");
         _onMint(sender, to, amount, data, prepared);
         _status = Status.ISSUED;
         emit PenteExternalCall(
             _publicTracker,
-            abi.encodeWithSignature("onIssue(address,uint256)", to, amount)
+            abi.encodeWithSignature("onIssue(address)", to)
         );
         _pendingTrancheAmount = amount;
     }
@@ -280,11 +293,10 @@ contract BondTracker is NotoTrackerERC20 {
         ) {
             require(amount <= _availableUnitsPrivate, "burn > unsold");
         }
+        // No public notification: upstream tells the public tracker about every burn, which
+        // publishes each redemption amount. The public side tracks status only (see
+        // BondTrackerPublic), so a burn stays inside the privacy group.
         _onBurn(sender, from, amount, data, prepared);
-        emit PenteExternalCall(
-            _publicTracker,
-            abi.encodeWithSignature("onBurn(uint256)", amount)
-        );
     }
 
     function onTransfer(
@@ -302,15 +314,11 @@ contract BondTracker is NotoTrackerERC20 {
         // task fixes -- a custodian self-transfer (from==to==_custodian) could never reach here
         // because `to` wasn't registered. Now that `to == _custodian` is exempted from the
         // whitelist, a pure self-transfer (net balance unchanged) would otherwise still report
-        // `onDistribute(amount)` to the public tracker as a real sale. Exclude `to == _custodian`
+        // count as a real sale (and could trigger onDistributionComplete). Exclude `to == _custodian`
         // the same way `onUnlock`'s sale-total loop already does (a refund/self-move is not a
         // sale).
         if (_status == Status.DISTRIBUTION_STARTED && from == _custodian && to != _custodian) {
-            _availableUnitsPrivate -= amount;
-            emit PenteExternalCall(
-                _publicTracker,
-                abi.encodeWithSignature("onDistribute(uint256)", amount)
-            );
+            _recordSale(amount);
         }
     }
 
@@ -337,9 +345,9 @@ contract BondTracker is NotoTrackerERC20 {
         // D37 (lead decision 2026-10-08, review finding F2): the settle-time accounting block
         // used to be gated entirely on DISTRIBUTION_STARTED, so a custodian-originated settle
         // landing while the round was already CLOSED (or the token ACTIVE) reported NOTHING --
-        // neither onDistribute nor onStaleLockSettled -- even though the units really moved.
+        // neither a sale nor a StaleLockSettled event -- even though the units really moved.
         // Restructured: any custodian-originated settle with a non-custodian recipient is
-        // either an in-round sale (STARTED + current-round stamp -> decrement + onDistribute,
+        // either an in-round sale (STARTED + current-round stamp -> decrement + completion check,
         // unchanged) or reported as a round-tagged non-sale (event-only, never a revert; the
         // receiver exists and is onlyOwner). Round stamp N is carried verbatim -- forceComplete
         // does NOT increment _roundSeq, so a round-N lock settled after close still reports N.
@@ -353,11 +361,7 @@ contract BondTracker is NotoTrackerERC20 {
                 }
             }
             if (_status == Status.DISTRIBUTION_STARTED && _lockRound[lockId] == _roundSeq) {
-                _availableUnitsPrivate -= total;
-                emit PenteExternalCall(
-                    _publicTracker,
-                    abi.encodeWithSignature("onDistribute(uint256)", total)
-                );
+                _recordSale(total);
             } else if (total > 0) {
                 // BACKLOG #6 (D36) + D37: stale lock -- prepared under a previous round, or the
                 // round it belongs to is no longer open. NEVER revert: on the delegate path the
@@ -365,15 +369,7 @@ contract BondTracker is NotoTrackerERC20 {
                 // reverting would undo private/public sync, strictly worse than the bug.
                 // Account it explicitly: the current round's counter untouched (cap cannot be
                 // oversold), sale reported to the public tracker as a round-tagged non-sale.
-                emit PenteExternalCall(
-                    _publicTracker,
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        _lockRound[lockId],
-                        total
-                    )
-                );
+                emit StaleLockSettled(lockId, _lockRound[lockId], total);
             }
         }
     }
@@ -486,11 +482,11 @@ contract BondTracker is NotoTrackerERC20 {
     // KNOWN RESIDUAL RISK (flagged, not engineered around here): per Noto's own domain code,
     // this hook runs in its OWN transaction, AFTER the real base-ledger unlock has already been
     // confirmed -- unlike onMint/onTransfer/onUnlock, which run atomically WITH the real token
-    // movement. If BondTrackerPublic.onDistribute ever reverts here, Pente's atomicity still
+    // movement. If BondTrackerPublic.onDistributionComplete ever reverts here, Pente's atomicity still
     // reverts this hook's own private-state update (the _transfer below), but the real,
     // already-confirmed base-ledger transfer cannot be undone -- a private/public balance
-    // desync, not merely a stalled status. onDistribute's only revert condition today
-    // (`distribution` uninitialized) should never be true on this path in practice.
+    // desync, not merely a stalled status. onDistributionComplete's only revert condition today
+    // (public status is not DISTRIBUTION_STARTED) should never be true on this path in practice.
     function handleDelegateUnlock(
         address /* sender */,
         bytes32 lockId,
@@ -556,11 +552,7 @@ contract BondTracker is NotoTrackerERC20 {
                 }
             }
             if (_status == Status.DISTRIBUTION_STARTED && _lockRound[lockId] == _roundSeq) {
-                _availableUnitsPrivate -= total;
-                emit PenteExternalCall(
-                    _publicTracker,
-                    abi.encodeWithSignature("onDistribute(uint256)", total)
-                );
+                _recordSale(total);
             } else if (total > 0) {
                 // BACKLOG #6 (D36) + D37: stale lock -- prepared under a previous round, or the
                 // round it belongs to is no longer open. NEVER revert: on the delegate path the
@@ -568,15 +560,7 @@ contract BondTracker is NotoTrackerERC20 {
                 // reverting would undo private/public sync, strictly worse than the bug.
                 // Account it explicitly: the current round's counter untouched (cap cannot be
                 // oversold), sale reported to the public tracker as a round-tagged non-sale.
-                emit PenteExternalCall(
-                    _publicTracker,
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        _lockRound[lockId],
-                        total
-                    )
-                );
+                emit StaleLockSettled(lockId, _lockRound[lockId], total);
             }
         }
     }

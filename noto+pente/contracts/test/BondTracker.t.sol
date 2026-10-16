@@ -54,19 +54,50 @@ contract BondTrackerTest {
         r[0] = INotoHooks.UnlockRecipient({to: to, amount: amount});
     }
 
-    // Decodes the LAST PenteExternalCall log addressed to `to`, or reverts if none found.
-    function _lastExternalCallTo(Vm.Log[] memory logs, address to) internal pure returns (bytes memory) {
-        for (uint256 i = logs.length; i > 0; i--) {
-            Vm.Log memory log = logs[i - 1];
-            if (log.topics.length > 0 && log.topics[0] == PENTE_EXTERNAL_CALL_TOPIC) {
-                address contractAddress = address(uint160(uint256(log.topics[1])));
-                if (contractAddress == to) {
-                    return abi.decode(log.data, (bytes));
-                }
+    // Number of PenteExternalCalls addressed to `to` (any payload).
+    function _callsTo(Vm.Log[] memory logs, address to) internal pure returns (uint256 n) {
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (
+                logs[i].topics.length > 1 &&
+                logs[i].topics[0] == PENTE_EXTERNAL_CALL_TOPIC &&
+                address(uint160(uint256(logs[i].topics[1]))) == to
+            ) n++;
+        }
+    }
+
+    // Number of PenteExternalCalls to `to` whose payload is exactly `call`.
+    function _countCallsTo(Vm.Log[] memory logs, address to, bytes memory call) internal pure returns (uint256 n) {
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (
+                logs[i].topics.length > 1 &&
+                logs[i].topics[0] == PENTE_EXTERNAL_CALL_TOPIC &&
+                address(uint160(uint256(logs[i].topics[1]))) == to &&
+                keccak256(abi.decode(logs[i].data, (bytes))) == keccak256(call)
+            ) n++;
+        }
+    }
+
+    // The tracker's own (private) StaleLockSettled event: exactly one, with this lockId/round/amount.
+    function _assertStale(Vm.Log[] memory logs, address tracker, bytes32 lockId, uint256 round, uint256 amount)
+        internal
+        pure
+    {
+        uint256 n = 0;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (
+                logs[i].emitter == tracker &&
+                logs[i].topics.length == 2 &&
+                logs[i].topics[0] == keccak256("StaleLockSettled(bytes32,uint256,uint256)")
+            ) {
+                (uint256 r, uint256 a) = abi.decode(logs[i].data, (uint256, uint256));
+                assert(logs[i].topics[1] == lockId && r == round && a == amount);
+                n++;
             }
         }
-        revert("no PenteExternalCall to that address found");
+        assert(n == 1);
     }
+
+    bytes constant COMPLETE_CALL = abi.encodeWithSignature("onDistributionComplete()");
 
     function testOnUnlockExecutionNotifiesPublicTrackerWhenCustodianDistributes() external {
         BondTracker t = _fresh();
@@ -96,19 +127,17 @@ contract BondTrackerTest {
         t.onUnlock(custodian, lockId, recipients, "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) == keccak256(abi.encodeWithSignature("onDistribute(uint256)", uint256(1000)))
-        );
+        // sold out: the public tracker learns only that the round is complete, once, with no amount
+        assert(_countCallsTo(logs, publicTracker, COMPLETE_CALL) == 1);
+        assert(_callsTo(logs, publicTracker) == 1);
         assert(t.balanceOf(investor1) == 1000);
         assert(t.balanceOf(custodian) == 0);
     }
 
-    // The bug: onBurn was never overridden, so BondTrackerPublic's totalSupply never learned
-    // about redemptions (it only ever grew via onIssue). Proves the private tracker notifies
-    // the public tracker on burn, AND that the private tracker's own totalSupply() still
-    // decrements correctly (sanity check nothing regressed in the inherited _onBurn/_burn path).
-    function testOnBurnNotifiesPublicTrackerAndDecrementsSupply() external {
+    // A burn is a redemption amount: it must stay inside the privacy group (the public tracker
+    // used to be told via onBurn(amount) and kept a public totalSupply). Also checks the private
+    // ERC20 totalSupply() still decrements through the inherited _onBurn/_burn path.
+    function testOnBurnStaysPrivateAndDecrementsSupply() external {
         BondTracker t = _fresh();
 
         vm.prank(issuer);
@@ -120,10 +149,8 @@ contract BondTrackerTest {
         t.onBurn(custodian, custodian, 400, "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) == keccak256(abi.encodeWithSignature("onBurn(uint256)", uint256(400)))
-        );
+        // a redemption amount must not be published: no call to the public tracker at all
+        assert(_callsTo(logs, publicTracker) == 0);
         assert(t.balanceOf(custodian) == 600);
         assert(t.totalSupply() == 600); // private tracker's own ERC20 totalSupply also decremented
     }
@@ -174,10 +201,9 @@ contract BondTrackerTest {
         t.onUnlock(custodian, lockId, recipients, "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) == keccak256(abi.encodeWithSignature("onDistribute(uint256)", uint256(700)))
-        );
+        // partial sale: nothing at all reaches the public tracker
+        assert(_callsTo(logs, publicTracker) == 0);
+        assert(t.availableUnitsPrivate() == 300);
         assert(t.balanceOf(investor1) == 700);
         assert(t.balanceOf(custodian) == 300);
     }
@@ -295,10 +321,8 @@ contract BondTrackerTest {
         t.handleDelegateUnlock(custodian, lockId, recipients, "");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) == keccak256(abi.encodeWithSignature("onDistribute(uint256)", uint256(1000)))
-        );
+        assert(_countCallsTo(logs, publicTracker, COMPLETE_CALL) == 1);
+        assert(_callsTo(logs, publicTracker) == 1);
         assert(t.balanceOf(investor1) == 1000);
         assert(t.balanceOf(custodian) == 0);
     }
@@ -1230,18 +1254,8 @@ contract BondTrackerTest {
         t.handleDelegateUnlock(custodian, lockId, _one(investor1, 600), "");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        uint256(1),
-                        uint256(600)
-                    )
-                )
-        );
+        _assertStale(logs, address(t), lockId, 1, 600);
+        assert(_callsTo(logs, publicTracker) == 0); // the sale never reaches the public tracker
         // NEVER revert: the real transfer stands, round 2's counter does not move.
         assert(t.balanceOf(investor1) == 600);
         assert(t.balanceOf(custodian) == 500);
@@ -1261,18 +1275,8 @@ contract BondTrackerTest {
         t.onUnlock(custodian, lockId, _one(investor1, 600), "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        uint256(1),
-                        uint256(600)
-                    )
-                )
-        );
+        _assertStale(logs, address(t), lockId, 1, 600);
+        assert(_callsTo(logs, publicTracker) == 0); // the sale never reaches the public tracker
         assert(t.balanceOf(investor1) == 600);
         assert(t.balanceOf(custodian) == 500);
         assert(t.availableUnitsPrivate() == 500);
@@ -1294,11 +1298,8 @@ contract BondTrackerTest {
         t.handleDelegateUnlock(custodian, lockId, _one(investor1, 400), "");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(abi.encodeWithSignature("onDistribute(uint256)", uint256(400)))
-        );
+        assert(_callsTo(logs, publicTracker) == 0); // partial sale, round not sold out
+        assert(t.availableUnitsPrivate() == 100);
         assert(t.availableUnitsPrivate() == 100); // 500 - 400: round 2 decremented normally
         assert(t.balanceOf(investor1) == 400);
     }
@@ -1353,18 +1354,8 @@ contract BondTrackerTest {
         t.onUnlock(custodian, lockId, _one(investor1, 600), "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        uint256(0),
-                        uint256(600)
-                    )
-                )
-        );
+        _assertStale(logs, address(t), lockId, 0, 600);
+        assert(_callsTo(logs, publicTracker) == 0); // the sale never reaches the public tracker
         // Never revert, real transfer stands, round counter untouched (non-sale).
         assert(t.balanceOf(investor1) == 600);
         assert(t.balanceOf(custodian) == 400);
@@ -1401,18 +1392,8 @@ contract BondTrackerTest {
         t.handleDelegateUnlock(custodian, lockId, _one(investor1, 600), "");
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        uint256(1),
-                        uint256(600)
-                    )
-                )
-        );
+        _assertStale(logs, address(t), lockId, 1, 600);
+        assert(_callsTo(logs, publicTracker) == 0); // the sale never reaches the public tracker
         // Never revert, real transfer stands, closed round's counter untouched.
         assert(t.balanceOf(investor1) == 600);
         assert(t.balanceOf(custodian) == 400);
@@ -1453,18 +1434,8 @@ contract BondTrackerTest {
         t.onUnlock(custodian, lockId, _one(investor1, 600), "", empty);
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
-        bytes memory encodedCall = _lastExternalCallTo(logs, publicTracker);
-        assert(
-            keccak256(encodedCall) ==
-                keccak256(
-                    abi.encodeWithSignature(
-                        "onStaleLockSettled(bytes32,uint256,uint256)",
-                        lockId,
-                        uint256(1),
-                        uint256(600)
-                    )
-                )
-        );
+        _assertStale(logs, address(t), lockId, 1, 600);
+        assert(_callsTo(logs, publicTracker) == 0); // the sale never reaches the public tracker
         assert(t.balanceOf(investor1) == 600);
         assert(t.balanceOf(custodian) == 0); // 1000 - 400 burned - 600 settled
         assert(t.availableUnitsPrivate() == 1000);

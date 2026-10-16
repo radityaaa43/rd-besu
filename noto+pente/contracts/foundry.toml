@@ -10,3 +10,5 @@ libs = []
 # Pente's private EVM simulation doesn't support -- every private contract deploy then reverts
 # at assemble time with no reason ("transaction reverted: Optional.empty"), live-verified.
 evm_version = "shanghai"
+
+fs_permissions = [{ access = "read", path = "./out" }]
