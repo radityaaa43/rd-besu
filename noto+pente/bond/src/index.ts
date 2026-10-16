@@ -28,6 +28,7 @@ import {
 import atomFactoryJson from "./abis/AtomFactory.json";
 import atomJson from "./abis/Atom.json";
 import bondTrackerPublicJson from "./abis/BondTrackerPublic.json";
+import { newAtomFactory } from "./helpers/atom";
 import { newBondSubscription } from "./helpers/bondsubscription";
 import { newBondTracker } from "./helpers/bondtracker";
 import { newERC20Tracker } from "./helpers/erc20tracker";
@@ -230,6 +231,15 @@ async function main(): Promise<boolean> {
   }
   const atomFactoryAddress = receipt.contractAddress;
   logger.log(`Success! address: ${atomFactoryAddress}`);
+
+  logger.log("Creating restricted atom factory (platform trades)...");
+  const restrictedAtomFactory = await newAtomFactory(paladin1, bondIssuer);
+  if (restrictedAtomFactory === undefined) {
+    logger.error("Failed!");
+    return false;
+  }
+  const restrictedAtomFactoryAddress = restrictedAtomFactory.address;
+  logger.log(`Success! address: ${restrictedAtomFactoryAddress}`);
 
   logger.log(`Issuing ${BOND_SUPPLY} bond to custodian...`);
   receipt = await notoBond
@@ -454,6 +464,7 @@ async function main(): Promise<boolean> {
     bondTrackerAddress: bondTracker.address,
     bondTrackerPublicAddress,
     atomFactoryAddress,
+    restrictedAtomFactoryAddress,
     bondDetails: {
       issueDate,
       maturityDate,

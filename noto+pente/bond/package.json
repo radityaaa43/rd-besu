@@ -9,7 +9,7 @@
     "start:prod": "node ./build/index.js --cache ./data",
     "verify": "ts-node ./src/tests/data-persistence.ts --cache ./data",
     "outright": "ts-node ./src/outright.ts --cache ./data",
-    "test": "ts-node ./src/tests/consideration.ts",
+    "test": "ts-node ./src/tests/consideration.ts && ts-node ./src/tests/restricted-atom.ts",
     "test:rollback": "ts-node ./src/tests/rollback.ts --cache ./data",
     "copy-abi": "node scripts/contracts.mjs"
   },

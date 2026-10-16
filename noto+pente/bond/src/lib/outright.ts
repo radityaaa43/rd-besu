@@ -209,10 +209,18 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     // Settlement: custodian (node1) acts as settlement agent
     step = "atom-create";
     log(`[${step}] custodian builds atom (bond leg + cash leg)`);
-    const atom = await p.atomFactory.create(bondCustodian, [
-      { contractAddress: notoBond.address, callData: bondUnlockCall },
-      { contractAddress: notoCash.address, callData: cashUnlockCall },
-    ]);
+    // RestrictedAtom: only the two trade parties and BI (executor) may cancel/execute it, and a
+    // cancel releases whichever legs were already delegated (cancelOperations).
+    const atom = await p.atomFactory.create(
+      bondCustodian,
+      [
+        { contractAddress: notoBond.address, callData: bondUnlockCall },
+        { contractAddress: notoCash.address, callData: cashUnlockCall },
+      ],
+      [bond, cash].map((l) => ({ contractAddress: l.token.address, lockId: l.lockId!, callData: l.cancelCall! })),
+      [await seller.verifier.address(), await buyer.verifier.address()],
+      await bondCustodian.address()
+    );
     if (!atom) throw new Error("AtomDeployed event not found");
     trade.atomAddress = atom.address;
     done(step);
@@ -224,7 +232,7 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     await delegate(cash, atom.address, step);
     done(step);
 
-    // Execute immediately: Atom.cancel() has no access control, so keep the delegated window short.
+    // Execute immediately to keep the delegated window short (cancel is restricted to the parties/BI).
     step = "atom-execute";
     log(`[${step}] custodian executes atom`);
     requireSuccess(await atom.execute(bondCustodian), step);
@@ -316,7 +324,10 @@ async function rollback(
   log(`[rollback-atom-create] custodian builds cancel atom (${prepared.map((l) => l.name).join(" + ")})`);
   const atom = await p.atomFactory.create(
     p.bondCustodian,
-    prepared.map((l) => ({ contractAddress: l.token.address, callData: l.cancelCall! }))
+    prepared.map((l) => ({ contractAddress: l.token.address, callData: l.cancelCall! })),
+    [],
+    await Promise.all(prepared.map((l) => l.owner.verifier.address())),
+    await p.bondCustodian.address()
   );
   if (!atom) throw new Error("rollback AtomDeployed event not found");
   for (const leg of prepared) {

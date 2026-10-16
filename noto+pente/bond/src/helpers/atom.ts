@@ -16,13 +16,22 @@ import PaladinClient, {
   PaladinVerifier,
   TransactionType,
 } from "@lfdecentralizedtrust/paladin-sdk";
-import atomJson from "../abis/Atom.json";
-import atomFactoryJson from "../abis/AtomFactory.json";
+import atomJson from "../abis/RestrictedAtom.json";
+import atomFactoryJson from "../abis/RestrictedAtomFactory.json";
 import { DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
 
+// Platform trades use this repo's RestrictedAtom (contracts/src/RestrictedAtom.sol), not
+// upstream's Atom: upstream's cancel()/execute() have no access control, so any account could
+// cancel a delegated trade mid-flight. Flow order is the same as upstream's
+// (lock, prepareUnlock, create atom, delegateLock, execute).
 export interface AtomOperation {
   contractAddress: string;
   callData: string;
+}
+
+// Per-leg release the atom runs if it is cancelled after that leg's lock was delegated to it.
+export interface AtomCancelOperation extends AtomOperation {
+  lockId: string;
 }
 
 export const newAtomFactory = async (
@@ -53,14 +62,22 @@ export class AtomFactory {
     return new AtomFactory(paladin, this.address);
   }
 
-  async create(from: PaladinVerifier, operations: AtomOperation[]) {
+  // `parties` (the accounts whose legs are in the atom) and `executor` (BI) are the only
+  // addresses allowed to cancel / execute the atom.
+  async create(
+    from: PaladinVerifier,
+    operations: AtomOperation[],
+    cancelOperations: AtomCancelOperation[],
+    parties: string[],
+    executor: string
+  ) {
     const txID = await this.paladin.ptx.sendTransaction({
       type: TransactionType.PUBLIC,
       abi: atomFactoryJson.abi,
       function: "create",
       from: from.lookup,
       to: this.address,
-      data: { operations },
+      data: { operations, cancelOperations, parties, executor },
     });
     const receipt = await this.paladin.pollForReceipt(txID, DEFAULT_POLL_TIMEOUT);
     if (receipt) {
@@ -90,10 +107,18 @@ export class Atom {
   }
 
   async execute(from: PaladinVerifier) {
+    return this.call("execute", from);
+  }
+
+  async cancel(from: PaladinVerifier) {
+    return this.call("cancel", from);
+  }
+
+  private async call(fn: "execute" | "cancel", from: PaladinVerifier) {
     const txID = await this.paladin.ptx.sendTransaction({
       type: TransactionType.PUBLIC,
       abi: atomJson.abi,
-      function: "execute",
+      function: fn,
       from: from.lookup,
       to: this.address,
       data: {},

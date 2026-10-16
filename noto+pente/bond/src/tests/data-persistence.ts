@@ -51,6 +51,8 @@ export interface ContractData {
   bondTrackerAddress: string;
   bondTrackerPublicAddress: string;
   atomFactoryAddress: string;
+  // Platform trades (bond/src/lib/outright.ts) settle through this one, not the upstream atomFactory above.
+  restrictedAtomFactoryAddress: string;
   bondDetails: {
     issueDate: number;
     maturityDate: number;

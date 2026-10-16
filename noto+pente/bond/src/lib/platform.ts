@@ -45,6 +45,9 @@ export async function loadPlatform(dataDir = getCachePath()): Promise<Platform> 
   const dataFile = findLatestContractDataFile(dataDir);
   if (!dataFile) throw new Error(`No contract data in ${dataDir}. Run \`npm run start\` first.`);
   const data: ContractData = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+  if (!data.restrictedAtomFactoryAddress) {
+    throw new Error(`${dataFile} has no restrictedAtomFactoryAddress. Run \`npm run start\` again.`);
+  }
   if (!Array.isArray(data.investors)) {
     throw new Error(`${dataFile} is not in the multi-investor format. Run \`npm run start\` again.`);
   }
@@ -74,7 +77,7 @@ export async function loadPlatform(dataDir = getCachePath()): Promise<Platform> 
     notoCash: new NotoInstance(node1, data.notoCashAddress),
     notoBond: new NotoInstance(node1, data.notoBondAddress),
     bondTracker: new BondTracker(group, data.bondTrackerAddress),
-    atomFactory: new AtomFactory(node1, data.atomFactoryAddress),
+    atomFactory: new AtomFactory(node1, data.restrictedAtomFactoryAddress),
     investors,
   };
 }
