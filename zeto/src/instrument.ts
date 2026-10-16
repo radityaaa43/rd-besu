@@ -2,56 +2,15 @@
 // DFABI uses only the BDT v1.2 fields the user approved (spec section "DFABI record: the BDT v1.2
 // fields DFABI uses"): top-level keys are the group titles, inner keys the BDT field labels.
 // RD is a short cash record.
-// Only the Zeto-specific values are set here; the hash rule is shared with the stealth track:
-//   dataHash = keccak256(UTF-8 bytes of canonicalJson(record)), canonical = keys sorted, no whitespace.
+// Only the Zeto-specific values are set here. Validation and the hash rule (keccak256 over the
+// canonical JSON) are the stealth track's validateRecord / recordHash, reached through
+// src/stealth-check.mjs; nothing is duplicated.
 import * as fs from "fs";
 import * as path from "path";
 import { ethers } from "ethers";
 
 export type ZetoToken = { address: string; tokenName: "Zeto_Anon" | "Zeto_AnonNullifierKyc" };
 type Obj = Record<string, any>;
-
-// ---- hash rule ----
-
-// Strict on purpose: JSON.stringify silently drops undefined keys, which would make a record and
-// its re-read file hash differently. Amounts are strings, so floats are rejected too.
-export function canonicalJson(v: unknown): string {
-  if (v === null || typeof v === "string" || typeof v === "boolean") return JSON.stringify(v);
-  if (typeof v === "number") {
-    if (!Number.isSafeInteger(v)) throw new Error(`canonicalJson: ${v} is not a safe integer (use a string for decimals)`);
-    return JSON.stringify(v);
-  }
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
-  if (typeof v === "object" && v !== undefined) {
-    const o = v as Obj;
-    return `{${Object.keys(o).sort().map((k) => {
-      if (o[k] === undefined) throw new Error(`canonicalJson: key "${k}" is undefined (omit absent fields)`);
-      return `${JSON.stringify(k)}:${canonicalJson(o[k])}`;
-    }).join(",")}}`;
-  }
-  throw new Error(`canonicalJson: unsupported value ${String(v)}`);
-}
-export const dataHash = (record: unknown) => ethers.keccak256(ethers.toUtf8Bytes(canonicalJson(record)));
-
-// ---- identifiers (never invented: callers pass real values, these only check them) ----
-
-const expand = (s: string) => [...s].map((c) => parseInt(c, 36).toString()).join("");
-// ISO 6166: 2 letters + 9 alphanumerics + Luhn check digit over the letter-expanded body.
-export function isValidIsin(isin: string): boolean {
-  if (!/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) return false;
-  const digits = expand(isin);
-  let sum = 0;
-  [...digits].reverse().forEach((ch, i) => {
-    let d = Number(ch);
-    if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
-    sum += d;
-  });
-  return sum % 10 === 0;
-}
-// ISO 17442: 20 alphanumerics whose letter-expanded value is 1 mod 97.
-export function isValidLei(lei: string): boolean {
-  return /^[A-Z0-9]{18}[0-9]{2}$/.test(lei) && BigInt(expand(lei)) % 97n === 1n;
-}
 
 // ---- shared record shape (spec "Shared record shape and catalog") ----
 // {schema, kind, profileVersion, bdt: {<catalog id>: string | string[]}, extensions: {...}}.
@@ -159,9 +118,6 @@ export function buildDfabiRecord(terms: Obj, token: ZetoToken): Obj {
   const pricing = inputs(terms, "Pricing Data");
   const listing = inputs(terms, "Listing and Restrictions");
   const dlt = inputs(terms, "DLT Platform Information");
-  need(isValidIsin(ident["Identifier Value"]), "Identifier Value is not a valid ISIN (ISO 6166 check digit)");
-  need(isValidLei(issuer["Issuer LEI"]), "Issuer LEI is not valid (ISO 17442, mod 97)");
-  need(String(interest["Maturity Date"]) > String(dates["Issue Date"]), "Maturity Date must be after Issue Date");
   need(Number.isSafeInteger(interest["Term"]) || /^[1-9][0-9]*$/.test(String(interest["Term"])), "Term must be a positive integer number of days");
   if (terms.extensions !== undefined) need(Object.keys(terms.extensions).every((k) => k === "bi"), 'extensions may only hold "bi"');
 
@@ -192,7 +148,6 @@ export function buildDfabiRecord(terms: Obj, token: ZetoToken): Obj {
 // ponytail: the backing SampleERC20 inherits OpenZeppelin's default decimals() of 18, so a wallet
 // reading the ERC20 shows 1 unit as 1e-18; not verified against the deployed token.
 export function buildRdRecord(input: { issuerLei: string }, token: ZetoToken): Obj {
-  need(isValidLei(input.issuerLei), "issuerLei is not valid (ISO 17442, mod 97)");
   return {
     schema: SCHEMA,
     kind: "RD",
@@ -219,14 +174,7 @@ export const primaryIdOf = (record: Obj): string =>
 // Runnable self-check: `npx ts-node src/instrument.ts`.
 if (require.main === module) {
   const assert = require("assert");
-  assert.strictEqual(canonicalJson({ b: 1, a: [{ d: "x", c: null }] }), '{"a":[{"c":null,"d":"x"}],"b":1}');
-  assert.strictEqual(dataHash({ a: 1, b: 2 }), dataHash({ b: 2, a: 1 }));
-  assert.notStrictEqual(dataHash({ a: 1 }), dataHash({ a: 2 }));
-  assert.throws(() => canonicalJson({ a: undefined }));
-  assert.throws(() => canonicalJson({ a: 1.5 }));
-  assert.ok(isValidIsin("US0378331005") && !isValidIsin("US0378331006"));
-  assert.ok(isValidLei("5493ZETOTEST00000186") && !isValidLei("5493ZETOTEST00000187"));
-  // Builders: the sample builds to exactly the 42 required labels; extra or "Not used" input throws.
+  // Builders: the sample builds to exactly 42 bdt ids; extra or "Not used" input throws.
   const t: ZetoToken = { address: "0x" + "ab".repeat(20), tokenName: "Zeto_Anon" };
   const terms = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "docs", "samples", "dfabi-terms.sample.json"), "utf8"));
   delete terms._note;
@@ -241,9 +189,7 @@ if (require.main === module) {
   const bad = (edit: (x: Obj) => void) => { const x = JSON.parse(JSON.stringify(terms)); edit(x); return () => buildDfabiRecord(x, t); };
   assert.throws(bad((x) => (x["Interest & Calculations"]["Interest Rate"] = "3.875")), /not an input field/);
   assert.throws(bad((x) => (x["Guarantor"] = { "Guarantor Name": "X" })), /not an input group/);
-  assert.throws(bad((x) => (x["Security identifier and status"]["Identifier Value"] = "IDZETOTEST12")), /valid ISIN/);
   assert.throws(bad((x) => delete x["Pricing Data"]["Issue Price"]), /required/);
-  assert.throws(bad((x) => (x["Interest & Calculations"]["Maturity Date"] = "2026-10-16")), /after Issue Date/);
   assert.strictEqual(buildRdRecord({ issuerLei: "5493ZETOTEST00000283" }, t).extensions.cash.decimals, "0");
   console.log("instrument self-check: PASS");
 }

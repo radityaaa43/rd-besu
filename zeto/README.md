@@ -235,3 +235,25 @@ outputs), duplicates merged = 1.
 | Atomic DvP | yes, see `../stealth-address` DvP design | yes, through an Atom (36/36) | not possible on v1.0.0 |
 | Token-level KYC | custodian certificate | no | yes |
 | Official components only | own contracts on Besu (no Paladin) | yes: Paladin v1.0.0 Zeto, Pente and Atom, unpatched | yes |
+
+## Instrument data (RD and DFABI)
+
+`src/instrument.ts` builds the RD record and the DFABI record for the Zeto tokens. The shape,
+the field catalog and the rules are shared with the stealth track
+(`../docs/instrument-data-spec.md`, `../docs/instrument-data/bdt-v1.2.catalog.json`). The DFABI
+record uses only the ICMA BDT v1.2 fields the user approved (42 catalog ids), and RD is a short
+cash record in `extensions.cash`. Only the Zeto values live in this builder: DLT Platform
+Information (Name `Paladin zeto domain`, Smart Contract = the Zeto token) and the token addresses.
+Validation and the hash rule are the stealth track's `validateRecord` and `recordHash`, reached
+through `src/stealth-check.mjs`, because that module is native-TypeScript ESM and this package is
+CommonJS. The sample inputs in `docs/samples/` are test data with valid ISIN and LEI check digits.
+
+`abis/InstrumentRegistry.json` (abi and bytecode) is copied from stealth-address 8a89bc3.
+
+Run: `npx ts-node spike-zeto-instrument.ts --execute`. It deploys the registry with a Paladin
+PUBLIC tx, allow-lists the two issuers, registers RD (by cashIssuer) and DFABI (by bondIssuer),
+reads both back, and matches each on-chain `dataHash` with `recordHash` of the stored JSON. It also
+registers a corrected DFABI record as version 2 and checks that a non-registrar is rejected.
+
+Result on ACK (2026-10-16): 8/8 checks pass. The registry is not a Zeto contract, so the
+v1.0.0 poison-pill does not apply. The PUBLIC-tx read-back returns `bytes32` without a `0x` prefix.
