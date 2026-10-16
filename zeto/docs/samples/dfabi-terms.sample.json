@@ -1,0 +1,35 @@
+{
+  "_note": "TEST DATA. Fictional series; the ISIN and LEI are made up but carry valid check digits.",
+  "Security identifier and status": {
+    "Identifier Value": "IDZETOTEST11",
+    "Form Note": "Bearer",
+    "Status Notes": "Senior Unsecured"
+  },
+  "Issuer": {
+    "Issuer LEI": "5493ZETOTEST00000186"
+  },
+  "Amounts": {
+    "Specified Denomination": "1000000.00",
+    "Integral Multiples": "1000000",
+    "Calculation Amount": "1000000.00",
+    "Final Redemption Amount": "100",
+    "Aggregate Nominal Amount": "1000000000.00",
+    "Series Number": "1",
+    "Tranche Number": "1"
+  },
+  "Interest & Calculations": {
+    "Interest Type": "Zero coupon",
+    "Day Count Fraction": "Act/365",
+    "Maturity Date": "2027-10-16"
+  },
+  "Dates": {
+    "Issue Date": "2026-10-16",
+    "Settlement Date": "2026-10-19"
+  },
+  "Pricing Data": {
+    "Issue Price": "95.12345678"
+  },
+  "Listing and Restrictions": {
+    "Method of distribution": "Auction"
+  }
+}
