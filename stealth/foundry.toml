@@ -1,0 +1,22 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+# The vendored UniversalToken needs OpenZeppelin 4 (npm alias `oz4`); everything else uses 5.4.0.
+# Foundry's import pre-scan ignores the context line and logs "Unable to resolve imports" for three vendor
+# imports; solc itself resolves them and the build succeeds.
+remappings = [
+  "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+  "src/vendor/universal-token/:@openzeppelin/contracts/=node_modules/oz4/",
+]
+
+# Same evmVersion the rest of this repo's contracts use (Paladin/contracts/foundry.toml).
+# Confirm it deploys on the ACK Besu network in Task 3.
+evm_version = "shanghai"
+
+# The vendored ERC1400 only fits the 24,576-byte contract limit comfortably with the optimizer on (measured on).
+optimizer = true
+optimizer_runs = 200
+
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]

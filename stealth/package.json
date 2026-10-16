@@ -1,0 +1,24 @@
+{
+  "name": "stealth",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "tsc --noEmit && vitest run",
+    "test:sol": "forge test",
+    "smoke": "node script/smoke.ts"
+  },
+  "dependencies": {
+    "@noble/curves": "1.2.0",
+    "@openzeppelin/contracts": "5.4.0",
+    "ethers": "6.17.0",
+    "oz4": "npm:@openzeppelin/contracts@4.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}
