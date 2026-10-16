@@ -41,6 +41,7 @@ Inputs from earlier specs: the bond certificate binds `msgSender`, so an escrow 
 - If `cancel()` is first called after `expiry + refundWindow`, the refund certificate may have expired; the RD is refunded, the bond waits for the controller.
 - `settle()` can fail forever on terms the custodian should have rejected (for example a 32-byte ephemeral key in a leg). The trade is then refundable after `expiry` but not settleable; parties check their own leg before funding.
 - The ERC-1400 vendor code is archived and unreviewed (see the bond spec).
+- **Gas griefing of the bond refund (low).** `cancel()` catches a failing bond refund. A caller can give it just enough gas that the inner `transferByPartition` runs out of gas (63/64 rule) while the outer call finishes: the RD is refunded, `BondRefundFailed` is emitted and the bond stays. Nothing is lost, because the refund certificate is not consumed and anyone can call `cancel()` again until `expiry + refundWindow`; but the bond refund can be delayed, so the parties should call `cancel()` themselves with ample gas soon after `expiry`.
 - One contract deployment per trade.
 
 ## 5. Tests and smoke
