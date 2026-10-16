@@ -44,7 +44,12 @@ spec:
         cpu: 200m
         memory: 768Mi
       default:
-        cpu: "1"
+        # 2026-10-17: raised from "1". Zeto ZK proving needs >2 cores in bursts; at 1 core the
+        # operator's hardcoded exec liveness probe (`pidof java`, timeoutSeconds 1,
+        # periodSeconds 2, operator/internal/controller/paladin_controller.go@v1.0.0:434-446)
+        # failed to start and kubelet killed paladin (exit 137 loop on node2). Upstream sets
+        # no CPU limit at all; 3 leaves one core of a 4 vCPU worker for neighbours.
+        cpu: "3"
         memory: 4096Mi
       # Deliberately no min/max here -- only filling in DEFAULTS for containers that specify
       # none, never rejecting or capping a future pod spec that sets its own resources
