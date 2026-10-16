@@ -19,6 +19,7 @@ All three scripts are dry-run by default. Pass `--execute` to send transactions.
 | `bootstrap-zeto.ts` | Phase 1. Deploys RD-Zeto and DFABI-Zeto. Both are `Zeto_AnonNullifierKyc` tokens backed by an ERC20, following Paladin's `examples/private-stablecoin`. Writes `out/zeto-contract-data.json`, which is gitignored. |
 | `smoke-zeto.ts` | Makes a 1-unit private transfer and a withdraw on each token. |
 | `spike-zeto-dvp.ts` | Phase 2. Runs a DvP of a Noto DFABI bond against Zeto_Anon RD cash through an Atom, following `examples/swap` and `tutorials/atomic-swap.md`. The run has 29 checks across happy path, privacy, negative, failure and 4-parallel scenarios. It takes about 15 minutes. |
+| `spike-zeto-dvp-zz.ts` | Option A. Runs the full lifecycle with both tokens on Zeto_Anon and no Noto: issuance, private transfer, Zeto-vs-Zeto DvP and withdraw. See "Zeto-vs-Zeto DvP" below. |
 
 Run a script like this: `npx ts-node spike-zeto-dvp.ts --execute`.
 
@@ -64,3 +65,80 @@ The v1.0.0 Zeto domain has no domain receipt, so it is harmless.
 - `Atom.cancel()` has no access control. If anyone cancels an Atom after both legs are delegated,
   both locks are stuck permanently. To avoid that, create the Atom, delegate both legs and execute
   in one step.
+
+## Poison-pill bug (v1.0.0)
+
+A PUBLIC tx sent to a Zeto contract (in this repo, only `setERC20`) can crash the Paladin node
+that sent it. The pod then goes into CrashLoopBackOff. This was seen on `paladin-node1` on
+2026-10-16.
+
+How it happens:
+
+1. The sequencer's resume loop, `core/go/internal/sequencer/sequencer.go:160-200`, runs at
+   startup and then every 5 minutes (`transactionResumePollInterval`).
+2. It picks up every tx without a receipt. The query at
+   `core/go/internal/txmgr/transaction_query.go:206-208` does not filter on tx type, so PUBLIC
+   txs are included.
+3. Each one is passed to the domain's `InitTransaction`. The Zeto `GetHandler`
+   (`domains/zeto/internal/zeto/zeto.go:338-364`) has no case for `setERC20` and returns nil.
+4. The `IsNil` check at `zeto.go:435` then panics:
+   `reflect: call of reflect.Value.IsNil on zero Value`.
+
+The crash is a race. It only fires if the 5-minute tick lands while a `setERC20` is still waiting
+for its receipt. After the first crash it repeats on every boot.
+
+Recovery (dev cluster, approved by the user):
+
+1. Back up the rows, then delete the tx's `transaction_history` and `transactions` rows in the
+   node's postgres. Keep `public_txns` and its binding, so the nonce accounting stays intact.
+2. On restart, the block indexer writes the receipt again from the chain. On chain the tx had succeeded.
+
+Mitigation in `spike-zeto-dvp-zz.ts`: every token set is deployed and linked with `setERC20` in
+one up-front phase, and each call is awaited before any other tx. This is a mitigation, not a
+fix. It only makes the window smaller. Any app that calls `setERC20` on v1.0.0 has the same risk.
+
+## Zeto-vs-Zeto DvP (option A)
+
+`npx ts-node spike-zeto-dvp-zz.ts --execute` runs the whole lifecycle for both tokens on
+`Zeto_Anon`, with no Noto. Each step and the upstream code it follows:
+
+1. Issuance: deploy a Zeto_Anon token plus an ERC20, link them with `setERC20`, then do the
+   public mint, approve, and deposit into the private side. This is `examples/private-stablecoin`
+   at v1.0.0 without the KYC registration.
+2. A 1-unit private transfer of each token.
+3. DvP: S1, P, N1-N4, F1a/F1b, F2 and C, as in `spike-zeto-dvp.ts`. Both legs are the Zeto leg
+   of `examples/swap` at v1.0.0: lock, then prepareTransferLocked, then a re-encoded
+   transferLocked inside the Atom, then delegateLock to the Atom, then execute. Upstream has no
+   Zeto-for-Zeto example; `pvp_test.go` has only `TestNotoForNoto`, `TestNotoForNotoWithHooks`
+   and `TestNotoForZeto`.
+4. Withdraw to ERC20: RD is cashed out by the seller, and DFABI is redeemed by the buyer.
+
+Results on the ACK cluster (2026-10-16):
+
+- The DvP-only run passed all 30 checks.
+- The first full-lifecycle run stopped at 27/31 when node1 crashed (see "Poison-pill bug").
+- After the up-front `setERC20` phase was added, the full-lifecycle run passed all 36 checks:
+  - I x2, T x2: issuance and transfer.
+  - S1, P x2, N1 x4, N3 x2, N2 x4, N4 x2: the swap, privacy and negative cases.
+  - F1a x3, F1b x5, F2 x5: aborts and the cancelled Atom.
+  - C x2: 4 parallel swaps, which settled in 16s.
+  - W x2: withdraw. The seller cashed out 10 RD and the buyer redeemed 100 DFABI, and private
+    balance, public balance and Zeto escrow all moved by exactly that amount.
+
+  node1 did not restart during the run.
+
+Findings, on both legs this time:
+
+- A locked UTXO cannot be reclaimed once `prepareTransferLocked` has run (`PD210134`).
+- A third party can call `Atom.cancel()`, and both locks then stay stuck.
+- A tampered output on either leg makes execute revert with `Invalid proof`, and nothing moves.
+
+| | KYC baseline (`bootstrap-zeto.ts`, `smoke-zeto.ts`) | All Zeto_Anon (`spike-zeto-dvp-zz.ts`) |
+|---|---|---|
+| Token | `Zeto_AnonNullifierKyc` | `Zeto_Anon` |
+| Issuance (ERC20 deposit) | yes | yes |
+| Private transfer | yes | yes |
+| Withdraw to ERC20 | yes | yes |
+| DvP through an Atom | not possible on v1.0.0: no KYC lock/transferLocked circuit | yes, both legs |
+| KYC (only registered identities can hold) | yes | no: anyone can receive |
+| Nullifiers (spent UTXOs unlinkable) | yes | no: spends are linkable on chain |
