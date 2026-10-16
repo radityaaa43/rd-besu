@@ -25,7 +25,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Announcer, scheme | Same Announcer, scheme id `1`, immutable address in the constructor, as RD. |
 | Tranches | ERC-1400 partitions. One `bytes32` per tranche. |
 | Documents | ERC-1643 as inherited (`setDocument`, `getDocument`). Used for a prospectus hash, nothing else is added. |
-| Not done | Backend, RTGS/DvP, coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
+| Not done | Backend, RTGS (DvP is built: 2026-10-16-dvp-design.md), coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
 
 ## 3. Spike evidence (2026-10-15, throwaway copy in the session scratchpad, nothing committed)
 
