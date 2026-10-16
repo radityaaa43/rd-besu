@@ -545,8 +545,8 @@ export interface PaladinClient {
   resolveAddress(lookup: string): Promise<string>;
 
   /**
-   * 0.6.0: plain Noto transfer on the RD cash token (notaryMode "basic", no hooks, no
-   * whitelist), signed as a configured identity other than this client's own default --
+   * 0.6.0: plain Noto transfer on the RD cash token (deployed notaryMode "hooks" with a plain
+   * ERC20 tracker, bootstrap-platform.ts:273 -- balance mirror only, no whitelist), signed as a configured identity other than this client's own default --
    * e.g. coupon/imbalan payment or redemption principal, `bondIssuer@node1 -> holder`. Returns
    * the pending transaction's id, captured before the receipt is awaited.
    */

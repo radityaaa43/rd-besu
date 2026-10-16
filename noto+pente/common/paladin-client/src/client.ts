@@ -1425,8 +1425,9 @@ class PaladinClientImpl implements PaladinClient {
     }
   }
 
-  // 0.6.0: plain Noto transfer on the RD cash token (notaryMode "basic", no hooks, no
-  // whitelist -- confirmed via every live-check spike that deploys it, e.g.
+  // 0.6.0: plain Noto transfer on the RD cash token (deployed notaryMode "hooks" with a plain
+  // ERC20 tracker, scripts/bootstrap-platform.ts:273 -- the hook is a balance mirror only, no
+  // whitelist; the live-check spikes deploy a "basic" stand-in, e.g.
   // spikes/primary-subscription/live-proof.ts:112) signed as a configured identity other than
   // this client's own default (coupon/imbalan payment, redemption principal: bondIssuer@node1
   // -> holder). Returns the pending transaction's id (captured before awaiting the receipt,
