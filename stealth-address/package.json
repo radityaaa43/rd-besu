@@ -8,7 +8,8 @@
   "scripts": {
     "test": "tsc --noEmit && vitest run",
     "test:sol": "forge test",
-    "smoke": "node script/smoke.ts"
+    "smoke": "node script/smoke.ts",
+    "e2e": "node script/e2e.ts"
   },
   "dependencies": {
     "@noble/curves": "1.2.0",
