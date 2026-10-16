@@ -508,25 +508,23 @@ contract BondTracker is NotoTrackerERC20 {
             "Caller is not the deployer or the custodian"
         );
         NotoLocks.LockDetail memory lock = _locks.getLock(lockId);
-        require(
-            recipients.length == lock.recipients.length,
-            "Recipients do not match the prepared unlock"
-        );
-        bool[] memory matched = new bool[](lock.recipients.length);
-        for (uint256 i = 0; i < recipients.length; i++) {
-            bool found = false;
-            for (uint256 j = 0; j < lock.recipients.length; j++) {
-                if (
-                    !matched[j] &&
-                    recipients[i].to == lock.recipients[j].to &&
-                    recipients[i].amount == lock.recipients[j].amount
-                ) {
-                    matched[j] = true;
-                    found = true;
-                    break;
-                }
-            }
-            require(found, "Recipients do not match the prepared unlock");
+        if (!_matchesPrepared(lock, recipients)) {
+            // Audit HIGH #1: Noto dispatches NotoLockCancelled to this same hook as NotoLockSpent
+            // (domains/noto/internal/noto/events.go@v1.0.0:130-157), with the recipients built
+            // from the CANCEL outputs (:230-240) -- a single coin back to the lock owner for the
+            // full locked amount (states.go@v1.0.0 prepareOutputs). The base ledger has already
+            // returned the funds, so reverting here would leave the tracker and the ledger out
+            // of sync. Accept exactly that shape and release the lock; no balance moves
+            // (owner -> owner) and no sale is accounted. Anything else still reverts.
+            require(
+                lock.amount > 0 &&
+                    recipients.length == 1 &&
+                    recipients[0].to == lock.from &&
+                    recipients[0].amount == lock.amount,
+                "Recipients do not match the prepared unlock"
+            );
+            _locks.handleDelegateUnlock(lockId, recipients);
+            return;
         }
         // Inlined from NotoTrackerERC20.handleDelegateUnlock (not split into an internal `_`
         // helper upstream, unlike every other hook here, so there's nothing to call via super --
@@ -574,5 +572,31 @@ contract BondTracker is NotoTrackerERC20 {
                 );
             }
         }
+    }
+
+    // True when `recipients` equals the (to, amount) multiset stored at prepare time
+    // (NotoLocks.onPrepareUnlock), i.e. the unlock being settled is the prepared one.
+    function _matchesPrepared(
+        NotoLocks.LockDetail memory lock,
+        UnlockRecipient[] calldata recipients
+    ) internal pure returns (bool) {
+        if (recipients.length != lock.recipients.length) return false;
+        bool[] memory matched = new bool[](lock.recipients.length);
+        for (uint256 i = 0; i < recipients.length; i++) {
+            bool found = false;
+            for (uint256 j = 0; j < lock.recipients.length; j++) {
+                if (
+                    !matched[j] &&
+                    recipients[i].to == lock.recipients[j].to &&
+                    recipients[i].amount == lock.recipients[j].amount
+                ) {
+                    matched[j] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
     }
 }

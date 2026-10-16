@@ -1469,4 +1469,137 @@ contract BondTrackerTest {
         assert(t.balanceOf(custodian) == 0); // 1000 - 400 burned - 600 settled
         assert(t.availableUnitsPrivate() == 1000);
     }
+
+    // ---- DvP cancel (audit HIGH #1) ----
+    // Noto's NotoLockCancelled event is dispatched to handleDelegateUnlock exactly like
+    // NotoLockSpent (domains/noto/internal/noto/events.go@v1.0.0:130-157), with the recipients
+    // built from the cancel outputs (:230-240) -- ONE coin, owner = lock owner, amount = the
+    // full locked amount (states.go@v1.0.0 prepareOutputs: "Always produce single coin entire
+    // output amount"). The base ledger has already returned the funds when this hook runs.
+
+    function _lockedForSale(BondTracker t, bytes32 lockId) internal {
+        vm.prank(issuer);
+        t.onMint(issuer, custodian, 1000, "", empty);
+        vm.prank(custodian);
+        t.beginDistribution(1, 1);
+        InvestorList investorList = t.investorList();
+        vm.prank(custodian);
+        investorList.addInvestor(investor1);
+        vm.prank(custodian);
+        t.onLock(custodian, lockId, custodian, 1000, "", empty);
+        vm.prank(custodian);
+        t.onPrepareUnlock(custodian, lockId, _one(investor1, 1000), "", empty);
+    }
+
+    function testDelegateCancelOutcomeAfterPrepareReleasesLockWithoutSale() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("cancelAfterPrepare");
+        _lockedForSale(t, lockId);
+
+        vm.recordLogs();
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, _one(custodian, 1000), "");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // private state == ledger: funds back with the owner, nothing sold, nothing reported
+        assert(t.balanceOf(custodian) == 1000);
+        assert(t.balanceOf(investor1) == 0);
+        assert(t.availableUnitsPrivate() == 1000);
+        for (uint256 i = 0; i < logs.length; i++) {
+            assert(logs[i].topics.length == 0 || logs[i].topics[0] != PENTE_EXTERNAL_CALL_TOPIC);
+        }
+        // lock is gone: a second settle/cancel for the same lockId cannot pass the owner gate
+        vm.expectRevert();
+        vm.prank(custodian);
+        t.onPrepareUnlock(custodian, lockId, _one(investor1, 1000), "", empty);
+    }
+
+    function testDelegateCancelOutcomeWithoutPrepareReleasesLock() external {
+        BondTracker t = _fresh();
+        vm.prank(issuer);
+        t.onMint(issuer, custodian, 1000, "", empty);
+        vm.prank(custodian);
+        t.beginDistribution(1, 1);
+        bytes32 lockId = keccak256("cancelNoPrepare");
+        vm.prank(custodian);
+        t.onLock(custodian, lockId, custodian, 1000, "", empty);
+
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, _one(custodian, 1000), "");
+
+        assert(t.balanceOf(custodian) == 1000);
+        assert(t.availableUnitsPrivate() == 1000);
+    }
+
+    function testDelegateCancelOutcomeInvestorLockReturnsToInvestor() external {
+        BondTracker t = _fresh();
+        vm.prank(issuer);
+        t.onMint(issuer, custodian, 1000, "", empty);
+        vm.prank(custodian);
+        t.beginDistribution(1, 1);
+        InvestorList investorList = t.investorList();
+        vm.prank(custodian);
+        investorList.addInvestor(investor1);
+        address investor2 = vm.addr(5);
+        vm.prank(custodian);
+        investorList.addInvestor(investor2);
+        vm.prank(custodian);
+        t.onTransfer(custodian, custodian, investor1, 400, "", empty);
+
+        bytes32 lockId = keccak256("cancelInvestorLock");
+        vm.prank(investor1);
+        t.onLock(investor1, lockId, investor1, 400, "", empty);
+        vm.prank(investor1);
+        t.onPrepareUnlock(investor1, lockId, _one(investor2, 400), "", empty);
+
+        vm.prank(issuer);
+        t.handleDelegateUnlock(investor1, lockId, _one(investor1, 400), "");
+
+        assert(t.balanceOf(investor1) == 400);
+        assert(t.balanceOf(investor2) == 0);
+    }
+
+    function testDelegateCancelShapeWrongAmountStillReverts() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("cancelWrongAmount");
+        _lockedForSale(t, lockId);
+
+        vm.expectRevert(bytes("Recipients do not match the prepared unlock"));
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, _one(custodian, 999), "");
+    }
+
+    function testDelegateCancelShapeWrongOwnerStillReverts() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("cancelWrongOwner");
+        _lockedForSale(t, lockId);
+        address investor2 = vm.addr(5);
+
+        vm.expectRevert(bytes("Recipients do not match the prepared unlock"));
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, _one(investor2, 1000), "");
+    }
+
+    function testDelegateCancelShapeSplitAcrossTwoRecipientsStillReverts() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("cancelSplit");
+        _lockedForSale(t, lockId);
+        INotoHooks.UnlockRecipient[] memory split = new INotoHooks.UnlockRecipient[](2);
+        split[0] = INotoHooks.UnlockRecipient({to: custodian, amount: 500});
+        split[1] = INotoHooks.UnlockRecipient({to: custodian, amount: 500});
+
+        vm.expectRevert(bytes("Recipients do not match the prepared unlock"));
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, split, "");
+    }
+
+    function testDelegateCancelShapeStillRequiresD21Sender() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("cancelBadSender");
+        _lockedForSale(t, lockId);
+
+        vm.expectRevert(bytes("Caller is not the deployer or the custodian"));
+        vm.prank(investor1);
+        t.handleDelegateUnlock(custodian, lockId, _one(custodian, 1000), "");
+    }
 }
