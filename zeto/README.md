@@ -51,11 +51,16 @@ The v1.0.0 Zeto domain has no domain receipt, so it is harmless.
 
 ## DvP findings
 
-- KYC tokens cannot do DvP. Upstream (`zeto_fungible_test.go:301`) supports lock and
-  transferLocked only on `Zeto_Anon`, and the v1.0.0 image ships no KYC transferLocked circuit.
+- KYC tokens cannot do DvP. Upstream (`domains/integration-test/zeto_fungible_test.go:264` at
+  v1.0.0) supports lock and transferLocked only on `Zeto_Anon`, and the v1.0.0 image ships no KYC
+  transferLocked circuit (`build.gradle:266-272` at v1.0.0).
 - On the Noto leg, the owner can no longer `unlock` once `prepareUnlock` has run. Only the lock
   spender can cancel. In basic mode the spender is the notary, which sends the prepared `cancelCall`.
-- On the Zeto leg, a locked UTXO cannot be reclaimed once `prepareTransferLocked` has run (`PD210134`).
+- On the Zeto leg, a locked UTXO cannot be reclaimed once `prepareTransferLocked` has run. The
+  reclaim fails with `PD210134: Failed to query states by IDs`
+  (`domains/zeto/internal/zeto/fungible/handler_transferLocked.go:325` at v1.0.0), because the
+  UTXO is no longer available to the reclaim. This is observed in test F1b; the root cause was
+  not traced in the source.
 - `Atom.cancel()` has no access control. If anyone cancels an Atom after both legs are delegated,
   both locks are stuck permanently. To avoid that, create the Atom, delegate both legs and execute
   in one step.
