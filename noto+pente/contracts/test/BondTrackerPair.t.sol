@@ -111,6 +111,17 @@ contract BondTrackerPairTest {
         return pub.status();
     }
 
+    function testRoundTermsAreReadableOnlyFromThePrivateTracker() external {
+        _setUp();
+        _mint(1000);
+        vm.prank(custodian);
+        t.beginDistribution(7, 3);
+        _relay();
+        assert(t.discountPrice() == 7);
+        assert(t.minimumDenomination() == 3);
+        assert(t.availableUnitsPrivate() == 1000);
+    }
+
     // ---- normal sell-out ----
 
     function testSellOutCompletesPublicRoundExactlyOnceAndWithoutAmounts() external {

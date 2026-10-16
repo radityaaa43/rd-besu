@@ -232,6 +232,11 @@ contract BondTrackerPublicTest {
         assert(u.trancheCount() == 2);
     }
 
+    function testSchemaMarkerIdentifiesStatusOnlyTracker() external {
+        BondTrackerPublic t = _fresh();
+        assert(keccak256(bytes(t.schema())) == keccak256(bytes("status-only-v1")));
+    }
+
     function testOnlyOwnerMayDriveTheLifecycle() external {
         BondTrackerPublic t = _fresh();
         vm.prank(stranger);

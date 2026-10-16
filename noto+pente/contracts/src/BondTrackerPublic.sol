@@ -160,6 +160,13 @@ contract BondTrackerPublic is Ownable {
         emit StatusChanged(_status);
     }
 
+    // Marker for clients: a series whose public tracker answers this is status-only (no
+    // amounts here, so price/units live in the private BondTracker). Trackers deployed before
+    // this version have no such function and are the legacy upstream-shaped pair.
+    function schema() external pure returns (string memory) {
+        return "status-only-v1";
+    }
+
     function status() external view returns (Status) {
         return _status;
     }

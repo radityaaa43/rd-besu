@@ -82,6 +82,16 @@ contract BondTracker is NotoTrackerERC20 {
         }
     }
 
+    // Private round terms, for BI-side clients (paladin-client getDistributionState/getPrice):
+    // they are not published on the public tracker any more.
+    function discountPrice() external view returns (uint256) {
+        return _discountPrice;
+    }
+
+    function minimumDenomination() external view returns (uint256) {
+        return _minimumDenomination;
+    }
+
     function availableUnitsPrivate() external view returns (uint256) {
         return _availableUnitsPrivate;
     }
