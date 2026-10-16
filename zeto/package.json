@@ -1,0 +1,23 @@
+{
+  "name": "besu-zeto-exploration",
+  "version": "0.0.1",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bootstrap": "ts-node bootstrap-zeto.ts",
+    "smoke": "ts-node smoke-zeto.ts",
+    "dvp": "ts-node spike-zeto-dvp.ts"
+  },
+  "devDependencies": {
+    "@types/circomlibjs": "^0.1.6",
+    "@types/node": "^22.19.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "circomlibjs": "^0.1.7",
+    "ethers": "6.13.4"
+  }
+}

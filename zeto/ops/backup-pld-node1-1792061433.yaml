@@ -1,0 +1,108 @@
+apiVersion: core.paladin.io/v1alpha1
+kind: Paladin
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"core.paladin.io/v1alpha1","kind":"Paladin","metadata":{"annotations":{},"name":"node1","namespace":"paladin"},"spec":{"baseLedgerEndpoint":{"endpoint":{"jsonrpc":"http://besu-node-validator-1.besu.svc.cluster.local:8545","ws":"ws://besu-node-validator-1.besu.svc.cluster.local:8546"},"type":"endpoint"},"config":"log:\n  level: info\n","database":{"migrationMode":"auto","mode":"sidecarPostgres","pvcTemplate":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"1Gi"}},"storageClassName":"alicloud-essd"}},"domains":[{"labelSelector":{"matchLabels":{"paladin.io/domain-name":"noto"}}},{"labelSelector":{"matchLabels":{"paladin.io/domain-name":"pente"}}}],"registries":[{"labelSelector":{"matchLabels":{"paladin.io/registry-name":"evm-registry"}}}],"secretBackedSigners":[{"keySelector":".*","name":"signer-1","secret":"node1.keys","type":"autoHDWallet"}],"service":{"ports":[{"name":"rpc-http","port":8548},{"name":"rpc-ws","port":8549},{"name":"metrics","port":6100}],"type":"ClusterIP"},"transports":[{"configJSON":"{\n  \"port\": 9000,\n  \"address\": \"0.0.0.0\"\n}\n","name":"grpc","plugin":{"library":"/app/transports/libgrpc.so","type":"c-shared"},"ports":[{"name":"transport-grpc","port":9000,"protocol":"TCP","targetPort":9000}],"tls":{"certName":"paladin-node1-mtls","issuer":"selfsigned-issuer","secretName":"paladin-node1-mtls"}}]}}
+  creationTimestamp: "2026-09-18T07:55:26Z"
+  generation: 6
+  name: node1
+  namespace: paladin
+  resourceVersion: "338063450"
+  uid: 51c56eee-8929-4d87-962a-47d717448bef
+spec:
+  baseLedgerEndpoint:
+    endpoint:
+      jsonrpc: http://besu-node-validator-1.besu.svc.cluster.local:8545
+      ws: ws://besu-node-validator-1.besu.svc.cluster.local:8546
+    type: endpoint
+  config: |
+    log:
+      level: info
+  database:
+    migrationMode: auto
+    mode: sidecarPostgres
+    pvcTemplate:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+      storageClassName: alicloud-essd
+  domains:
+  - labelSelector:
+      matchLabels:
+        paladin.io/domain-name: noto
+  - labelSelector:
+      matchLabels:
+        paladin.io/domain-name: pente
+  registries:
+  - labelSelector:
+      matchLabels:
+        paladin.io/registry-name: evm-registry
+  secretBackedSigners:
+  - derivationType: bip32
+    keySelector: .*
+    keySelectorMustNotMatch: false
+    name: signer-1
+    secret: node1.keys
+    type: autoHDWallet
+  service:
+    ports:
+    - name: rpc-http
+      port: 8548
+      protocol: TCP
+    - name: rpc-ws
+      port: 8549
+      protocol: TCP
+    - name: metrics
+      port: 6100
+      protocol: TCP
+    type: ClusterIP
+  transports:
+  - configJSON: |
+      {
+        "port": 9000,
+        "address": "0.0.0.0"
+      }
+    name: grpc
+    plugin:
+      library: /app/transports/libgrpc.so
+      type: c-shared
+    ports:
+    - name: transport-grpc
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+    tls:
+      certName: paladin-node1-mtls
+      issuer: selfsigned-issuer
+      secretName: paladin-node1-mtls
+status:
+  conditions:
+  - lastTransitionTime: "2026-09-18T07:55:26Z"
+    message: 'Name: paladin-node1'
+    reason: ServiceCreated
+    status: "True"
+    type: Service
+  - lastTransitionTime: "2026-09-18T07:55:26Z"
+    message: 'Name: paladin-node1'
+    reason: PodDisruptionBudgetCreated
+    status: "True"
+    type: PodDisruptionBudget
+  - lastTransitionTime: "2026-09-18T07:55:26Z"
+    message: 'Name: paladin-node1'
+    reason: ConfigMapCreated
+    status: "True"
+    type: ConfigMap
+  - lastTransitionTime: "2026-09-18T07:55:26Z"
+    message: 'Name: paladin-node1'
+    reason: StatefulSetCreated
+    status: "True"
+    type: StatefulSet
+  - lastTransitionTime: "2026-10-06T14:57:08Z"
+    message: 'Name: paladin-node1'
+    reason: StatefulSetReady
+    status: "True"
+    type: Healthy
+  phase: Ready
