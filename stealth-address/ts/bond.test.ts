@@ -32,7 +32,7 @@ describe('buildBondMetadata', () => {
 
 describe('parseBondMetadata', () => {
   it('round-trips and parses the golden vector', () => {
-    expect(parseBondMetadata(GOLDEN)).toEqual({ viewTag: '0x20', token: TOKEN, amount: 1000n, partition: TRANCHE_A });
+    expect(parseBondMetadata(GOLDEN)).toEqual({ viewTag: '0x20', token: TOKEN, amount: 1000n, partition: TRANCHE_A, memo: '0x' });
     expect(parseBondMetadata(buildBondMetadata('0x7f', TOKEN, 123456789n, TRANCHE_A))?.amount).toBe(123456789n);
   });
 
@@ -45,7 +45,7 @@ describe('parseBondMetadata', () => {
       '0x20',
       rd57, // RD token metadata
       '0x' + body.slice(0, 88 * 2),
-      GOLDEN + '00',
+      GOLDEN + '00'.repeat(257), // memo over the 256-byte bound
       '0x20' + 'deadbeef' + body.slice(10),
       'not hex',
       '',
@@ -103,10 +103,10 @@ describe('certificate', () => {
 
   it('payloadWithoutCertificate strips exactly the 160-byte tail of the real call layout', () => {
     const iface = new Interface([
-      'function transferByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes data)',
+      'function transferByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo, bytes data)',
     ]);
     const call = (data: Uint8Array) =>
-      iface.encodeFunctionData('transferByPartitionStealth', [TRANCHE_A, TOKEN, 400n, '0x' + '02'.repeat(33), '0x20', data]);
+      iface.encodeFunctionData('transferByPartitionStealth', [TRANCHE_A, TOKEN, 400n, '0x' + '02'.repeat(33), '0x20', '0x1234', data]);
     const withPlaceholder = call(new Uint8Array(CERTIFICATE_LENGTH));
     const withRealCert = call(getBytes(signCertificate(KEY, params)));
     // The signed payload is identical whatever the certificate bytes are.

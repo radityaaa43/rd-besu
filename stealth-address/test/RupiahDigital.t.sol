@@ -67,7 +67,7 @@ contract RupiahDigitalTest {
     function test_non_issuer_cannot_mintStealth() public {
         vm.prank(ALICE);
         vm.expectRevert(RupiahDigital.OnlyIssuer.selector);
-        token.mintStealth(STEALTH, 1, _eph(33), 0x20);
+        token.mintStealth(STEALTH, 1, _eph(33), 0x20, "");
     }
 
     function test_issuer_mint_adds_balance_and_supply() public {
@@ -81,7 +81,7 @@ contract RupiahDigitalTest {
         vm.expectEmit(true, true, true, true, address(announcer));
         emit Announcement(1, STEALTH, address(token), _eph(33), _meta(0x20, 1000));
         vm.prank(ISSUER);
-        token.mintStealth(STEALTH, 1000, _eph(33), 0x20);
+        token.mintStealth(STEALTH, 1000, _eph(33), 0x20, "");
         require(token.balanceOf(STEALTH) == 1000, "balance");
         require(token.totalSupply() == 1000, "supply");
     }
@@ -92,7 +92,7 @@ contract RupiahDigitalTest {
         vm.expectEmit(true, true, true, true, address(announcer));
         emit Announcement(1, STEALTH, address(token), _eph(33), _meta(0x7f, 400));
         vm.prank(ALICE);
-        token.sendStealth(STEALTH, 400, _eph(33), 0x7f);
+        token.sendStealth(STEALTH, 400, _eph(33), 0x7f, "");
         require(token.balanceOf(STEALTH) == 400, "stealth");
         require(token.balanceOf(ALICE) == 600, "alice");
         require(token.totalSupply() == 1000, "supply");
@@ -102,13 +102,13 @@ contract RupiahDigitalTest {
     function test_sendStealth_zero_amount_reverts_without_balance() public {
         vm.prank(ALICE);
         vm.expectRevert(RupiahDigital.ZeroAmount.selector);
-        token.sendStealth(STEALTH, 0, _eph(33), 0x20);
+        token.sendStealth(STEALTH, 0, _eph(33), 0x20, "");
     }
 
     function test_mintStealth_zero_amount_reverts() public {
         vm.prank(ISSUER);
         vm.expectRevert(RupiahDigital.ZeroAmount.selector);
-        token.mintStealth(STEALTH, 0, _eph(33), 0x20);
+        token.mintStealth(STEALTH, 0, _eph(33), 0x20, "");
     }
 
     // Review focus 2: ephemeral key must be exactly 33 bytes.
@@ -118,11 +118,11 @@ contract RupiahDigitalTest {
         for (uint256 i; i < lens.length; i++) {
             vm.prank(ALICE);
             vm.expectRevert(RupiahDigital.InvalidEphemeralPubKey.selector);
-            token.sendStealth(STEALTH, 1, _eph(lens[i]), 0x20);
+            token.sendStealth(STEALTH, 1, _eph(lens[i]), 0x20, "");
 
             vm.prank(ISSUER);
             vm.expectRevert(RupiahDigital.InvalidEphemeralPubKey.selector);
-            token.mintStealth(STEALTH, 1, _eph(lens[i]), 0x20);
+            token.mintStealth(STEALTH, 1, _eph(lens[i]), 0x20, "");
         }
         require(token.balanceOf(STEALTH) == 0, "nothing moved");
     }
@@ -132,14 +132,14 @@ contract RupiahDigitalTest {
         _fund(ALICE, 1000);
         vm.prank(ALICE);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InvalidReceiver.selector, address(0)));
-        token.sendStealth(address(0), 1, _eph(33), 0x20);
+        token.sendStealth(address(0), 1, _eph(33), 0x20, "");
     }
 
     function test_insufficient_balance_reverts() public {
         _fund(ALICE, 100);
         vm.prank(ALICE);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, ALICE, 100, 101));
-        token.sendStealth(STEALTH, 101, _eph(33), 0x20);
+        token.sendStealth(STEALTH, 101, _eph(33), 0x20, "");
     }
 
     function test_burn_lowers_supply() public {
@@ -148,5 +148,45 @@ contract RupiahDigitalTest {
         token.burn(400);
         require(token.balanceOf(ALICE) == 600, "balance");
         require(token.totalSupply() == 600, "supply");
+    }
+
+    // ---- sender memo: appended after the fixed 57-byte prefix; the contract only bounds its length ----
+
+    function _memo(uint256 len) internal pure returns (bytes memory b) {
+        b = new bytes(len);
+        for (uint256 i; i < len; i++) b[i] = 0xAB;
+    }
+
+    function test_mintStealth_appends_memo_after_prefix() public {
+        bytes memory md = bytes.concat(_meta(0x20, 1000), _memo(102));
+        require(md.length == 57 + 102 && md[0] == 0x20, "layout");
+        vm.expectEmit(true, true, true, true, address(announcer));
+        emit Announcement(1, STEALTH, address(token), _eph(33), md);
+        vm.prank(ISSUER);
+        token.mintStealth(STEALTH, 1000, _eph(33), 0x20, _memo(102));
+    }
+
+    function test_sendStealth_appends_memo_after_prefix() public {
+        _fund(ALICE, 1000);
+        vm.expectEmit(true, true, true, true, address(announcer));
+        emit Announcement(1, STEALTH, address(token), _eph(33), bytes.concat(_meta(0x7f, 400), _memo(102)));
+        vm.prank(ALICE);
+        token.sendStealth(STEALTH, 400, _eph(33), 0x7f, _memo(102));
+    }
+
+    function test_memo_longer_than_256_bytes_reverts_and_256_is_accepted() public {
+        require(token.MAX_MEMO() == 256, "bound");
+        _fund(ALICE, 10);
+        vm.prank(ALICE);
+        token.sendStealth(STEALTH, 1, _eph(33), 0x20, _memo(256));
+        vm.prank(ALICE);
+        vm.expectRevert(RupiahDigital.MemoTooLong.selector);
+        token.sendStealth(STEALTH, 1, _eph(33), 0x20, _memo(257));
+        vm.prank(ISSUER);
+        token.mintStealth(STEALTH, 1, _eph(33), 0x20, _memo(256));
+        vm.prank(ISSUER);
+        vm.expectRevert(RupiahDigital.MemoTooLong.selector);
+        token.mintStealth(STEALTH, 1, _eph(33), 0x20, _memo(257));
+        require(token.balanceOf(STEALTH) == 2, "only the two bounded calls moved funds");
     }
 }

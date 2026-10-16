@@ -25,7 +25,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Announcer | Immutable address, set in the constructor. Scheme id fixed to `1`. |
 | Library scope | `scan` from sub-project 1 is unchanged. Two new pure helpers for the token metadata. |
 | BI sees every receiver (added 2026-10-16) | At onboarding each bank hands BI its RD **view key**; BI keeps each bank's meta-address (the spend public key is inside it). BI scans all RD announcements with every bank's view key (`scanAll` / `scanView` in `ts/stealth.ts`) and resolves each stealth address to a bank, after the fact, with no online step at transfer time. A view key cannot move funds. **Risk:** a leaked view key exposes that bank's whole RD receive history (not just BI's copy: whoever holds it can read every past and future receipt), so BI must store view keys like secrets and a bank that suspects a leak must move to a fresh meta-address. Same pattern as the DFABI custodian (`dfabi-bond-token-design.md`). |
-| Not done | Backend integration, RTGS adapter, pause, blacklist, KYC, allowance-based stealth sends, replacing Noto RD. |
+| Not done | Backend integration, RTGS adapter, pause, blacklist, KYC, allowance-based stealth sends, replacing Noto RD. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
 
 ## 3. Contract `RupiahDigital` (`stealth/src/RupiahDigital.sol`)
 
@@ -34,8 +34,8 @@ Constructor: `(address issuer_, address announcer_)`.
 | Function | Who | Does |
 |---|---|---|
 | `mint(address to, uint256 amount)` | issuer | Plain mint. No announcement. |
-| `mintStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag)` | issuer | Mint to a stealth address and announce, one transaction. |
-| `sendStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag)` | any holder | Transfer from `msg.sender` to a stealth address and announce, one transaction. |
+| `mintStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)` | issuer | Mint to a stealth address and announce, one transaction. |
+| `sendStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)` | any holder | Transfer from `msg.sender` to a stealth address and announce, one transaction. |
 | `burn(uint256 amount)` | holder | Inherited from `ERC20Burnable`. |
 | `decimals()` | any | Returns `0`. |
 
@@ -55,6 +55,17 @@ Reverts: `InvalidEphemeralPubKey()` when `ephemeralPubKey.length != 33`; `ZeroAm
 | 26-57 | amount, 32-byte big-endian |
 
 Built on chain from the same variables that move the balance, so the announced amount always equals the moved amount. Layout and selector checked against the EIP text and `cast sig` on 2026-10-15; the EIP calls the layout a SHOULD, not a MUST.
+
+### Encrypted sender memo (added 2026-10-16)
+
+Goal: the receiver and BI see a transfer in full (authenticated sender, receiver, amount, token); other banks cannot link the receiver. Amount, token and the sender's on-chain address stay public. BI is never online for a transfer: it reads the chain afterwards with the receiver bank's view key.
+
+- **On chain:** `mintStealth` and `sendStealth` take a trailing `bytes memo`. The announcement metadata is the exact 57-byte prefix above, then `memo` unchanged (byte 0 is still the view tag, so EIP-5564 scanners work). The contract does **no crypto**; it only reverts `MemoTooLong()` when `memo.length > MAX_MEMO` (256, public constant). An empty memo gives the plain 57-byte metadata.
+- **Memo (`ts/memo.ts`), 102 bytes:** version `0x01` | AES-256-GCM ciphertext (85) | tag (16). Plaintext = sender identity address (20) | signature r,s,v (65). Key = `keccak256("RD-memo-v1" || ECDH point)` (the point EIP-5564 already uses, so the receiver's view key opens it, and BI, holding that view key, too; no other bank can). Nonce = first 12 bytes of `keccak256("RD-memo-nonce" || ephemeralPubKey)`; never reuse an ephemeral key. AAD = the version byte.
+- **Signature:** the sender's identity key signs `keccak256("RD-memo-sig-v1" || chainId || token || stealthAddress || amount || ephemeralPubKey [|| partition])`, so a memo is valid for exactly one payment and a replayed memo opens as `null`. For `mintStealth` the sender is BI's identity key.
+- **Receiver check:** `openMemo(memo, viewKey, ctx)` returns the sender or `null` (wrong key, tampered, other payment, or signature not by the claimed sender). A forged memo needs the sender's identity key, so it cannot name another bank.
+- **Which identities are banks** is an off-chain list kept by BI at onboarding (the memo proves who signed, not that they are a licensed bank).
+- **Risks:** the memo hides the sender identity only from banks without the receiver's view key; anyone with that view key (BI, a leaked key) reads it. The ciphertext length (102 bytes) is visible, so a memo is distinguishable from none. `ts/memo.ts` uses `node:crypto` (AES-GCM), no new dependency.
 
 ### Trust rule
 

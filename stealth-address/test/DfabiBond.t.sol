@@ -78,7 +78,7 @@ contract DfabiBondTest {
 
     function _fund(address to, uint256 amount) internal {
         vm.prank(custodian);
-        token.issueByPartitionStealth(TRANCHE_A, to, amount, _eph(33), 0x20);
+        token.issueByPartitionStealth(TRANCHE_A, to, amount, _eph(33), 0x20, "");
     }
 
     // The validator signs calldata minus its last 160 bytes (97-byte certificate padded to 128 + length word).
@@ -105,7 +105,7 @@ contract DfabiBondTest {
     }
 
     function _transferPayload(address to, uint256 value) internal view returns (bytes memory) {
-        return _strip(abi.encodeCall(token.transferByPartitionStealth, (TRANCHE_A, to, value, _eph(33), 0x20, new bytes(97))));
+        return _strip(abi.encodeCall(token.transferByPartitionStealth, (TRANCHE_A, to, value, _eph(33), 0x20, "", new bytes(97))));
     }
 
     function _certTransfer(address from, address to, uint256 value, uint256 expiry, uint256 key)
@@ -118,7 +118,7 @@ contract DfabiBondTest {
 
     function _send(address from, address to, uint256 value, bytes memory cert) internal {
         vm.prank(from);
-        token.transferByPartitionStealth(TRANCHE_A, to, value, _eph(33), 0x20, cert);
+        token.transferByPartitionStealth(TRANCHE_A, to, value, _eph(33), 0x20, "", cert);
     }
 
     bytes constant ERR_54 = abi.encodeWithSignature("Error(string)", "54");
@@ -135,7 +135,7 @@ contract DfabiBondTest {
         validator.addCertificateSigner(address(token), SIGNER2);
         vm.prank(SIGNER2);
         vm.expectRevert(bytes(""));
-        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20);
+        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20, "");
         _fund(STEALTH, 1);
         require(token.balanceOfByPartition(TRANCHE_A, STEALTH) == 1, "minter can issue");
     }
@@ -215,20 +215,20 @@ contract DfabiBondTest {
         for (uint256 i; i < 4; i++) {
             vm.prank(custodian);
             vm.expectRevert(DfabiBond.InvalidEphemeralPubKey.selector);
-            token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(lens[i]), 0x20);
+            token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(lens[i]), 0x20, "");
             vm.prank(SENDER);
             vm.expectRevert(DfabiBond.InvalidEphemeralPubKey.selector);
-            token.transferByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(lens[i]), 0x20, "");
+            token.transferByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(lens[i]), 0x20, "", "");
         }
     }
 
     function test_zero_value_reverts() public {
         vm.prank(custodian);
         vm.expectRevert(DfabiBond.ZeroAmount.selector);
-        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 0, _eph(33), 0x20);
+        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 0, _eph(33), 0x20, "");
         vm.prank(SENDER);
         vm.expectRevert(DfabiBond.ZeroAmount.selector);
-        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 0, _eph(33), 0x20, "");
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 0, _eph(33), 0x20, "", "");
     }
 
     function test_erc20_paths_are_locked() public {
@@ -263,15 +263,15 @@ contract DfabiBondTest {
         vm.prank(custodian);
         vm.expectEmit(true, true, true, true, address(announcer));
         emit Announcement(1, SENDER, address(token), _eph(33), _meta(0x7f, 1000, TRANCHE_B));
-        token.issueByPartitionStealth(TRANCHE_B, SENDER, 1000, _eph(33), 0x7f);
+        token.issueByPartitionStealth(TRANCHE_B, SENDER, 1000, _eph(33), 0x7f, "");
 
         bytes memory payload =
-            _strip(abi.encodeCall(token.transferByPartitionStealth, (TRANCHE_B, STEALTH, 400, _eph(33), 0x7f, new bytes(97))));
+            _strip(abi.encodeCall(token.transferByPartitionStealth, (TRANCHE_B, STEALTH, 400, _eph(33), 0x7f, "", new bytes(97))));
         bytes memory cert = _certFor(SENDER, payload, block.timestamp + 600, CUSTODIAN_KEY);
         vm.expectEmit(true, true, true, true, address(announcer));
         emit Announcement(1, STEALTH, address(token), _eph(33), _meta(0x7f, 400, TRANCHE_B));
         vm.prank(SENDER);
-        token.transferByPartitionStealth(TRANCHE_B, STEALTH, 400, _eph(33), 0x7f, cert);
+        token.transferByPartitionStealth(TRANCHE_B, STEALTH, 400, _eph(33), 0x7f, "", cert);
 
         require(token.balanceOfByPartition(TRANCHE_B, STEALTH) == 400, "B recipient");
         require(token.balanceOfByPartition(TRANCHE_B, SENDER) == 600, "B remainder");
@@ -287,5 +287,64 @@ contract DfabiBondTest {
         (string memory uri, bytes32 h,) = token.getDocument("PROSPECTUS");
         require(keccak256(bytes(uri)) == keccak256("ipfs://prospectus"), "uri");
         require(h == bytes32(uint256(0xD0C)), "hash");
+    }
+
+    // ---- sender memo: appended after the fixed 89-byte prefix; the contract only bounds its length ----
+
+    function _memo(uint256 len) internal pure returns (bytes memory b) {
+        b = new bytes(len);
+        for (uint256 i; i < len; i++) b[i] = 0xAB;
+    }
+
+    function _memoPayload(address to, uint256 value, bytes memory memo) internal view returns (bytes memory) {
+        return _strip(
+            abi.encodeCall(token.transferByPartitionStealth, (TRANCHE_A, to, value, _eph(33), 0x20, memo, new bytes(97)))
+        );
+    }
+
+    function test_issue_and_transfer_append_memo_after_prefix() public {
+        bytes memory memo = _memo(102);
+        vm.prank(custodian);
+        vm.expectEmit(true, true, true, true, address(announcer));
+        emit Announcement(1, SENDER, address(token), _eph(33), bytes.concat(_meta(0x20, 1000, TRANCHE_A), memo));
+        token.issueByPartitionStealth(TRANCHE_A, SENDER, 1000, _eph(33), 0x20, memo);
+
+        bytes memory cert = _certFor(SENDER, _memoPayload(STEALTH, 400, memo), block.timestamp + 600, CUSTODIAN_KEY);
+        vm.expectEmit(true, true, true, true, address(announcer));
+        emit Announcement(1, STEALTH, address(token), _eph(33), bytes.concat(_meta(0x20, 400, TRANCHE_A), memo));
+        vm.prank(SENDER);
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 400, _eph(33), 0x20, memo, cert);
+        require(token.balanceOfByPartition(TRANCHE_A, STEALTH) == 400, "recipient");
+    }
+
+    // The custodian certificate signs the whole calldata, memo included: a certificate cannot be reused with
+    // a different memo, so the custodian also vouches for the memo it saw.
+    function test_certificate_is_bound_to_the_memo() public {
+        _fund(SENDER, 1000);
+        bytes memory cert = _certFor(SENDER, _memoPayload(STEALTH, 400, _memo(102)), block.timestamp + 600, CUSTODIAN_KEY);
+        vm.prank(SENDER);
+        vm.expectRevert(ERR_54);
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 400, _eph(33), 0x20, _memo(103), cert);
+        vm.prank(SENDER);
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 400, _eph(33), 0x20, _memo(102), cert);
+    }
+
+    function test_memo_longer_than_256_bytes_reverts_and_256_is_accepted() public {
+        require(token.MAX_MEMO() == 256, "bound");
+        _fund(SENDER, 10);
+        vm.prank(custodian);
+        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20, _memo(256));
+        vm.prank(custodian);
+        vm.expectRevert(DfabiBond.MemoTooLong.selector);
+        token.issueByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20, _memo(257));
+
+        bytes memory ok = _certFor(SENDER, _memoPayload(STEALTH, 1, _memo(256)), block.timestamp + 600, CUSTODIAN_KEY);
+        vm.prank(SENDER);
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20, _memo(256), ok);
+        bytes memory tooLong =
+            _certFor(SENDER, _memoPayload(STEALTH, 1, _memo(257)), block.timestamp + 600, CUSTODIAN_KEY);
+        vm.prank(SENDER);
+        vm.expectRevert(DfabiBond.MemoTooLong.selector);
+        token.transferByPartitionStealth(TRANCHE_A, STEALTH, 1, _eph(33), 0x20, _memo(257), tooLong);
     }
 }

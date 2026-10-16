@@ -1,30 +1,34 @@
 import { SigningKey, concat, dataLength, getAddress, getBytes, hexlify, isAddress, keccak256, toBeHex } from 'ethers';
 
 // Announcement metadata of DfabiBond, 89 bytes:
-// viewTag (1) | transferByPartition(bytes32,address,uint256,bytes) selector (4) | token (20) | amount (32) | partition (32).
+// viewTag (1) | transferByPartition(bytes32,address,uint256,bytes) selector (4) | token (20) | amount (32) | partition (32),
+// optionally followed by an encrypted sender memo (see memo.ts), at most MAX_MEMO bytes.
 const TRANSFER_BY_PARTITION_SELECTOR = '0xf3d490db';
 const LENGTH = 89;
+const MAX_MEMO = 256;
 
-export function buildBondMetadata(viewTag: string, token: string, amount: bigint, partition: string): string {
+export function buildBondMetadata(viewTag: string, token: string, amount: bigint, partition: string, memo = '0x'): string {
   if (dataLength(viewTag) !== 1) throw new Error('viewTag must be 1 byte');
   if (!isAddress(token)) throw new Error('token must be an address');
   if (amount < 0n || amount >= 2n ** 256n) throw new Error('amount out of uint256 range');
   if (dataLength(partition) !== 32) throw new Error('partition must be 32 bytes');
-  return concat([viewTag, TRANSFER_BY_PARTITION_SELECTOR, token, toBeHex(amount, 32), partition]);
+  if (dataLength(memo) > MAX_MEMO) throw new Error('memo longer than ' + MAX_MEMO + ' bytes');
+  return concat([viewTag, TRANSFER_BY_PARTITION_SELECTOR, token, toBeHex(amount, 32), partition, memo]);
 }
 
-// Anyone can post any metadata, so this never throws: null means "not DfabiBond-style metadata".
+// Anyone can post any metadata, so this never throws: null means "not DfabiBond-style metadata (89-byte prefix, optional memo)".
 export function parseBondMetadata(
   metadata: string,
-): { viewTag: string; token: string; amount: bigint; partition: string } | null {
+): { viewTag: string; token: string; amount: bigint; partition: string; memo: string } | null {
   try {
     const b = getBytes(metadata);
-    if (b.length !== LENGTH || hexlify(b.slice(1, 5)) !== TRANSFER_BY_PARTITION_SELECTOR) return null;
+    if (b.length < LENGTH || b.length > LENGTH + MAX_MEMO || hexlify(b.slice(1, 5)) !== TRANSFER_BY_PARTITION_SELECTOR) return null;
     return {
       viewTag: hexlify(b.slice(0, 1)),
       token: getAddress(hexlify(b.slice(5, 25))),
       amount: BigInt(hexlify(b.slice(25, 57))),
-      partition: hexlify(b.slice(57)),
+      partition: hexlify(b.slice(57, 89)),
+      memo: hexlify(b.slice(89)),
     };
   } catch {
     return null;

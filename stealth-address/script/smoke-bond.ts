@@ -2,7 +2,8 @@
 // Needs the ERC1820 registry (node script/deploy-erc1820.ts).
 // Usage: forge build && set -a && . ./.env.smoke && set +a && node script/smoke-bond.ts
 import { readFileSync } from 'node:fs';
-import { Contract, ContractFactory, JsonRpcProvider, Wallet, encodeBytes32String } from 'ethers';
+import { Contract, ContractFactory, JsonRpcProvider, Wallet, encodeBytes32String, hexlify, randomBytes } from 'ethers';
+import { buildMemo, openMemo, type MemoContext } from '../ts/memo.ts';
 import { buildBondMetadata, CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signCertificate } from '../ts/bond.ts';
 import { deriveStealth, generateMetaAddress, scan, type Announcement } from '../ts/stealth.ts';
 
@@ -88,10 +89,25 @@ async function announcements(tokenFilter: boolean): Promise<Announcement[]> {
 
 const bankA = generateMetaAddress();
 const bankB = generateMetaAddress();
+const bankC = generateMetaAddress(); // a third bank
+const bankAId = Wallet.createRandom(); // bank A's identity key (the custodian's identity key = DEPLOYER_KEY)
+
+function pay(meta: string, senderKey: string, amount: bigint) {
+  const ephemeralKey = hexlify(randomBytes(32));
+  const s = deriveStealth(meta, ephemeralKey);
+  const ctx: MemoContext = { chainId: net.chainId, token: tokenAddr, stealthAddress: s.stealthAddress, amount, ephemeralPubKey: s.ephemeralPubKey, partition: TRANCHE_A };
+  return { s, memo: buildMemo({ senderKey, ephemeralKey, receiverMetaAddress: meta, ctx }) };
+}
+
+function memoOf(ann: Announcement, viewKey: string): { sender: string } | null {
+  const m = parseBondMetadata(ann.metadata)!;
+  return openMemo(m.memo, viewKey, { chainId: net.chainId, token: m.token, stealthAddress: ann.stealthAddress, amount: m.amount, ephemeralPubKey: ann.ephemeralPubKey, partition: m.partition });
+}
 
 // 1. The custodian issues 1000 units of tranche A to bank A at a stealth address.
-const toA = deriveStealth(bankA.metaAddress);
-await (await token.issueByPartitionStealth(TRANCHE_A, toA.stealthAddress, 1000n, toA.ephemeralPubKey, toA.viewTag)).wait();
+const payA = pay(bankA.metaAddress, DEPLOYER_KEY, 1000n);
+const toA = payA.s;
+await (await token.issueByPartitionStealth(TRANCHE_A, toA.stealthAddress, 1000n, toA.ephemeralPubKey, toA.viewTag, payA.memo)).wait();
 
 // 2. Bank A scans only the token's own announcements and checks the metadata against the chain.
 const annsA = await announcements(true);
@@ -105,8 +121,9 @@ check((await provider.getBalance(foundA.stealthAddress)) === 0n, 'bank A stealth
 // 3. Bank A sends 400 to bank B from its unfunded stealth address: refused without a certificate,
 //    refused through the ERC-20 path, accepted with the custodian's certificate.
 const walletA = new Wallet(foundA.privateKey, provider);
-const toB = deriveStealth(bankB.metaAddress);
-const sendArgs = [TRANCHE_A, toB.stealthAddress, 400n, toB.ephemeralPubKey, toB.viewTag];
+const payB = pay(bankB.metaAddress, bankAId.privateKey, 400n);
+const toB = payB.s;
+const sendArgs = [TRANCHE_A, toB.stealthAddress, 400n, toB.ephemeralPubKey, toB.viewTag, payB.memo]; // the certificate stays the LAST argument
 const asA = token.connect(walletA);
 await reverts(asA.getFunction('transferByPartitionStealth').staticCall(...sendArgs, '0x'), '54', 'transfer without a certificate');
 await reverts(asA.getFunction('transfer').staticCall(toB.stealthAddress, 1n), '54', 'ERC-20 transfer is locked');
@@ -122,6 +139,14 @@ check(foundB && restB.length === 0, 'bank B finds exactly one payment');
 const metaB = parseBondMetadata(annsB.find((a) => a.stealthAddress === foundB.stealthAddress)!.metadata);
 check(metaB && metaB.token === tokenAddr && metaB.amount === 400n && metaB.partition === TRANCHE_A, 'bank B metadata says 400 of tranche A');
 check((await token.balanceOfByPartition(TRANCHE_A, foundB.stealthAddress)) === 400n, 'bank B stealth address holds 400');
+
+// 4a. Sender memos (they ride in the certified calldata, so the custodian vouched for them too).
+const annOfA = annsA.find((a) => a.stealthAddress === foundA.stealthAddress)!;
+const annOfB = annsB.find((a) => a.stealthAddress === foundB.stealthAddress)!;
+check(memoOf(annOfA, bankA.viewKey)?.sender === custodian.address, 'bank A learns the issue came from the custodian');
+check(memoOf(annOfB, bankB.viewKey)?.sender === bankAId.address, 'bank B learns the transfer came from bank A');
+check(memoOf(annOfB, bankB.viewKey /* the custodian holds this view key */)?.sender === bankAId.address, 'custodian/BI reads the same memo with bank B view key');
+check(memoOf(annOfB, bankC.viewKey) === null, 'a third bank cannot read the memo');
 
 // 5. Forged announcement: the custodian wallet posts bond-looking metadata straight to the Announcer for bank B.
 //    It carries caller = that wallet, not the token, so the token-filtered scan must not see it.
@@ -141,5 +166,5 @@ for (const [wallet, amount] of [[walletB, 400n], [walletA, 600n]] as const) {
 check((await token.totalSupplyByPartition(TRANCHE_A)) === 0n, 'tranche A supply is 0 after redemptions');
 check((await token.totalSupply()) === 0n, 'total supply is 0 after redemptions');
 
-console.log('OK: issue, scan, certified transfer, no-certificate / ERC-20 / replay refused, forgery ignored, redeem; final supply 0');
+console.log('OK: issue, scan, certified transfer with sender memo, no-certificate / ERC-20 / replay refused, memo readable by receiver and custodian but not a third bank, forgery ignored, redeem; final supply 0');
 process.exit(0);

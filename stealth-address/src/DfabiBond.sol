@@ -15,6 +15,10 @@ import {ERC5564Announcer} from "./ERC5564Announcer.sol";
 contract DfabiBond is ERC1400 {
     error InvalidEphemeralPubKey();
     error ZeroAmount();
+    error MemoTooLong();
+
+    /// Upper bound for the opaque sender memo appended to the announcement metadata.
+    uint256 public constant MAX_MEMO = 256;
 
     ERC5564Announcer public immutable announcer;
 
@@ -35,11 +39,12 @@ contract DfabiBond is ERC1400 {
         address stealthAddress,
         uint256 value,
         bytes memory ephemeralPubKey,
-        bytes1 viewTag
+        bytes1 viewTag,
+        bytes memory memo
     ) external onlyMinter isIssuableToken {
-        _checkAnnounce(value, ephemeralPubKey);
+        _checkAnnounce(value, ephemeralPubKey, memo);
         _issueByPartition(partition, msg.sender, stealthAddress, value, "");
-        _announce(partition, stealthAddress, value, ephemeralPubKey, viewTag);
+        _announce(partition, stealthAddress, value, ephemeralPubKey, viewTag, memo);
     }
 
     /// @notice Holder transfers to a stealth address and announces. `data` is the custodian certificate.
@@ -49,27 +54,35 @@ contract DfabiBond is ERC1400 {
         uint256 value,
         bytes memory ephemeralPubKey,
         bytes1 viewTag,
+        bytes memory memo,
         bytes memory data
     ) external {
-        _checkAnnounce(value, ephemeralPubKey);
+        _checkAnnounce(value, ephemeralPubKey, memo);
         _transferByPartition(partition, msg.sender, msg.sender, stealthAddress, value, data, "");
-        _announce(partition, stealthAddress, value, ephemeralPubKey, viewTag);
+        _announce(partition, stealthAddress, value, ephemeralPubKey, viewTag, memo);
     }
 
-    function _checkAnnounce(uint256 value, bytes memory ephemeralPubKey) private pure {
+    function _checkAnnounce(uint256 value, bytes memory ephemeralPubKey, bytes memory memo) private pure {
         if (ephemeralPubKey.length != 33) revert InvalidEphemeralPubKey();
         if (value == 0) revert ZeroAmount();
+        if (memo.length > MAX_MEMO) revert MemoTooLong();
     }
 
-    /// 89 bytes: viewTag (1) | transferByPartition selector (4) | token (20) | amount (32) | partition (32).
-    function _announce(bytes32 partition, address stealthAddress, uint256 value, bytes memory ephemeralPubKey, bytes1 viewTag)
-        private
-    {
+    /// 89 bytes: viewTag (1) | transferByPartition selector (4) | token (20) | amount (32) | partition (32),
+    /// then the opaque `memo` (an encrypted sender memo; never validated here, only bounded).
+    function _announce(
+        bytes32 partition,
+        address stealthAddress,
+        uint256 value,
+        bytes memory ephemeralPubKey,
+        bytes1 viewTag,
+        bytes memory memo
+    ) private {
         announcer.announce(
             1,
             stealthAddress,
             ephemeralPubKey,
-            abi.encodePacked(viewTag, bytes4(0xf3d490db), address(this), value, partition)
+            abi.encodePacked(viewTag, bytes4(0xf3d490db), address(this), value, partition, memo)
         );
     }
 }

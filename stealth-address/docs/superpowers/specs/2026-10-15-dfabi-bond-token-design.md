@@ -25,7 +25,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Announcer, scheme | Same Announcer, scheme id `1`, immutable address in the constructor, as RD. |
 | Tranches | ERC-1400 partitions. One `bytes32` per tranche. |
 | Documents | ERC-1643 as inherited (`setDocument`, `getDocument`). Used for a prospectus hash, nothing else is added. |
-| Not done | Backend, RTGS/DvP, coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. |
+| Not done | Backend, RTGS/DvP, coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
 
 ## 3. Spike evidence (2026-10-15, throwaway copy in the session scratchpad, nothing committed)
 
@@ -40,8 +40,8 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 
 | Function | Who | Does |
 |---|---|---|
-| `issueByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag)` | minter (the custodian) | Issue to a stealth address and announce, one transaction. No certificate: a certificate signer is exempt in the validator. |
-| `transferByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes data)` | any holder | Transfer from `msg.sender` and announce, one transaction. `data` is the custodian certificate and **must be the last parameter**. |
+| `issueByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)` | minter (the custodian) | Issue to a stealth address and announce, one transaction. No certificate: a certificate signer is exempt in the validator. |
+| `transferByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo, bytes data)` | any holder | Transfer from `msg.sender` and announce, one transaction. `data` is the custodian certificate and **must be the last parameter**. |
 
 Everything else is inherited: `transferByPartition`, `redeemByPartition` (the holder redeems with a certificate), `operatorTransferByPartition`, controller forced transfer, `setDocument`, ERC-20 views. Inherited transfers do not announce (like a plain ERC-20 `transfer` for RD).
 
@@ -75,6 +75,10 @@ Same as RD: the token calls `announce`, so `caller` is the token address and can
 4. A submits the transaction with the certificate as `data`. The validator verifies the signature and increments the nonce.
 
 On chain only `S` appears; the link from `S` to bank B exists in the custodian's records only.
+
+## 4b. Encrypted sender memo (added 2026-10-16)
+
+Same mechanism as RD (`2026-10-15-rd-stealth-token-design.md`, "Encrypted sender memo"): both stealth functions take a `bytes memo` before the certificate; the announcement metadata is the 89-byte prefix above followed by the memo; the contract only bounds it (`MemoTooLong()`, `MAX_MEMO` = 256). Bond specifics: the memo signature also covers the partition (`ts/memo.ts`, `MemoContext.partition`); `data` (the certificate) stays the LAST parameter, and because the certificate covers the whole calldata minus its own tail, **the custodian also vouches for the memo it signed over** and a certificate cannot be reused with a different memo (`test_certificate_is_bound_to_the_memo`). For `issueByPartitionStealth` the sender is the custodian. The custodian holds each investor bank's view key, so it reads the memo like BI does.
 
 ## 5. Library (`stealth/ts/bond.ts`)
 

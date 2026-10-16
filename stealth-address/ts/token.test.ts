@@ -32,21 +32,22 @@ describe('parseTokenMetadata', () => {
       viewTag: '0x7f',
       token: TOKEN,
       amount: 123456789n,
+      memo: '0x',
     });
   });
 
   it('parses the golden vector', () => {
-    expect(parseTokenMetadata(GOLDEN)).toEqual({ viewTag: '0x20', token: TOKEN, amount: 1000n });
+    expect(parseTokenMetadata(GOLDEN)).toEqual({ viewTag: '0x20', token: TOKEN, amount: 1000n, memo: '0x' });
   });
 
-  // Review focus 4: never throws, always null for anything that is not the 57-byte ERC-20 form.
+  // Review focus 4: never throws, always null for anything that is not the 57-byte ERC-20 prefix (+ optional memo).
   it('returns null for anything else', () => {
     const body = GOLDEN.slice(2);
     for (const bad of [
       '0x',
       '0x20', // tag-only metadata from sub-project 1
       '0x' + body.slice(0, 56 * 2), // 56 bytes
-      GOLDEN + '00', // 58 bytes
+      GOLDEN + '00'.repeat(257), // memo over the 256-byte bound
       '0x20' + 'deadbeef' + body.slice(10), // wrong selector
       'not hex',
       '',
