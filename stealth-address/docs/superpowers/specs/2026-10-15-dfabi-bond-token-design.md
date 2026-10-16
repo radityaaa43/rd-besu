@@ -25,7 +25,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Announcer, scheme | Same Announcer, scheme id `1`, immutable address in the constructor, as RD. |
 | Tranches | ERC-1400 partitions. One `bytes32` per tranche. |
 | Documents | ERC-1643 as inherited (`setDocument`, `getDocument`). Used for a prospectus hash, nothing else is added. |
-| Not done | Backend, RTGS (DvP is built: 2026-10-16-dvp-design.md), coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
+| Not done | Backend, RTGS (DvP is built: 2026-10-16-dvp-design.md), coupon payment on chain, pause policy beyond what the validator offers, replacing the Noto bond, fixing anything in the vendor code. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. Instrument data is built (section "Instrument data"); a legal-entity registry for the issuer LEI and per-instrument profiles beyond RD and DFABI are not. |
 
 ## 3. Spike evidence (2026-10-15, throwaway copy in the session scratchpad, nothing committed)
 
@@ -79,6 +79,10 @@ On chain only `S` appears; the link from `S` to bank B exists in the custodian's
 ## 4b. Encrypted sender memo (added 2026-10-16)
 
 Same mechanism as RD (`2026-10-15-rd-stealth-token-design.md`, "Encrypted sender memo"): both stealth functions take a `bytes memo` before the certificate; the announcement metadata is the 89-byte prefix above followed by the memo; the contract only bounds it (`MemoTooLong()`, `MAX_MEMO` = 256). Bond specifics: the memo signature also covers the partition (`ts/memo.ts`, `MemoContext.partition`); `data` (the certificate) stays the LAST parameter, and because the certificate covers the whole calldata minus its own tail, **the custodian also vouches for the memo it signed over** and a certificate cannot be reused with a different memo (`test_certificate_is_bound_to_the_memo`). For `issueByPartitionStealth` the sender is the custodian. The custodian holds each investor bank's view key, so it reads the memo like BI does.
+
+## 4c. Instrument data (added 2026-10-16)
+
+The bond terms (ISIN, issuer LEI, amounts, dates, pricing, listing, DLT platform) follow the ICMA Bond Data Taxonomy v1.2 as the DFABI profile of the shared instrument data (`besu/docs/instrument-data-spec.md`): `ts/instrument.ts` validates a record against the catalog and `besu/docs/instrument-data/profiles/DFABI.profile.json`, `InstrumentRegistry` stores the record hash and URI per token, and the bond holds the same hash in the ERC-1400 document slot `setDocument("ICMA-BDT-v1.2", uri, hash)`, which is an inherited function, so `DfabiBond` did not change. Smoke: `script/smoke-instrument.ts`. The terms are public; privacy still covers only holdings and transfers.
 
 ## 5. Library (`stealth/ts/bond.ts`)
 

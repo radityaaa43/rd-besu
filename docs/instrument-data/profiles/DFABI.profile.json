@@ -1,0 +1,570 @@
+{
+  "kind": "DFABI",
+  "version": "1",
+  "catalog": "ICMA Bond Data Taxonomy 1.2",
+  "description": "DFABI discount (zero-coupon) bond issued by BI through auction; no guarantor, no syndicate. R = required, C = conditional (rules requiredIf / forbiddenIf; a C field without a rule is optional). A catalog field not listed here is not allowed. Repeatable catalog fields are arrays; a rule applies to each item.",
+  "primaryId": "security_identifier_and_status_identifier_value",
+  "bdt": {
+    "security_identifier_and_status_identifier_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "ISIN"
+        }
+      ],
+      "count": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    "security_identifier_and_status_identifier_value": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "isin"
+        }
+      ],
+      "count": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    "security_identifier_and_status_issue_ratings_agency": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "security_identifier_and_status_expected_issue_ratings_value",
+            "present": true
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "security_identifier_and_status_expected_issue_ratings_value": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "security_identifier_and_status_issue_ratings_agency",
+            "present": true
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "security_identifier_and_status_form_of_the_note": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Registered"
+        }
+      ]
+    },
+    "security_identifier_and_status_status_of_the_notes": {
+      "status": "R",
+      "rules": []
+    },
+    "security_identifier_and_status_dlt_bond_indicator": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "true"
+        }
+      ]
+    },
+    "issuer_issuer_name": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Bank Indonesia"
+        }
+      ]
+    },
+    "issuer_issuer_lei": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "lei"
+        }
+      ]
+    },
+    "issuer_issuer_ratings_agency": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "issuer_issuer_ratings_value",
+            "present": true
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "issuer_issuer_ratings_value": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "issuer_issuer_ratings_agency",
+            "present": true
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "issuer_issuer_ratings_outlook": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "forbiddenIf",
+          "when": {
+            "ref": "issuer_issuer_ratings_agency",
+            "present": false
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "amounts_specified_denomination": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_calculation_amount": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_final_redemption_amount": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_aggregate_nominal_amount": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_series_number": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_series_amount": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_tranche_number": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_tranche_amount": {
+      "status": "R",
+      "rules": []
+    },
+    "amounts_integral_multiples": {
+      "status": "C",
+      "rules": []
+    },
+    "amounts_gross_proceeds": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "forbiddenIf",
+          "when": {
+            "ref": "dates_pricing_date",
+            "present": false
+          }
+        }
+      ]
+    },
+    "amounts_net_proceeds": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "forbiddenIf",
+          "when": {
+            "ref": "dates_pricing_date",
+            "present": false
+          }
+        }
+      ]
+    },
+    "currency_specified_currency": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "iso4217",
+          "only": [
+            "IDR"
+          ]
+        }
+      ]
+    },
+    "currency_payment_currency": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "iso4217",
+          "only": [
+            "IDR"
+          ]
+        }
+      ]
+    },
+    "currency_settlement_currency": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "iso4217",
+          "only": [
+            "IDR"
+          ]
+        }
+      ]
+    },
+    "interest_calculations_interest_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Zero coupon"
+        }
+      ]
+    },
+    "interest_calculations_term": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "integer"
+        }
+      ]
+    },
+    "interest_calculations_term_period": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Days"
+        }
+      ]
+    },
+    "interest_calculations_day_count_fraction": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "oneOf",
+          "values": [
+            "Act/360",
+            "Act/365"
+          ]
+        }
+      ]
+    },
+    "interest_calculations_business_days": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "IDJA"
+        }
+      ]
+    },
+    "interest_calculations_business_day_convention": {
+      "status": "R",
+      "rules": []
+    },
+    "interest_calculations_maturity_date": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "dateAfter",
+          "other": "dates_issue_date"
+        }
+      ]
+    },
+    "interest_calculations_accrued_interest": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "forbiddenIf",
+          "when": {
+            "context": "secondaryTrade",
+            "active": false
+          }
+        }
+      ]
+    },
+    "parties_clearing_settlement_system": {
+      "status": "R",
+      "rules": []
+    },
+    "parties_principal_paying_agent": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "lei",
+          "prefix": "LEI-"
+        }
+      ]
+    },
+    "parties_calculation_agent": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "lei",
+          "prefix": "LEI-"
+        }
+      ]
+    },
+    "parties_other_party_roles": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "lei",
+          "prefix": "LEI-"
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "dates_issue_date": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "date"
+        },
+        {
+          "type": "dateAfter",
+          "other": "dates_pricing_date",
+          "orEqual": true
+        }
+      ]
+    },
+    "dates_settlement_date": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "dateAfter",
+          "other": "dates_issue_date",
+          "orEqual": true
+        }
+      ]
+    },
+    "dates_pricing_date": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "forbiddenIf",
+          "when": {
+            "ref": "listing_and_restrictions_method_of_distribution",
+            "notEquals": "Auction"
+          }
+        }
+      ]
+    },
+    "pricing_data_issue_price": {
+      "status": "R",
+      "rules": []
+    },
+    "pricing_data_indication_of_yield": {
+      "status": "C",
+      "rules": []
+    },
+    "listing_and_restrictions_method_of_distribution": {
+      "status": "R",
+      "rules": []
+    },
+    "listing_and_restrictions_governing_law": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Indonesia"
+        }
+      ]
+    },
+    "listing_and_restrictions_documentation_name": {
+      "status": "R",
+      "rules": []
+    },
+    "listing_and_restrictions_documentation_link": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "pattern",
+          "regex": "^https?://\\S+$"
+        }
+      ]
+    },
+    "listing_and_restrictions_selling_restrictions": {
+      "status": "R",
+      "rules": [],
+      "count": {
+        "min": 1
+      }
+    },
+    "listing_and_restrictions_listing": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "listing_and_restrictions_listing_market_type",
+            "present": true
+          }
+        }
+      ],
+      "count": {
+        "min": 1
+      }
+    },
+    "listing_and_restrictions_listing_market_type": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "requiredIf",
+          "when": {
+            "ref": "listing_and_restrictions_listing",
+            "present": true
+          }
+        }
+      ]
+    },
+    "listing_and_restrictions_use_of_proceeds": {
+      "status": "C",
+      "rules": []
+    },
+    "dlt_platform_information_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Hyperledger Besu"
+        }
+      ]
+    },
+    "dlt_platform_information_accessibility": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Private"
+        }
+      ]
+    },
+    "dlt_platform_information_name": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "oneOf",
+          "values": [
+            "Besu stealth ERC-1400",
+            "Paladin zeto domain"
+          ]
+        }
+      ]
+    },
+    "dlt_platform_information_identifier": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "integer"
+        }
+      ]
+    },
+    "dlt_platform_information_token_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Security"
+        }
+      ]
+    },
+    "dlt_platform_information_smart_contract": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "pattern",
+          "regex": "^0x[0-9a-fA-F]{40}$"
+        }
+      ]
+    },
+    "dlt_platform_information_role": {
+      "status": "C",
+      "rules": []
+    },
+    "dlt_platform_information_fee": {
+      "status": "C",
+      "rules": []
+    }
+  },
+  "extensions": {
+    "bi": {
+      "seriesId": {
+        "status": "C",
+        "rules": []
+      },
+      "cfi": {
+        "status": "C",
+        "rules": []
+      },
+      "fisn": {
+        "status": "C",
+        "rules": []
+      },
+      "eligiblePesertaTypes": {
+        "status": "C",
+        "rules": []
+      },
+      "reopeningMaximum": {
+        "status": "C",
+        "rules": []
+      },
+      "tradeable": {
+        "status": "C",
+        "rules": []
+      },
+      "exDate": {
+        "status": "C",
+        "rules": []
+      },
+      "templateId": {
+        "status": "C",
+        "rules": []
+      },
+      "templateVersion": {
+        "status": "C",
+        "rules": []
+      },
+      "auctionType": {
+        "status": "C",
+        "rules": []
+      },
+      "yieldType": {
+        "status": "C",
+        "rules": []
+      },
+      "discountRateBps": {
+        "status": "C",
+        "rules": []
+      }
+    }
+  }
+}

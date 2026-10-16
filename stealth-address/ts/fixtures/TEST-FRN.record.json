@@ -1,0 +1,22 @@
+{
+  "schema": "rd-dfabi-instrument/1",
+  "kind": "TEST-FRN",
+  "profileVersion": "1",
+  "bdt": {
+    "security_identifier_and_status_identifier_type": [
+      "ISIN"
+    ],
+    "security_identifier_and_status_identifier_value": [
+      "IDDFA0000013"
+    ],
+    "issuer_issuer_name": "Test Issuer",
+    "issuer_issuer_lei": "TEST00FICTIVE0000145",
+    "currency_specified_currency": "USD",
+    "interest_calculations_interest_type": "Floating",
+    "interest_calculations_interest_rate_benchmark": "SOFR",
+    "interest_calculations_margin": "1.25",
+    "interest_calculations_interest_payment_frequency": "Quarterly",
+    "interest_calculations_maturity_date": "2030-01-15",
+    "dates_issue_date": "2026-01-15"
+  }
+}

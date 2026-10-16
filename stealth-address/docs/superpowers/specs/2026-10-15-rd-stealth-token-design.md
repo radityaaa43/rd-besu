@@ -25,7 +25,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Announcer | Immutable address, set in the constructor. Scheme id fixed to `1`. |
 | Library scope | `scan` from sub-project 1 is unchanged. Two new pure helpers for the token metadata. |
 | BI sees every receiver (added 2026-10-16) | At onboarding each bank hands BI its RD **view key**; BI keeps each bank's meta-address (the spend public key is inside it). BI scans all RD announcements with every bank's view key (`scanAll` / `scanView` in `ts/stealth.ts`) and resolves each stealth address to a bank, after the fact, with no online step at transfer time. A view key cannot move funds. **Risk:** a leaked view key exposes that bank's whole RD receive history (not just BI's copy: whoever holds it can read every past and future receipt), so BI must store view keys like secrets and a bank that suspects a leak must move to a fresh meta-address. Same pattern as the DFABI custodian (`dfabi-bond-token-design.md`). |
-| Not done | Backend integration, RTGS adapter, DvP is built (2026-10-16-dvp-design.md), pause, blacklist, KYC, allowance-based stealth sends, replacing Noto RD. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. |
+| Not done | Backend integration, RTGS adapter, DvP is built (2026-10-16-dvp-design.md), pause, blacklist, KYC, allowance-based stealth sends, replacing Noto RD. The list of which memo-signing identities are licensed banks (kept off chain by BI), and any on-chain check of the memo, are not built. Instrument data is built (section "Instrument data"); a legal-entity registry for the issuer LEI and per-instrument profiles beyond RD and DFABI are not. |
 
 ## 3. Contract `RupiahDigital` (`stealth/src/RupiahDigital.sol`)
 
@@ -66,6 +66,10 @@ Goal: the receiver and BI see a transfer in full (authenticated sender, receiver
 - **Receiver check:** `openMemo(memo, viewKey, ctx)` returns the sender or `null` (wrong key, tampered, other payment, or signature not by the claimed sender). A forged memo needs the sender's identity key, so it cannot name another bank.
 - **Which identities are banks** is an off-chain list kept by BI at onboarding (the memo proves who signed, not that they are a licensed bank).
 - **Risks:** the memo hides the sender identity only from banks without the receiver's view key; anyone with that view key (BI, a leaked key) reads it. The ciphertext length (102 bytes) is visible, so a memo is distinguishable from none. `ts/memo.ts` uses `node:crypto` (AES-GCM), no new dependency.
+
+### Instrument data (added 2026-10-16)
+
+RD has a short cash record (profile `RD`: currency IDR, issuer, decimals, token, platform, token standard; no BDT field) registered in `InstrumentRegistry` with its hash. See `besu/docs/instrument-data-spec.md` and `script/smoke-instrument.ts`.
 
 ### Trust rule
 

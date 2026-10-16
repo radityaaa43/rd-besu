@@ -1,0 +1,113 @@
+{
+  "kind": "TEST-FRN",
+  "version": "1",
+  "catalog": "ICMA Bond Data Taxonomy 1.2",
+  "description": "Fictional floating-rate note, test fixture only.",
+  "primaryId": "security_identifier_and_status_identifier_value",
+  "bdt": {
+    "security_identifier_and_status_identifier_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "ISIN"
+        }
+      ],
+      "count": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    "security_identifier_and_status_identifier_value": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "isin"
+        }
+      ],
+      "count": {
+        "min": 1,
+        "max": 1
+      }
+    },
+    "issuer_issuer_name": {
+      "status": "R",
+      "rules": []
+    },
+    "issuer_issuer_lei": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "lei"
+        }
+      ]
+    },
+    "currency_specified_currency": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "iso4217"
+        }
+      ]
+    },
+    "interest_calculations_interest_type": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "fixed",
+          "value": "Floating"
+        }
+      ]
+    },
+    "interest_calculations_interest_rate_benchmark": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "oneOf",
+          "values": [
+            "SOFR",
+            "EONA"
+          ]
+        }
+      ]
+    },
+    "interest_calculations_margin": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "decimal"
+        }
+      ]
+    },
+    "interest_calculations_interest_payment_frequency": {
+      "status": "R",
+      "rules": []
+    },
+    "interest_calculations_maturity_date": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "dateAfter",
+          "other": "dates_issue_date"
+        }
+      ]
+    },
+    "dates_issue_date": {
+      "status": "R",
+      "rules": [
+        {
+          "type": "date"
+        }
+      ]
+    },
+    "dates_pricing_date": {
+      "status": "C",
+      "rules": [
+        {
+          "type": "date"
+        }
+      ]
+    }
+  },
+  "extensions": {}
+}

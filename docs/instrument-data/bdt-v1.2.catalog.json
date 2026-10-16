@@ -1,0 +1,1275 @@
+{
+  "taxonomy": "ICMA Bond Data Taxonomy",
+  "version": "1.2",
+  "source": "ICMA DATA.pdf, Appendix 12.1 (user-supplied copy, not committed)",
+  "fields": [
+    {
+      "id": "security_identifier_and_status_identifier_type",
+      "group": "Security identifier and status",
+      "name": "Identifier Type",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_identifier_value",
+      "group": "Security identifier and status",
+      "name": "Identifier Value",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_issue_ratings_agency",
+      "group": "Security identifier and status",
+      "name": "Issue Ratings Agency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_expected_issue_ratings_value",
+      "group": "Security identifier and status",
+      "name": "Expected Issue Ratings Value",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_form_of_the_note",
+      "group": "Security identifier and status",
+      "name": "Form of the Note",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_status_of_the_notes",
+      "group": "Security identifier and status",
+      "name": "Status of the Notes",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "security_identifier_and_status_dlt_bond_indicator",
+      "group": "Security identifier and status",
+      "name": "DLT Bond Indicator",
+      "fieldType": "predefined",
+      "dataType": "Boolean",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_name",
+      "group": "Issuer",
+      "name": "Issuer Name",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_lei",
+      "group": "Issuer",
+      "name": "Issuer LEI",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_bloomberg_ticker",
+      "group": "Issuer",
+      "name": "Issuer Bloomberg Ticker",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_ratings_agency",
+      "group": "Issuer",
+      "name": "Issuer Ratings Agency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_ratings_value",
+      "group": "Issuer",
+      "name": "Issuer Ratings Value",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "issuer_issuer_ratings_outlook",
+      "group": "Issuer",
+      "name": "Issuer Ratings Outlook",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "guarantor_guarantor_name",
+      "group": "Guarantor",
+      "name": "Guarantor Name",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "guarantor_guarantor_lei",
+      "group": "Guarantor",
+      "name": "Guarantor LEI",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "guarantor_guarantor_ratings_agency",
+      "group": "Guarantor",
+      "name": "Guarantor Ratings Agency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "guarantor_guarantor_ratings_value",
+      "group": "Guarantor",
+      "name": "Guarantor Ratings Value",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "guarantor_guarantor_ratings_outlook",
+      "group": "Guarantor",
+      "name": "Guarantor Ratings Outlook",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "amounts_specified_denomination",
+      "group": "Amounts",
+      "name": "Specified Denomination",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_integral_multiples",
+      "group": "Amounts",
+      "name": "Integral Multiples",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_calculation_amount",
+      "group": "Amounts",
+      "name": "Calculation Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_final_redemption_amount",
+      "group": "Amounts",
+      "name": "Final Redemption Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_early_redemption_amount",
+      "group": "Amounts",
+      "name": "Early Redemption Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_aggregate_nominal_amount",
+      "group": "Amounts",
+      "name": "Aggregate Nominal Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_outstanding_amount_before_increase",
+      "group": "Amounts",
+      "name": "Outstanding Amount Before Increase",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_outstanding_amount_after_increase",
+      "group": "Amounts",
+      "name": "Outstanding Amount After Increase",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_series_number",
+      "group": "Amounts",
+      "name": "Series Number",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_series_amount",
+      "group": "Amounts",
+      "name": "Series Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_tranche_number",
+      "group": "Amounts",
+      "name": "Tranche Number",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_tranche_amount",
+      "group": "Amounts",
+      "name": "Tranche Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_net_proceeds",
+      "group": "Amounts",
+      "name": "Net Proceeds",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "amounts_gross_proceeds",
+      "group": "Amounts",
+      "name": "Gross Proceeds",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "currency_specified_currency",
+      "group": "Currency",
+      "name": "Specified Currency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "currency_payment_currency",
+      "group": "Currency",
+      "name": "Payment Currency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "currency_settlement_currency",
+      "group": "Currency",
+      "name": "Settlement Currency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_interest_type",
+      "group": "Interest & Calculations",
+      "name": "Interest Type",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_interest_payment_frequency",
+      "group": "Interest & Calculations",
+      "name": "Interest Payment Frequency",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_interest_rate",
+      "group": "Interest & Calculations",
+      "name": "Interest Rate",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_accrued_interest",
+      "group": "Interest & Calculations",
+      "name": "Accrued Interest",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_interest_rate_benchmark",
+      "group": "Interest & Calculations",
+      "name": "Interest Rate Benchmark",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_term",
+      "group": "Interest & Calculations",
+      "name": "Term",
+      "fieldType": "predefined",
+      "dataType": "integer",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_term_period",
+      "group": "Interest & Calculations",
+      "name": "Term Period",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_calculation_type",
+      "group": "Interest & Calculations",
+      "name": "Calculation Type",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_determination_method",
+      "group": "Interest & Calculations",
+      "name": "Determination Method",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_observation_method",
+      "group": "Interest & Calculations",
+      "name": "Observation Method",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_period",
+      "group": "Interest & Calculations",
+      "name": "Period",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_margin",
+      "group": "Interest & Calculations",
+      "name": "Margin (%)",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_day_count_fraction",
+      "group": "Interest & Calculations",
+      "name": "Day Count Fraction",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_business_days",
+      "group": "Interest & Calculations",
+      "name": "Business Days",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_business_day_convention",
+      "group": "Interest & Calculations",
+      "name": "Business Day Convention",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_interest_commencement_date",
+      "group": "Interest & Calculations",
+      "name": "Interest Commencement Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_first_interest_payment_date",
+      "group": "Interest & Calculations",
+      "name": "First Interest Payment Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_brokendatetype",
+      "group": "Interest & Calculations",
+      "name": "BrokenDateType",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_last_interest_payment_date",
+      "group": "Interest & Calculations",
+      "name": "Last Interest Payment Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_payabledate",
+      "group": "Interest & Calculations",
+      "name": "PayableDate",
+      "fieldType": "predefined",
+      "dataType": "integer",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_maturity_date",
+      "group": "Interest & Calculations",
+      "name": "Maturity Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "interest_calculations_change_of_interest_payment_basis",
+      "group": "Interest & Calculations",
+      "name": "Change of Interest/Payment Basis",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_lead_manager",
+      "group": "Parties",
+      "name": "Lead Manager",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_joint_lead_managers",
+      "group": "Parties",
+      "name": "Joint Lead Managers",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "parties_joint_global_coordinators",
+      "group": "Parties",
+      "name": "Joint Global Coordinators",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "parties_joint_bookrunners",
+      "group": "Parties",
+      "name": "Joint Bookrunners",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "parties_stabilisation_manager",
+      "group": "Parties",
+      "name": "Stabilisation Manager",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_fiscal_agent",
+      "group": "Parties",
+      "name": "Fiscal Agent",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_principal_paying_agent",
+      "group": "Parties",
+      "name": "Principal Paying Agent",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_calculation_agent",
+      "group": "Parties",
+      "name": "Calculation Agent",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_trustee",
+      "group": "Parties",
+      "name": "Trustee",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_clearing_settlement_system",
+      "group": "Parties",
+      "name": "Clearing/Settlement System",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "parties_other_party_roles",
+      "group": "Parties",
+      "name": "Other Party Roles",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "dates_issue_date",
+      "group": "Dates",
+      "name": "Issue Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dates_pricing_date",
+      "group": "Dates",
+      "name": "Pricing Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dates_settlement_date",
+      "group": "Dates",
+      "name": "Settlement Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_issue_price",
+      "group": "Pricing Data",
+      "name": "Issue Price",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_indication_of_yield",
+      "group": "Pricing Data",
+      "name": "Indication of Yield",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_fees",
+      "group": "Pricing Data",
+      "name": "Fees",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_all_in_price",
+      "group": "Pricing Data",
+      "name": "All-in Price",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_all_in_yield_p_a",
+      "group": "Pricing Data",
+      "name": "All-in Yield p.a.",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_all_in_spread_vs_benchmark",
+      "group": "Pricing Data",
+      "name": "All-in Spread vs. Benchmark",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_reoffer_price",
+      "group": "Pricing Data",
+      "name": "Reoffer Price",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_reoffer_yield_p_a",
+      "group": "Pricing Data",
+      "name": "Reoffer Yield p.a.",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_ticker",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond Ticker",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_interest_rate",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond Interest Rate",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_maturity_date",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond Maturity Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_isin",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond ISIN",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_price",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond Price",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_benchmark_bond_yield_p_a",
+      "group": "Pricing Data",
+      "name": "Benchmark Bond Yield p.a.",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_reoffer_spread_vs_benchmark",
+      "group": "Pricing Data",
+      "name": "Reoffer Spread vs. Benchmark",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_mid_swap_rate",
+      "group": "Pricing Data",
+      "name": "Mid Swap Rate",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_reoffer_spread_vs_mid_swaps",
+      "group": "Pricing Data",
+      "name": "Reoffer Spread vs. Mid-Swaps",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_expenses",
+      "group": "Pricing Data",
+      "name": "Expenses",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "pricing_data_fee_allocation_type",
+      "group": "Pricing Data",
+      "name": "Fee Allocation Type",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_call_put_option",
+      "group": "Optionality",
+      "name": "Call/Put Option",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_optional_redemption_dates",
+      "group": "Optionality",
+      "name": "Optional Redemption Dates",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "optionality_startdate",
+      "group": "Optionality",
+      "name": "StartDate",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_enddate",
+      "group": "Optionality",
+      "name": "EndDate",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_redemption_payment_basis",
+      "group": "Optionality",
+      "name": "Redemption Payment Basis",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_partly_paid",
+      "group": "Optionality",
+      "name": "Partly Paid",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_optional_redemption_amount",
+      "group": "Optionality",
+      "name": "Optional Redemption Amount",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "optionality_yield_to_call",
+      "group": "Optionality",
+      "name": "Yield to Call",
+      "fieldType": "predefined",
+      "dataType": "decimal",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_listing",
+      "group": "Listing and Restrictions",
+      "name": "Listing",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_listing_market_type",
+      "group": "Listing and Restrictions",
+      "name": "Listing Market Type",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_method_of_distribution",
+      "group": "Listing and Restrictions",
+      "name": "Method of distribution",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_governing_law",
+      "group": "Listing and Restrictions",
+      "name": "Governing Law",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_documentation_name",
+      "group": "Listing and Restrictions",
+      "name": "Documentation Name",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_documentation_date",
+      "group": "Listing and Restrictions",
+      "name": "Documentation Date",
+      "fieldType": "calendar",
+      "dataType": "dateformat",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_documentation_link",
+      "group": "Listing and Restrictions",
+      "name": "Documentation Link",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_selling_restrictions",
+      "group": "Listing and Restrictions",
+      "name": "Selling Restrictions",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_prohibition_of_sales_to_uk_eea_retail_investors_priips_restriction",
+      "group": "Listing and Restrictions",
+      "name": "Prohibition of sales to UK/EEA retail investors (PRIIPs Restriction)",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_additional_selling_restrictions",
+      "group": "Listing and Restrictions",
+      "name": "Additional Selling Restrictions",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_uk_mifir_product_governance_manufacturer_target_market",
+      "group": "Listing and Restrictions",
+      "name": "UK MIFIR product governance / Manufacturer Target Market",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_negative_pledge",
+      "group": "Listing and Restrictions",
+      "name": "Negative Pledge",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_gross_up",
+      "group": "Listing and Restrictions",
+      "name": "Gross Up",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_cross_default",
+      "group": "Listing and Restrictions",
+      "name": "Cross Default",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_substitution_or_variation",
+      "group": "Listing and Restrictions",
+      "name": "Substitution or variation",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "listing_and_restrictions_use_of_proceeds",
+      "group": "Listing and Restrictions",
+      "name": "Use of Proceeds",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_type",
+      "group": "DLT Platform Information",
+      "name": "Type",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_accessibility",
+      "group": "DLT Platform Information",
+      "name": "Accessibility",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_role",
+      "group": "DLT Platform Information",
+      "name": "Role",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_fee",
+      "group": "DLT Platform Information",
+      "name": "Fee",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_platform_operator",
+      "group": "DLT Platform Information",
+      "name": "Platform Operator",
+      "fieldType": "ID-Link",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_name",
+      "group": "DLT Platform Information",
+      "name": "Name",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_identifier",
+      "group": "DLT Platform Information",
+      "name": "Identifier",
+      "fieldType": "predefined",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_token_type",
+      "group": "DLT Platform Information",
+      "name": "Token Type",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_token_technical_reference",
+      "group": "DLT Platform Information",
+      "name": "Token Technical Reference",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_token_technical_reference_id",
+      "group": "DLT Platform Information",
+      "name": "Token Technical Reference ID",
+      "fieldType": "list",
+      "dataType": "string",
+      "repeatable": true,
+      "inSource": true
+    },
+    {
+      "id": "dlt_platform_information_smart_contract",
+      "group": "DLT Platform Information",
+      "name": "Smart Contract",
+      "fieldType": "free",
+      "dataType": "string",
+      "repeatable": false,
+      "inSource": true
+    }
+  ],
+  "extensionGroups": {
+    "cash": {
+      "description": "RD cash attributes (RD is not a bond, BDT does not apply)",
+      "fields": [
+        {
+          "name": "currency",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "issuerName",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "issuerLei",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "decimals",
+          "dataType": "integer",
+          "repeatable": false
+        },
+        {
+          "name": "token",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "platform",
+          "dataType": "string",
+          "repeatable": true
+        },
+        {
+          "name": "tokenStandard",
+          "dataType": "string",
+          "repeatable": false
+        }
+      ]
+    },
+    "bi": {
+      "description": "platform-rd-dfabi backend series fields with no BDT field (apps/bi-portal/src/forms/schemas.ts seriesRegistrationFormSchema)",
+      "fields": [
+        {
+          "name": "seriesId",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "cfi",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "fisn",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "eligiblePesertaTypes",
+          "dataType": "integer",
+          "repeatable": false
+        },
+        {
+          "name": "reopeningMaximum",
+          "dataType": "decimal",
+          "repeatable": false
+        },
+        {
+          "name": "tradeable",
+          "dataType": "boolean",
+          "repeatable": false
+        },
+        {
+          "name": "exDate",
+          "dataType": "date",
+          "repeatable": false
+        },
+        {
+          "name": "templateId",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "templateVersion",
+          "dataType": "integer",
+          "repeatable": false
+        },
+        {
+          "name": "auctionType",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "yieldType",
+          "dataType": "string",
+          "repeatable": false
+        },
+        {
+          "name": "discountRateBps",
+          "dataType": "integer",
+          "repeatable": false
+        }
+      ]
+    },
+    "sharia": {
+      "description": "reserved for sukuk; fields defined when the SUKUK profile is confirmed",
+      "fields": []
+    },
+    "schedule": {
+      "description": "reserved: repeated coupon/redemption rows for instruments with periodic payments",
+      "fields": []
+    },
+    "underlying": {
+      "description": "reserved for SRBI underlying SBN reference",
+      "fields": []
+    },
+    "retail": {
+      "description": "reserved for SBN ritel (min/max order, holding period)",
+      "fields": []
+    }
+  },
+  "groups": [
+    "Security identifier and status",
+    "Issuer",
+    "Guarantor",
+    "Amounts",
+    "Currency",
+    "Interest & Calculations",
+    "Parties",
+    "Dates",
+    "Pricing Data",
+    "Optionality",
+    "Listing and Restrictions",
+    "DLT Platform Information"
+  ],
+  "notes": [
+    "Field names are as printed in the BDT v1.2 overview (Appendix 12.1). Several labels wrap over lines in the PDF; the 'PRIIPs' and 'UK MIFIR' labels are condensed from multi-line cells and should be confirmed against the official XSD if one is obtained.",
+    "'id' is the stable machine key used in records and profiles; never rename an id, add a new one instead.",
+    "'repeatable' = the value is an array in a record (e.g. ISIN and DTI identifiers, several ratings, several parties).",
+    "Extension field values follow the same rule as bdt values: strings only (integer/decimal/boolean/date are encoded as strings). Extension names are camelCase and never collide with BDT ids."
+  ]
+}

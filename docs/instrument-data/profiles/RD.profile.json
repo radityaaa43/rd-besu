@@ -1,0 +1,85 @@
+{
+  "kind": "RD",
+  "version": "1",
+  "catalog": "ICMA Bond Data Taxonomy 1.2",
+  "description": "Rupiah Digital: cash, not a bond. Uses no BDT field, only the cash extension group.",
+  "primaryId": "extensions.cash.currency",
+  "bdt": {},
+  "extensions": {
+    "cash": {
+      "currency": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "iso4217",
+            "only": [
+              "IDR"
+            ]
+          }
+        ]
+      },
+      "issuerName": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "fixed",
+            "value": "Bank Indonesia"
+          }
+        ]
+      },
+      "issuerLei": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "lei"
+          }
+        ]
+      },
+      "decimals": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "token": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "pattern",
+            "regex": "^0x[0-9a-fA-F]{40}$"
+          }
+        ]
+      },
+      "platform": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "oneOf",
+            "values": [
+              "Hyperledger Besu",
+              "Paladin zeto domain"
+            ]
+          }
+        ],
+        "count": {
+          "min": 1
+        }
+      },
+      "tokenStandard": {
+        "status": "R",
+        "rules": [
+          {
+            "type": "oneOf",
+            "values": [
+              "ERC-20 + ERC-5564 stealth",
+              "Zeto_Anon",
+              "Zeto_AnonNullifierKyc"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

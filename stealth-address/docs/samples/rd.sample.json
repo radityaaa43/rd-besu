@@ -1,0 +1,20 @@
+{
+  "_note": "TEST DATA. Fictional RD record; the LEI has a valid check digit but is not registered anywhere. Profile RD v1.",
+  "schema": "rd-dfabi-instrument/1",
+  "kind": "RD",
+  "profileVersion": "1",
+  "bdt": {},
+  "extensions": {
+    "cash": {
+      "currency": "IDR",
+      "issuerName": "Bank Indonesia",
+      "issuerLei": "TEST00FICTIVE0000145",
+      "decimals": "0",
+      "token": "0x000000000000000000000000000000000000dA1D",
+      "platform": [
+        "Hyperledger Besu"
+      ],
+      "tokenStandard": "ERC-20 + ERC-5564 stealth"
+    }
+  }
+}

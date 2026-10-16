@@ -1,0 +1,72 @@
+{
+  "_note": "TEST DATA. Fictional series; the ISIN and LEIs have valid check digits but are not registered anywhere. Profile DFABI v1 over ICMA BDT v1.2 (besu/docs/instrument-data).",
+  "schema": "rd-dfabi-instrument/1",
+  "kind": "DFABI",
+  "profileVersion": "1",
+  "bdt": {
+    "security_identifier_and_status_identifier_type": [
+      "ISIN"
+    ],
+    "security_identifier_and_status_identifier_value": [
+      "IDDFA0000013"
+    ],
+    "security_identifier_and_status_form_of_the_note": "Registered",
+    "security_identifier_and_status_status_of_the_notes": "Senior unsecured, as stated in the series documentation",
+    "security_identifier_and_status_dlt_bond_indicator": "true",
+    "issuer_issuer_name": "Bank Indonesia",
+    "issuer_issuer_lei": "TEST00FICTIVE0000145",
+    "amounts_specified_denomination": "1000000",
+    "amounts_calculation_amount": "1000000",
+    "amounts_final_redemption_amount": "100",
+    "amounts_aggregate_nominal_amount": "1000000000000",
+    "amounts_series_number": "IDDFA031126091S",
+    "amounts_series_amount": "1000000000000",
+    "amounts_tranche_number": "TRANCHE-A",
+    "amounts_tranche_amount": "500000000000",
+    "currency_specified_currency": "IDR",
+    "currency_payment_currency": "IDR",
+    "currency_settlement_currency": "IDR",
+    "interest_calculations_interest_type": "Zero coupon",
+    "interest_calculations_term": "91",
+    "interest_calculations_term_period": "Days",
+    "interest_calculations_day_count_fraction": "Act/360",
+    "interest_calculations_business_days": "IDJA",
+    "interest_calculations_business_day_convention": "Following",
+    "interest_calculations_maturity_date": "2027-02-02",
+    "parties_clearing_settlement_system": "Besu stealth ERC-1400",
+    "parties_principal_paying_agent": "LEI-TEST00FICTIVE0000145",
+    "parties_calculation_agent": "LEI-TEST00FICTIVE0000145",
+    "dates_issue_date": "2026-11-03",
+    "dates_settlement_date": "2026-11-04",
+    "dates_pricing_date": "2026-11-02",
+    "pricing_data_issue_price": "98.546528",
+    "listing_and_restrictions_method_of_distribution": "Auction",
+    "listing_and_restrictions_governing_law": "Indonesia",
+    "listing_and_restrictions_documentation_name": "TEST Series documentation",
+    "listing_and_restrictions_documentation_link": "https://example.invalid/test/dfabi-series.pdf",
+    "listing_and_restrictions_selling_restrictions": [
+      "Eligible participants: WHOLESALER and NON_WHOLESALER"
+    ],
+    "dlt_platform_information_type": "Hyperledger Besu",
+    "dlt_platform_information_accessibility": "Private",
+    "dlt_platform_information_name": "Besu stealth ERC-1400",
+    "dlt_platform_information_identifier": "1337",
+    "dlt_platform_information_token_type": "Security",
+    "dlt_platform_information_smart_contract": "0x000000000000000000000000000000000000dFAB"
+  },
+  "extensions": {
+    "bi": {
+      "seriesId": "TEST-SERIES-1",
+      "cfi": "DBZXXX",
+      "fisn": "BI/ZERO CPN 20270202",
+      "eligiblePesertaTypes": "3",
+      "reopeningMaximum": "0",
+      "tradeable": "true",
+      "templateId": "TEST-TEMPLATE",
+      "templateVersion": "1",
+      "auctionType": "TEST-AUCTION",
+      "yieldType": "DISCOUNT",
+      "discountRateBps": "575"
+    }
+  }
+}
