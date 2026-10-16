@@ -59,6 +59,13 @@ contract BondTracker is NotoTrackerERC20 {
 
     // Test/introspection-only: exposes the private mirror so tests can confirm it tracks real
     // consumption (not part of the fund-safety fix's own logic).
+    // Read-only, for scripts/reconciliation (bond/src/reconcile.ts): Noto's balanceOf counts
+    // unlocked coins only, while balanceOf() here also includes units held in open locks. The
+    // difference to compare against Noto is balanceOf(a) - lockedBalanceOf(a).
+    function lockedBalanceOf(address account) external view returns (uint256) {
+        return _locks.lockedBalance(account);
+    }
+
     function availableUnitsPrivate() external view returns (uint256) {
         return _availableUnitsPrivate;
     }

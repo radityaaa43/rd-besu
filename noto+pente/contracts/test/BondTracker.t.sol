@@ -1602,4 +1602,20 @@ contract BondTrackerTest {
         vm.prank(investor1);
         t.handleDelegateUnlock(custodian, lockId, _one(custodian, 1000), "");
     }
+
+    // ---- reconciliation view (audit LOW #6) ----
+    function testLockedBalanceOfTracksOpenLockAndClearsOnCancel() external {
+        BondTracker t = _fresh();
+        bytes32 lockId = keccak256("lockedView");
+        _lockedForSale(t, lockId);
+
+        // 1000 held by the custodian, all in the open lock: Noto would show 0 unlocked.
+        assert(t.balanceOf(custodian) == 1000);
+        assert(t.lockedBalanceOf(custodian) == 1000);
+
+        vm.prank(issuer);
+        t.handleDelegateUnlock(custodian, lockId, _one(custodian, 1000), "");
+        assert(t.lockedBalanceOf(custodian) == 0);
+        assert(t.balanceOf(custodian) == 1000);
+    }
 }
