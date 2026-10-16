@@ -44,8 +44,8 @@ function buildRecords() {
   const rd = buildRdRecord(strip(readJson(path.join(SAMPLES, "rd-terms.sample.json"))), tok("rd"));
   const dfabi = buildDfabiRecord(strip(readJson(path.join(SAMPLES, "dfabi-terms.sample.json"))), tok("dfabi"));
   return [
-    { kind: "RD", name: "RD", token: rd.token.address as string, rec: rd },
-    { kind: "DFABI", name: "DFABI", token: dfabi.DLTPlatformInformation["Smart Contract"] as string, rec: dfabi },
+    { kind: "RD", name: "RD", token: rd.token as string, rec: rd },
+    { kind: "DFABI", name: "DFABI", token: dfabi["DLT extension"]["Smart Contract"] as string, rec: dfabi },
   ];
 }
 
