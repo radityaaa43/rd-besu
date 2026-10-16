@@ -4,7 +4,7 @@
  * Noto asset (DFABI bond) vs Zeto_Anon cash (RD), settled atomically by an Atom.
  * Noto runs in basic notary mode, as in the upstream domains/integration-test/pvp_test.go
  * TestNotoForZeto. Zeto_Anon is used because upstream lock/transferLocked only supports ANON
- * (zeto_fungible_test.go:301), and the official image ships no KYC transferLocked circuit.
+ * (zeto_fungible_test.go:264 at v1.0.0), and the official image ships no KYC transferLocked circuit.
  *
  * Deploys fresh tokens (several sets, so one scenario's leftovers cannot affect another);
  * the live RD/DFABI tokens are never touched. Scenarios:
