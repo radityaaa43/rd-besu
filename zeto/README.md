@@ -20,6 +20,8 @@ All three scripts are dry-run by default. Pass `--execute` to send transactions.
 | `smoke-zeto.ts` | Makes a 1-unit private transfer and a withdraw on each token. |
 | `spike-zeto-dvp.ts` | Phase 2. Runs a DvP of a Noto DFABI bond against Zeto_Anon RD cash through an Atom, following `examples/swap` and `tutorials/atomic-swap.md`. The run has 29 checks across happy path, privacy, negative, failure and 4-parallel scenarios. It takes about 15 minutes. |
 | `spike-zeto-dvp-zz.ts` | Option A. Runs the full lifecycle with both tokens on Zeto_Anon and no Noto: issuance, private transfer, Zeto-vs-Zeto DvP and withdraw. See "Zeto-vs-Zeto DvP" below. |
+| `spike-bi-messaging.ts` | Option A step 1: tests the Pente privacy-group channel {bank, bi@node4}, including the case where BI's node is down (M1-M5). |
+| `spike-zeto-bi.ts` | Option A steps 3-4: runs the lifecycle with each bank reporting to BI, BI verifying against chain, and BI flagging a rogue unreported transfer. See "Option A: BI reporting". |
 
 Run a script like this: `npx ts-node spike-zeto-dvp.ts --execute`.
 
@@ -142,3 +144,93 @@ Findings, on both legs this time:
 | DvP through an Atom | not possible on v1.0.0: no KYC lock/transferLocked circuit | yes, both legs |
 | KYC (only registered identities can hold) | yes | no: anyone can receive |
 | Nullifiers (spent UTXOs unlinkable) | yes | no: spends are linkable on chain |
+
+## Option A: BI reporting
+
+Plan: `docs/plans/2026-10-16-option-a-bi-reporting.md`. Aim: BI (`bi@node4`) sees every Zeto tx
+in full (amount and parties). Other banks see nothing. Txs keep working when BI's node is down,
+and DvP stays atomic. Only official v1.0.0 components are used: no image patch and no custom circuit.
+
+Zeto sends a state only to its owner (`domains/zeto/internal/zeto/fungible/states.go:62` at
+v1.0.0), so BI is never sent anything by the protocol. Option A closes the gap off-chain:
+
+- **Channel.** Each bank has one Pente privacy group with BI, `{bank, bi@node4}`, created once at
+  onboarding. After each tx the bank sends a `pgroup_sendMessage` with topic `zeto-report-v1`.
+  It carries each output's plaintext amount, salt and owner, plus the commitment.
+- **Verification.** BI recomputes `Poseidon(amount, salt, owner.x, owner.y)`
+  (`domains/zeto/pkg/types/states.go:66-80`). It then matches the result against the outputs the
+  tx emitted on chain, decoded from node4's own block indexer
+  (`bidx_decodeTransactionEvents`). The events come from the v1.0.0 Zeto ABIs: `UTXOMint`,
+  `UTXOTransfer`, `UTXOTransferWithEncryptedValues`, `UTXOWithdraw`, `UTXOBurn` and
+  `UTXOsLocked` (outputs plus lockedOutputs). The code is in `src/bi-report.ts`.
+- **Unreported detection.** BI also scans every Zeto output on the contracts it supervises.
+  After a grace period, any output without a verified report is flagged `unreported`.
+- **Who reports.**
+  - Deposits are reported by the depositor, and transfers and withdraws by the sender.
+  - In a DvP, each locker reports its lock. The seller reports both legs and the buyer reports
+    the cash leg. BI merges duplicate reports by commitment.
+
+Run it: `npx ts-node spike-bi-messaging.ts --execute [--no-restart]`, then
+`npx ts-node spike-zeto-bi.ts --execute`.
+
+Results on ACK (2026-10-16):
+
+- **Messaging, M1-M4 PASS.**
+  - The group was created and node4 read back its members and contract.
+  - A report reached node4 0.25 s after it was sent, and node3 saw nothing.
+  - While node4 was down (pod deleted at 11:55:14Z), investor2's 3 sends were all accepted.
+    All 3 reached node4 at 11:55:46Z, after the restart, in send order.
+- **Messaging, M5.** `createGroup` while node4 was down waited until node4 came back, then
+  completed after 38 s. That is acceptable, because groups are only created at onboarding.
+- **Reporting, 16/16 PASS.**
+  - BI verified every output of I, T, S1 and W: 20 outputs.
+  - mismatch = 0.
+  - The DvP cash leg was reported twice and merged once.
+  - investor3 held no reports and no states at any step.
+  - Reports with a wrong amount, salt or owner were rejected as `mismatch`.
+  - BI's own chain scan matched all 20 outputs.
+  - A rogue transfer sent without a report had both of its outputs flagged `unreported` after
+    20 s, attributed to investor2.
+
+Findings:
+
+- **The base-ledger signer is a one-time key.** Paladin signs Zeto txs as
+  `domains.<contract>.submit.<uuid>` (`core/go/internal/sequencer/coordinator/coordinating.go:411`
+  at v1.0.0). The event `submitter` and `tx.from` therefore never name the bank. BI attributes a
+  tx through the inputs it spends instead: those are UTXOs BI already verified, and only their
+  owner can spend them. If an input was never reported, the sender shows as `unknown-input-owner`.
+- **Group names.** A group name may not contain `@` (`PD020005`,
+  `core/go/internal/groupmgr/manager.go:234`).
+- **Ordering.** The docs say private messages carry no ordering or non-repudiation guarantee
+  (`doc-site/docs/architecture/pente.md:130-134`). The order observed in the test is not a
+  guarantee, and that is why verification against the chain is mandatory.
+
+Limits:
+
+1. BI visibility is enforced by procedure plus detection, not by the protocol. A bank can
+   withhold a report, but it cannot hide that the tx happened.
+2. Attribution comes from the spent inputs, so it only works if those inputs were reported.
+   After a chain of unreported txs, the sender shows as `unknown-input-owner`, but the outputs
+   are still flagged.
+3. BI cannot prove that a reported receiver key belongs to the bank it claims. That relies on
+   the KYC key registry built at onboarding.
+4. Private group messages carry no ordering or non-repudiation guarantee
+   (`doc-site/docs/architecture/pente.md:130-134`), so chain verification is mandatory.
+5. DvP stays on Zeto_Anon: no token-level KYC, and spends are linkable. The v1.0.0 poison-pill
+   and `Atom.cancel()` issues above still apply.
+6. Creating a group needs BI online. In M5 it blocked until node4 was reachable again.
+
+BI totals for the 16/16 run: verified = 20, mismatch = 0, unreported = 2 (the rogue tx's two
+outputs), duplicates merged = 1.
+
+| | Stealth on Besu (`../stealth-address`) | Zeto Option A (Zeto_Anon + BI reports) | KYC baseline (`Zeto_AnonNullifierKyc`) |
+|---|---|---|---|
+| Other banks see the amount | yes (public) | no | no |
+| Other banks see the sender | yes (public) | no (the signer is a one-time key) | no |
+| Other banks see the receiver | no (stealth address) | no | no |
+| How BI sees txs | the view key each bank hands BI at onboarding; BI scans every announcement | a verified report from each bank, checked against chain; unreported outputs are flagged | not covered (only the owner gets states) |
+| Can a bank withhold from BI? | no | yes, but it is detected and attributed through the spent inputs | n/a |
+| Works with BI's node down | yes | yes; reports queue and arrive later (M4) | yes |
+| Atomic DvP | yes, see `../stealth-address` DvP design | yes, through an Atom (36/36) | not possible on v1.0.0 |
+| Token-level KYC | custodian certificate | no | yes |
+| Official components only | own contracts on Besu (no Paladin) | yes: Paladin v1.0.0 Zeto, Pente and Atom, unpatched | yes |
