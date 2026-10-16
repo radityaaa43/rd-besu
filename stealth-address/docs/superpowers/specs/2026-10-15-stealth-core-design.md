@@ -32,7 +32,7 @@ Each gets its own spec, plan and implementation. 2 to 4 are not designed here.
 |---|---|
 | Scheme | ERC-5564 scheme id `1` (secp256k1 with view tags). The only standard scheme. |
 | Contracts | Written by us from the two EIP interfaces (each is under 40 lines). No copied code, so no licence question. |
-| ERC-6538 scope | `registerKeys`, `stealthMetaAddressOf`, `incrementNonce`, `nonceOf`. `registerKeysOnBehalf` (EIP-712) is **skipped**; the registry is therefore not fully ERC-6538 compliant. Add it when a "fully compliant" claim is needed. |
+| ERC-6538 scope | `registerKeys`, `registerKeysOnBehalf` (EIP-712, EOA and ERC-1271 signers, DOMAIN_SEPARATOR recomputed on a chain-id change), `stealthMetaAddressOf`, `incrementNonce`, `nonceOf`. Full ERC-6538 interface, implemented 2026-10-16 (it was skipped at first). Differences from ScopeLift: signatures are checked with OZ `ECDSA` plus an ERC-1271 call (a bad EOA signature reverts with `ERC6538Registry__InvalidSignature`, not empty data), and scheme-1 meta-addresses must be exactly 66 bytes in both register functions. |
 | Metadata | Announcement `metadata` is the 1-byte view tag only. Sub-projects 2 and 3 extend it with token and amount if they want scanners to see them. |
 | Library deps | `ethers` 6.17 and `@noble/curves` 1.2.0, both already installed under `backend/`. No new dependency. |
 | EVM version | `shanghai`, same as `Paladin/contracts/foundry.toml`. Confirm it deploys on the ACK Besu network (section 6). |
