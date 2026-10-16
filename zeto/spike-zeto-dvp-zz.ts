@@ -6,7 +6,6 @@
  *   lock(amount, delegate = own address) -> poll getStateReceipt for the locked UTXO
  *   -> prepareTransferLocked -> re-encode transferLocked -> Atom op -> delegateLock(Atom) -> execute.
  * Zeto_Anon because lock/transferLocked only works for ANON (zeto_fungible_test.go:264 at v1.0.0).
- * spike-zeto-dvp.ts (Noto bond vs Zeto cash) stays the baseline.
  *
  * Full lifecycle on Zeto_Anon, no KYC: I issuance (ERC20 mint -> approve -> deposit, as in
  * examples/private-stablecoin), T 1-unit private transfer per token, the DvP scenarios, and W

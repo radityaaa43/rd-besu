@@ -7,7 +7,8 @@
     "typecheck": "tsc --noEmit",
     "bootstrap": "ts-node bootstrap-zeto.ts",
     "smoke": "ts-node smoke-zeto.ts",
-    "dvp": "ts-node spike-zeto-dvp.ts"
+    "dvp": "ts-node spike-zeto-dvp-zz.ts",
+    "bi": "ts-node spike-zeto-bi.ts"
   },
   "devDependencies": {
     "@types/circomlibjs": "^0.1.6",

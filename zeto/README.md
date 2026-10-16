@@ -18,12 +18,14 @@ All three scripts are dry-run by default. Pass `--execute` to send transactions.
 |---|---|
 | `bootstrap-zeto.ts` | Phase 1. Deploys RD-Zeto and DFABI-Zeto. Both are `Zeto_AnonNullifierKyc` tokens backed by an ERC20, following Paladin's `examples/private-stablecoin`. Writes `out/zeto-contract-data.json`, which is gitignored. |
 | `smoke-zeto.ts` | Makes a 1-unit private transfer and a withdraw on each token. |
-| `spike-zeto-dvp.ts` | Phase 2. Runs a DvP of a Noto DFABI bond against Zeto_Anon RD cash through an Atom, following `examples/swap` and `tutorials/atomic-swap.md`. The run has 29 checks across happy path, privacy, negative, failure and 4-parallel scenarios. It takes about 15 minutes. |
 | `spike-zeto-dvp-zz.ts` | Option A. Runs the full lifecycle with both tokens on Zeto_Anon and no Noto: issuance, private transfer, Zeto-vs-Zeto DvP and withdraw. See "Zeto-vs-Zeto DvP" below. |
 | `spike-bi-messaging.ts` | Option A step 1: tests the Pente privacy-group channel {bank, bi@node4}, including the case where BI's node is down (M1-M5). |
 | `spike-zeto-bi.ts` | Option A steps 3-4: runs the lifecycle with each bank reporting to BI, BI verifying against chain, and BI flagging a rogue unreported transfer. See "Option A: BI reporting". |
 
-Run a script like this: `npx ts-node spike-zeto-dvp.ts --execute`.
+Run a script like this: `npx ts-node spike-zeto-dvp-zz.ts --execute`.
+
+The Noto-vs-Zeto DvP spike was removed on 2026-10-16 (user decision: Zeto-only; Noto needs the
+notary online). It is in git history before this commit.
 
 ## Layout
 
@@ -57,9 +59,7 @@ The v1.0.0 Zeto domain has no domain receipt, so it is harmless.
 - KYC tokens cannot do DvP. Upstream (`domains/integration-test/zeto_fungible_test.go:264` at
   v1.0.0) supports lock and transferLocked only on `Zeto_Anon`, and the v1.0.0 image ships no KYC
   transferLocked circuit (`build.gradle:266-272` at v1.0.0).
-- On the Noto leg, the owner can no longer `unlock` once `prepareUnlock` has run. Only the lock
-  spender can cancel. In basic mode the spender is the notary, which sends the prepared `cancelCall`.
-- On the Zeto leg, a locked UTXO cannot be reclaimed once `prepareTransferLocked` has run. The
+- A locked Zeto UTXO cannot be reclaimed once `prepareTransferLocked` has run. The
   reclaim fails with `PD210134: Failed to query states by IDs`
   (`domains/zeto/internal/zeto/fungible/handler_transferLocked.go:325` at v1.0.0), because the
   UTXO is no longer available to the reclaim. This is observed in test F1b; the root cause was
@@ -108,7 +108,8 @@ fix. It only makes the window smaller. Any app that calls `setERC20` on v1.0.0 h
    public mint, approve, and deposit into the private side. This is `examples/private-stablecoin`
    at v1.0.0 without the KYC registration.
 2. A 1-unit private transfer of each token.
-3. DvP: S1, P, N1-N4, F1a/F1b, F2 and C, as in `spike-zeto-dvp.ts`. Both legs are the Zeto leg
+3. DvP: S1 (happy path), P (privacy), N1-N4 (negative cases), F1a/F1b/F2 (aborts and a cancelled
+   Atom) and C (4 parallel swaps). Both legs are the Zeto leg
    of `examples/swap` at v1.0.0: lock, then prepareTransferLocked, then a re-encoded
    transferLocked inside the Atom, then delegateLock to the Atom, then execute. Upstream has no
    Zeto-for-Zeto example; `pvp_test.go` has only `TestNotoForNoto`, `TestNotoForNotoWithHooks`
