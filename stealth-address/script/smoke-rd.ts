@@ -2,7 +2,7 @@
 // Usage: forge build && set -a && . ./.env.smoke && set +a && node script/smoke-rd.ts
 import { readFileSync } from 'node:fs';
 import { Contract, ContractFactory, JsonRpcProvider, Wallet } from 'ethers';
-import { deriveStealth, generateMetaAddress, scan, type Announcement } from '../ts/stealth.ts';
+import { deriveStealth, generateMetaAddress, scan, scanAll, type Announcement } from '../ts/stealth.ts';
 import { buildTokenMetadata, parseTokenMetadata } from '../ts/token.ts';
 
 const { RPC_URL, DEPLOYER_KEY } = process.env;
@@ -75,6 +75,16 @@ const metaB = parseTokenMetadata(annsB.find((a) => a.stealthAddress === foundB.s
 check(metaB && metaB.token === tokenAddr && metaB.amount === 400n, 'bank B metadata says 400 RD of this token');
 check((await token.balanceOf(foundB.stealthAddress)) === 400n, 'bank B stealth address holds 400');
 
+// 4b. BI holds each bank's view key + meta-address (never a spend key) and resolves every receiver to a bank.
+const biView = [
+  { id: 'bank-A', viewKey: bankA.viewKey, metaAddress: bankA.metaAddress },
+  { id: 'bank-B', viewKey: bankB.viewKey, metaAddress: bankB.metaAddress },
+];
+const biSees = scanAll(annsB, biView).map((r) => [r.bank, r.announcement.stealthAddress]);
+check(biSees.length === 2, 'BI resolves both RD receivers (mint and send)');
+check(biSees.some(([bank, addr]) => bank === 'bank-A' && addr === foundA.stealthAddress), 'BI: the mint receiver is bank A');
+check(biSees.some(([bank, addr]) => bank === 'bank-B' && addr === foundB.stealthAddress), 'BI: the send receiver is bank B');
+
 // 5. Forged announcement: the issuer posts RD-looking metadata straight to the Announcer for bank B.
 //    It carries caller = issuer, not the token, so the token-filtered scan must not see it.
 const forged = deriveStealth(bankB.metaAddress);
@@ -88,4 +98,4 @@ await (await token.connect(new Wallet(foundB.privateKey, provider)).getFunction(
 await (await token.connect(walletA).getFunction('burn')(600n, { gasPrice })).wait();
 check((await token.totalSupply()) === 0n, 'total supply is 0 after burns');
 
-console.log('OK: mintStealth, scan, sendStealth, forgery ignored, burn; final supply 0');
+console.log('OK: mintStealth, scan, sendStealth, BI view-key scan, forgery ignored, burn; final supply 0');

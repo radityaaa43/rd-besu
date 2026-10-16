@@ -34,10 +34,10 @@ export function deriveStealth(metaAddress: string, ephemeralKey = hexlify(secp25
   };
 }
 
-export function scan(announcements: Announcement[], viewKey: string, spendKey: string): Found[] {
-  const spendPub = pubOf(spendKey);
-  pubOf(viewKey); // fail loudly on a bad view key rather than skipping every announcement
-  const found: Found[] = [];
+type Match = { announcement: Announcement; h: string; stealthAddress: string };
+
+// Core of every scan: announcements that belong to (viewKey, spendPub). Needs no spend private key.
+function* matches(announcements: Announcement[], viewKey: string, spendPub: Uint8Array): Generator<Match> {
   const seen = new Set<string>(); // anyone can re-post a real announcement
   for (const a of announcements) {
     try {
@@ -48,11 +48,34 @@ export function scan(announcements: Announcement[], viewKey: string, spendKey: s
       if (stealthAddress.toLowerCase() !== a.stealthAddress.toLowerCase()) continue;
       if (seen.has(stealthAddress.toLowerCase())) continue;
       seen.add(stealthAddress.toLowerCase());
-      const k = (BigInt(spendKey) + BigInt(h)) % N;
-      found.push({ stealthAddress, privateKey: '0x' + k.toString(16).padStart(64, '0') });
+      yield { announcement: a, h, stealthAddress };
     } catch {
       // Anyone can announce garbage; malformed entries are noise, not errors.
     }
   }
-  return found;
+}
+
+export function scan(announcements: Announcement[], viewKey: string, spendKey: string): Found[] {
+  const spendPub = pubOf(spendKey);
+  pubOf(viewKey); // fail loudly on a bad view key rather than skipping every announcement
+  return [...matches(announcements, viewKey, spendPub)].map(({ h, stealthAddress }) => {
+    const k = (BigInt(spendKey) + BigInt(h)) % N;
+    return { stealthAddress, privateKey: '0x' + k.toString(16).padStart(64, '0') };
+  });
+}
+
+export type ViewKeyHolder = { id: string; viewKey: string; metaAddress: string };
+
+// For a party that holds a bank's VIEW key (BI, the DFABI custodian) but never its spend key: it can tell which
+// announcements are for that bank, not move the funds. The view key must belong to the meta-address.
+export function scanView(announcements: Announcement[], holder: ViewKeyHolder): Announcement[] {
+  const raw = getBytes(holder.metaAddress.split(':').pop()!);
+  if (raw.length !== 66) throw new Error('meta-address must be 66 bytes (spend pubkey || view pubkey)');
+  if (hexlify(pubOf(holder.viewKey)) !== hexlify(raw.slice(33))) throw new Error(`view key does not match meta-address of ${holder.id}`);
+  return [...matches(announcements, holder.viewKey, raw.slice(0, 33))].map((m) => m.announcement);
+}
+
+// Which bank received each announcement. An announcement for an unknown bank is simply absent from the result.
+export function scanAll(announcements: Announcement[], holders: ViewKeyHolder[]): { bank: string; announcement: Announcement }[] {
+  return holders.flatMap((h) => scanView(announcements, h).map((announcement) => ({ bank: h.id, announcement })));
 }

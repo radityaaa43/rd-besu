@@ -24,6 +24,7 @@ Threat model unchanged: other banks and nodes must not link a recipient to a tra
 | Burn | Any holder burns its own balance. Anonymous on chain; see risks. |
 | Announcer | Immutable address, set in the constructor. Scheme id fixed to `1`. |
 | Library scope | `scan` from sub-project 1 is unchanged. Two new pure helpers for the token metadata. |
+| BI sees every receiver (added 2026-10-16) | At onboarding each bank hands BI its RD **view key**; BI keeps each bank's meta-address (the spend public key is inside it). BI scans all RD announcements with every bank's view key (`scanAll` / `scanView` in `ts/stealth.ts`) and resolves each stealth address to a bank, after the fact, with no online step at transfer time. A view key cannot move funds. **Risk:** a leaked view key exposes that bank's whole RD receive history (not just BI's copy: whoever holds it can read every past and future receipt), so BI must store view keys like secrets and a bank that suspects a leak must move to a fresh meta-address. Same pattern as the DFABI custodian (`dfabi-bond-token-design.md`). |
 | Not done | Backend integration, RTGS adapter, pause, blacklist, KYC, allowance-based stealth sends, replacing Noto RD. |
 
 ## 3. Contract `RupiahDigital` (`stealth/src/RupiahDigital.sol`)
