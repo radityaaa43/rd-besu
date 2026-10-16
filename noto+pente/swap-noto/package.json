@@ -1,0 +1,26 @@
+{
+  "name": "paladin-example-swap-noto",
+  "version": "0.0.1",
+  "description": "",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node ./src/index.ts --cache ./data",
+    "start:prod": "node ./build/index.js --cache ./data",
+    "verify": "ts-node ./src/tests/data-persistence.ts --cache ./data",
+    "abi": "node scripts/abi.mjs",
+    "copy-abi": "node scripts/contracts.mjs"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "copy-file": "^11.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "paladin-example-common": "file:../common"
+  }
+}

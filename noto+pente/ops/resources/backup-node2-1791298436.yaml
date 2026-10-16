@@ -1,0 +1,195 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  creationTimestamp: "2026-09-18T07:55:27Z"
+  generation: 4
+  labels:
+    app: paladin
+    app.kubernetes.io/instance: node2
+    app.kubernetes.io/name: paladin-node2
+    app.kubernetes.io/part-of: paladin
+  name: paladin-node2
+  namespace: paladin
+  ownerReferences:
+  - apiVersion: core.paladin.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Paladin
+    name: node2
+    uid: 02a84d1d-0e0d-4acf-b87b-87dd3e60e130
+  resourceVersion: "337945828"
+  uid: b655f185-0070-4d5f-858d-275eb8ea48a6
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: paladin
+      app.kubernetes.io/instance: node2
+      app.kubernetes.io/name: paladin-node2
+      app.kubernetes.io/part-of: paladin
+  serviceName: ""
+  template:
+    metadata:
+      annotations:
+        core.paladin.io/config-sum: md5-efbe2aee79096f367b76db26a4a8334f
+        kubectl.kubernetes.io/default-container: paladin
+      creationTimestamp: null
+      labels:
+        app: paladin
+        app.kubernetes.io/instance: node2
+        app.kubernetes.io/name: paladin-node2
+        app.kubernetes.io/part-of: paladin
+    spec:
+      containers:
+      - args:
+        - postgres
+        - -c
+        - shared_preload_libraries=pg_stat_statements
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: paladin-node2-db
+        - name: PGDATA
+          value: /pgdata/data
+        image: postgres:17.6
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |-
+                #!/bin/bash
+
+                count=0
+
+                until [ $count -ge 3 ]; do
+                  pg_isready -U postgres && count=$((count + 1))
+                  echo "Waiting for postgres to be ready..."
+                  sleep 1
+                done
+
+                # enables pg_stat_statements views for query database performance at runtime
+                psql -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" \
+                  || echo "Warning: could not create pg_stat_statements extension"
+        livenessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          tcpSocket:
+            port: 5432
+          timeoutSeconds: 1
+        name: postgres
+        ports:
+        - containerPort: 5432
+          name: postgres
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /pgdata
+          name: pgdata
+          subPath: data
+      - args:
+        - /app/config/pldconf.paladin.yaml
+        - engine
+        - --logtostderr=true
+        - --v=4
+        image: docker.io/lfdecentralizedtrust/paladin:v1.0.0
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - pidof java
+          failureThreshold: 3
+          initialDelaySeconds: 3
+          periodSeconds: 2
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: paladin
+        ports:
+        - containerPort: 8548
+          name: rpc-http
+          protocol: TCP
+        - containerPort: 8549
+          name: rpc-ws
+          protocol: TCP
+        - containerPort: 6100
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          tcpSocket:
+            port: 8548
+          timeoutSeconds: 2
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/config
+          name: config
+          readOnly: true
+        - mountPath: /app/jna
+          name: appjna
+        - mountPath: /db-creds
+          name: db-creds
+        - mountPath: /keystores/signer-1
+          name: keystore-signer-1
+        - mountPath: /cert000
+          name: cert000
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: paladin-node2
+        name: config
+      - emptyDir: {}
+        name: appjna
+      - name: pgdata
+        persistentVolumeClaim:
+          claimName: paladin-node2-pgdata
+      - name: db-creds
+        secret:
+          defaultMode: 420
+          secretName: paladin-node2-db
+      - name: keystore-signer-1
+        secret:
+          defaultMode: 420
+          secretName: node2.keys
+      - name: cert000
+        secret:
+          defaultMode: 420
+          secretName: paladin-node2-mtls
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+status:
+  availableReplicas: 1
+  collisionCount: 0
+  currentReplicas: 1
+  currentRevision: paladin-node2-854cc79b59
+  observedGeneration: 4
+  readyReplicas: 1
+  replicas: 1
+  updateRevision: paladin-node2-854cc79b59
+  updatedReplicas: 1

@@ -1,0 +1,5 @@
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
+paladin-private/=/home/ecs-user/eksplorasi-paladin/paladin/solidity/contracts/private/
+paladin-shared/=/home/ecs-user/eksplorasi-paladin/paladin/solidity/contracts/shared/
+paladin-domains/=/home/ecs-user/eksplorasi-paladin/paladin/solidity/contracts/domains/

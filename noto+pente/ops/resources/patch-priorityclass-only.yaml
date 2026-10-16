@@ -1,0 +1,14 @@
+# For node1-3 (node4 already has this field live from the earlier full patch -- confirmed it
+# survived the operator's revert). Same priorityClassName for all 3 remaining nodes, so one
+# shared file; apply per node with:
+#   kubectl patch statefulset paladin-node<N> -n paladin --type strategic --patch-file patch-priorityclass-only.yaml
+#
+# Deliberately OMITS resources/env (unlike the original patch-node{1..4}.yaml) -- node4's real
+# rollout proved the operator reverts those fields on every reconcile but leaves
+# priorityClassName alone. No point re-patching fields that just get reverted; the LimitRange
+# (limitrange.yaml) is the mechanism for resources/heap instead, since it survives by
+# construction (a separate object, not a StatefulSet field the operator owns).
+spec:
+  template:
+    spec:
+      priorityClassName: paladin-high-priority

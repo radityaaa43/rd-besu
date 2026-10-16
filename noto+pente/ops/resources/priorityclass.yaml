@@ -1,0 +1,18 @@
+# Task #16/#18 proposal (user-approved option (a), 2026-10-06). Creates a NEW PriorityClass --
+# does not touch the two existing reserved ones (system-cluster-critical, system-node-critical),
+# which are meant for cluster add-ons and would make Paladin virtually unpreemptable (and
+# potentially start preempting unrelated real workloads) if reused here. Value 10000 is well
+# above the default (0) and ordinary application workloads, but far below the system tiers
+# (~2 billion), so Paladin stops being the FIRST thing evicted without taking priority away from
+# anything that actually needs system-level priority.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: paladin-high-priority
+value: 10000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: >-
+  Paladin nodes (StatefulSets paladin-node1..4) and their sidecar postgres containers.
+  Prevents BestEffort-equivalent preemption/OOM-kill priority on a per-tenant-critical
+  blockchain sidecar. See Paladin/ops/resources/README.md.

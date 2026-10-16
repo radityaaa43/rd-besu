@@ -1,0 +1,12 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = []
+
+# Must match the Pente privacy group's evmVersion (Paladin/scripts and every deploy call in this
+# repo pass evmVersion: "shanghai" -- same as upstream's solidity/hardhat.config.ts). Without
+# this, forge defaults to a much newer evmVersion (observed: "prague"), which emits opcodes
+# Pente's private EVM simulation doesn't support -- every private contract deploy then reverts
+# at assemble time with no reason ("transaction reverted: Optional.empty"), live-verified.
+evm_version = "shanghai"

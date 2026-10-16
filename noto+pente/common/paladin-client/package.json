@@ -1,0 +1,25 @@
+{
+  "name": "paladin-client",
+  "version": "0.6.13",
+  "description": "Domain-level Paladin interface for backend/shared: one node, one identity. 0.6.13 re-bundles BondTracker with D37 (a settle landing outside the open round is reported as a round-tagged non-sale, never silently dropped) + documents findReceiptByIdempotencyKey's throw-on-pending contract. See CHANGELOG.md.",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "vitest run",
+    "smoke": "ts-node scripts/smoke.ts"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "ethers": "^6.13.4"
+  }
+}

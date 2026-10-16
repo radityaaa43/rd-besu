@@ -1,0 +1,31 @@
+# Task #16/#18 proposal (user-approved option (a), 2026-10-06). Strategic-merge patch for
+# StatefulSet paladin-node1 (apps/v1). Apply with:
+#   kubectl patch statefulset paladin-node1 -n paladin --type strategic --patch-file patch-node1.yaml
+# Numbers match the operating-paladin skill's own measured sizing for a noto+pente-only
+# deployment (no Zeto configured here, so the skill's "well beyond 2560m for batch circuits"
+# caveat doesn't apply). See README.md for the full rollout/rollback runbook -- DO NOT apply
+# before the lead's go-ahead (Gate 3 must have passed first).
+spec:
+  template:
+    spec:
+      priorityClassName: paladin-high-priority
+      containers:
+      - name: postgres
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      - name: paladin
+        env:
+        - name: JDK_JAVA_OPTIONS
+          value: "-Xmx1g -Xms256m -XX:MaxMetaspaceSize=256m"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 768Mi
+          limits:
+            cpu: 1
+            memory: 2560Mi

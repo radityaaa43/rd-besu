@@ -1,0 +1,51 @@
+# Option (b) proposal (task following #16/#18's option (a) partial failure). node4's real
+# rollout showed the operator reverts `resources`/`env` on every reconcile (new StatefulSet
+# generation, managedFields show the operator's own manager re-asserting those fields) but
+# does NOT touch `priorityClassName` at all -- it survived. A LimitRange is a SEPARATE
+# namespace-scoped object the operator never owns or reconciles, so its defaults can't be
+# fought over the same way a StatefulSet field can.
+#
+# How it works: a LimitRange's `default`/`defaultRequest` only fill in resources for a
+# container that specifies NONE of its own (exactly our case: both postgres and paladin
+# containers currently have `resources: {}`). It does NOT retroactively apply to already-running
+# pods -- only at pod ADMISSION. Every existing paladin-nodeN-0 pod still needs one planned
+# restart (same node4->3->2->1 order, same pre/post-check discipline) for this to take effect.
+#
+# Known limitation, confirmed by reading how LimitRange actually works (there is no
+# per-container-NAME targeting in the LimitRange API, only per-container-TYPE): the SAME
+# default applies to BOTH the `postgres` and `paladin` containers in a pod. postgres needs far
+# less (measured idle usage: 66-220Mi) than paladin's JVM does -- this proposal accepts that as
+# a harmless overprovision for postgres (a generous unused ceiling, not a safety problem) rather
+# than solve per-container differentiation, which would need a mutating admission webhook
+# (Kyverno -- not installed, same gap flagged in the original task #16 proposal's option (b)).
+#
+# Memory number, not guessed: exec'd into paladin-node3-0 and read the JVM's own real ergonomic
+# defaults (`java -XX:+PrintFlagsFinal -version`): OpenJDK 21.0.4 (Temurin), `UseContainerSupport
+# = true` (default) and `MaxRAMPercentage = 25.000000` (default) -- confirmed live, not assumed
+# from a skill. With NO container limit today, the JVM currently sizes its heap off the NODE's
+# visible memory (observed MaxHeapSize ~1673MiB = 25% of ~6.5-7GiB, the node's own capacity) --
+# exactly the danger this whole exercise is about. A LimitRange CANNOT set an env var
+# (JDK_JAVA_OPTIONS), so there is no way to set an explicit -Xmx through this mechanism --
+# instead, this proposal picks the memory LIMIT so the JVM's own 25%-of-limit default lands
+# close to the previously-recommended 1Gi heap: 4096Mi * 0.25 = 1024Mi. Lower than that (e.g.
+# 2560Mi -> 640Mi heap) risks being too tight: measured idle/light RSS on this cluster already
+# ranges 167-865Mi per paladin container (heap+off-heap combined, not heap alone), so a
+# heap-only ceiling below ~1Gi leaves little margin before a real GC/heap-pressure incident,
+# separate from the container-level OOM this whole task started from.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: paladin-defaults
+  namespace: paladin
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 200m
+        memory: 768Mi
+      default:
+        cpu: "1"
+        memory: 4096Mi
+      # Deliberately no min/max here -- only filling in DEFAULTS for containers that specify
+      # none, never rejecting or capping a future pod spec that sets its own resources
+      # explicitly (e.g. if the operator ever starts setting resources itself).

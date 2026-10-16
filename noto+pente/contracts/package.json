@@ -1,0 +1,10 @@
+{
+  "name": "paladin-contracts-restricted-atom",
+  "version": "0.0.1",
+  "private": true,
+  "description": "RestrictedAtom/RestrictedAtomFactory fork (lead task #2/#3) -- OpenZeppelin deps only, compiled/tested with forge, not hardhat.",
+  "dependencies": {
+    "@openzeppelin/contracts": "5.4.0",
+    "@openzeppelin/contracts-upgradeable": "5.4.0"
+  }
+}
