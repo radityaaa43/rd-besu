@@ -8,7 +8,8 @@
     "bootstrap": "ts-node bootstrap-zeto.ts",
     "smoke": "ts-node smoke-zeto.ts",
     "dvp": "ts-node spike-zeto-dvp-zz.ts",
-    "bi": "ts-node spike-zeto-bi.ts"
+    "bi": "ts-node spike-zeto-bi.ts",
+    "e2e": "ts-node spike-zeto-e2e.ts"
   },
   "devDependencies": {
     "@types/circomlibjs": "^0.1.6",
