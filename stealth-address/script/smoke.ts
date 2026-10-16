@@ -31,6 +31,21 @@ console.log('announcer', await announcer.getAddress(), '| registry', await regis
 const me = generateMetaAddress();
 await (await registry.registerKeys(1, me.metaAddress)).wait();
 
+// On-behalf registration: a fresh wallet (never funded, never sends a tx) signs EIP-712; the deployer submits it.
+const fresh = Wallet.createRandom();
+const freshMeta = generateMetaAddress().metaAddress;
+const domain = { name: 'ERC6538Registry', version: '1.0', chainId: net.chainId, verifyingContract: await registry.getAddress() };
+const types = { Erc6538RegistryEntry: [{ name: 'schemeId', type: 'uint256' }, { name: 'stealthMetaAddress', type: 'bytes' }, { name: 'nonce', type: 'uint256' }] };
+const signature = await fresh.signTypedData(domain, types, { schemeId: 1, stealthMetaAddress: freshMeta, nonce: await registry.nonceOf(fresh.address) });
+const onBehalf = await (await registry.registerKeysOnBehalf(fresh.address, 1, signature, freshMeta)).wait();
+if ((await registry.stealthMetaAddressOf(fresh.address, 1)) !== freshMeta) throw new Error('on-behalf registration not stored');
+if ((await registry.nonceOf(fresh.address)) !== 1n) throw new Error('on-behalf registration did not consume the nonce');
+await registry.registerKeysOnBehalf.staticCall(fresh.address, 1, signature, freshMeta).then(
+  () => { throw new Error('replayed signature was accepted'); },
+  (e: any) => { if (e.revert?.name !== 'ERC6538Registry__InvalidSignature') throw e; },
+);
+console.log('on-behalf registration OK for', fresh.address, '| tx', onBehalf?.hash);
+
 // Sender reads it from the registry, derives a stealth address, announces.
 const s = deriveStealth(await registry.stealthMetaAddressOf(deployer.address, 1));
 await (await announcer.announce(1, s.stealthAddress, s.ephemeralPubKey, s.viewTag)).wait();
