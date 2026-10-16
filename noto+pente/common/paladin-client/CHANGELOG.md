@@ -4,6 +4,43 @@ All notable changes to `paladin-client`. Each release is published as a tarball 
 `releases/` (`npm pack --pack-destination releases/`); a released tarball is never overwritten.
 WIP changes `src/`/`build/` freely between releases -- consumers only ever see a tarball.
 
+## 0.7.0 (2026-10-17, status-only public tracker: no sale/supply/burn amounts on the public chain)
+
+**Why**: platform objective -- only BI, the sender and the receiver see amounts. Upstream
+examples/bond publishes every primary sale (`onDistribute(amount)` into a `TokenDistribution`),
+`totalSupply` and burns on the public tracker (BondTrackerPublic.sol, TokenDistribution.sol @
+Paladin v1.0.0). Lead-approved deviation, 2026-10-17.
+
+**Contracts now carried by the bundled bytecode** (new series only; D33):
+- `BondTrackerPublic`: status transitions only. `onDistribute`, `onBurn`, `onStaleLockSettled`,
+  `totalSupply`, `availableUnits`, `distribution` and `TokenDistribution` are gone;
+  `onIssue(custodian)`, `beginDistribution()`, `onDistributionComplete()` (new), `schema()` (new,
+  returns `"status-only-v1"`). `TrancheIssued(trancheNo)` has no amount.
+- `BondTracker`: sole owner of the unsold counter; tells the public side only when a round sells
+  out (`onDistributionComplete()`, once). New views `discountPrice()`, `minimumDenomination()`,
+  `lockedBalanceOf()`; `StaleLockSettled` is now a private event. Also carries the DvP-cancel fix
+  (`handleDelegateUnlock` accepts the Noto lock-cancel outcome).
+
+**Client**:
+- `getDistributionState` / `getPrice` route by the public tracker's `schema()` (cached per
+  address; `detectPublicTrackerSchema`). Legacy series (no `schema()`, answer `distribution()`)
+  keep the old public path via `src/abis/BondTrackerPublicLegacy.json`.
+- Status-only series: public fields (status, trancheCount) for everyone; `availableUnits`,
+  `purchasePrice`, `minimumDenomination`, `paymentToken` only for a client holding the series
+  context (BI), read from the private tracker through the privacy group. An investor can no longer
+  read the price on-chain; BI must supply it.
+- **Type change**: `DistributionState.availableUnits` is now optional (always set for legacy
+  series). New error codes `PD_CLIENT_UNKNOWN_TRACKER_SCHEMA`, `PD_CLIENT_INVALID_DENOMINATION`.
+- `package.json` depends on the published `@lfdecentralizedtrust/paladin-sdk` 1.0.0 instead of a
+  local `file:` path.
+
+**ABIs**: `BondTracker.json` and `BondTrackerPublic.json` re-copied from `contracts/out/`
+(forge 1.7.1, shanghai); the other 7 are unchanged in ABI and code (only the compiler metadata
+hash differs because the vendored import paths changed), so they were not re-copied.
+
+**Tests**: forge 136 passed / 0 failed (6 suites); vitest 113 (+7: one case per tracker schema,
+schema detection errors, price rule).
+
 ## 0.6.13 (2026-10-08, artifact re-bundle: D37 settle-outside-round reporting + export doc)
 
 **Context**: review finding F2 (paladin, 2026-10-08), confirmed by the lead against

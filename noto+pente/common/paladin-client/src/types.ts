@@ -144,7 +144,8 @@
  * `onBurn` (notifies `BondTrackerPublic` via `PenteExternalCall`, keeping the inherited
  * `onlySelf` gate), and `BondTrackerPublic.sol` gained a matching `onBurn(uint256) onlyOwner`
  * that decrements its own `totalSupply` -- previously never notified of a burn at all, so it
- * only ever grew.
+ * only ever grew. (Superseded in 0.7.0: that public `onBurn`/`totalSupply` were removed again,
+ * redemption amounts are private; see the 0.7.0 CHANGELOG entry.)
  *
  * 0.6.1 (backend-reported gap): 0.6.0's `asIdentity` act-as-identity mechanism only reached
  * `lockToken`/`prepareUnlock`/`prepareTradeLeg` -- the backend reported that the SAME
@@ -1021,10 +1022,15 @@ export interface DistributionState {
     | "DISTRIBUTION_COMPLETE"
     | "DISTRIBUTION_CLOSED"
     | "ACTIVE";
-  availableUnits: string;
+  /**
+   * 0.7.0: always present for legacy series. For status-only series it is private (held by the
+   * BondTracker inside the privacy group) and set only when this client can read it -- BI.
+   */
+  availableUnits?: string;
   trancheCount: string;
   /**
-   * From the public TokenDistribution behind BondTrackerPublic.distribution() (lead addition,
+   * Legacy series: from the public TokenDistribution behind BondTrackerPublic.distribution()
+   * (lead addition,
    * 0.3.0): the investor must be able to read the on-chain price trustlessly, to lock the right
    * amount before BI verifies against the same number. `undefined` before any round has ever
    * started (distribution address still zero -- see BondTrackerPublic.beginDistribution).

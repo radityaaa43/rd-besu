@@ -43,6 +43,8 @@ import { PaladinClientError, lockRecoveryError, receiptFailureError, receiptTime
 // abis/ for the unchanged upstream ones (AtomFactory/Atom/BondSubscription, never forked).
 import bondTrackerArtifact from "./abis/BondTracker.json";
 import bondTrackerPublicArtifact from "./abis/BondTrackerPublic.json";
+// Public tracker ABI of series deployed before 0.7.0 (upstream-shaped: distribution(), availableUnits(), totalSupply()).
+import bondTrackerPublicLegacyArtifact from "./abis/BondTrackerPublicLegacy.json";
 import bondSeriesRegistryArtifact from "./abis/BondSeriesRegistry.json";
 import investorListArtifact from "./abis/InvestorList.json";
 import INotoAbi from "./abis/INoto.json";
@@ -294,7 +296,7 @@ export async function isLockPrepared(sdk: LockDelegationCheckSdk, fromLookup: st
 export async function readDistributionAddress(sdk: LockDelegationCheckSdk, fromLookup: string, publicTrackerAddress: string): Promise<string> {
   const result = (await sdk.ptx.call({
     type: TransactionType.PUBLIC,
-    abi: bondTrackerPublicArtifact.abi,
+    abi: bondTrackerPublicLegacyArtifact.abi,
     function: "distribution",
     to: publicTrackerAddress,
     from: fromLookup,
@@ -302,6 +304,128 @@ export async function readDistributionAddress(sdk: LockDelegationCheckSdk, fromL
   })) as any;
   const raw = result["0"] as string;
   return raw.startsWith("0x") ? raw : "0x" + raw;
+}
+
+export type PublicTrackerSchema = "legacy" | "status-only";
+
+// 0.7.0: series deployed before it have the upstream-shaped public tracker (amounts, price and
+// totalSupply public); newer ones have the status-only tracker, which answers schema(). A failed
+// schema() call means "legacy" only if the legacy distribution() getter then answers --
+// otherwise the original error is rethrown, so an unreachable node is never mistaken for a
+// legacy series.
+export async function detectPublicTrackerSchema(sdk: LockDelegationCheckSdk, fromLookup: string, publicTrackerAddress: string): Promise<PublicTrackerSchema> {
+  try {
+    const result = (await sdk.ptx.call({
+      type: TransactionType.PUBLIC,
+      abi: bondTrackerPublicArtifact.abi,
+      function: "schema",
+      to: publicTrackerAddress,
+      from: fromLookup,
+      data: {},
+    })) as any;
+    if (result["0"] === STATUS_ONLY_SCHEMA) return "status-only";
+    throw new PaladinClientError("PD_CLIENT_UNKNOWN_TRACKER_SCHEMA", `${publicTrackerAddress} reports schema "${String(result["0"])}", this client knows "${STATUS_ONLY_SCHEMA}"`);
+  } catch (err) {
+    if (err instanceof PaladinClientError && err.code === "PD_CLIENT_UNKNOWN_TRACKER_SCHEMA") throw err;
+    try {
+      await readDistributionAddress(sdk, fromLookup, publicTrackerAddress);
+      return "legacy";
+    } catch {
+      throw err;
+    }
+  }
+}
+
+const STATUS_ONLY_SCHEMA = "status-only-v1";
+
+// Legacy series: everything comes from the public tracker and its public TokenDistribution.
+export async function readLegacyDistributionState(sdk: LockDelegationCheckSdk, fromLookup: string, publicTrackerAddress: string): Promise<DistributionState> {
+  const call = async (fn: string) =>
+    ((
+      await sdk.ptx.call({
+        type: TransactionType.PUBLIC,
+        abi: bondTrackerPublicLegacyArtifact.abi,
+        function: fn,
+        to: publicTrackerAddress,
+        from: fromLookup,
+        data: {},
+      })
+    ) as any)["0"];
+  const [status, availableUnits, trancheCount] = await Promise.all([call("status"), call("availableUnits"), call("trancheCount")]);
+  const result: DistributionState = { status: DISTRIBUTION_STATUS[Number(status)], availableUnits: String(availableUnits), trancheCount: String(trancheCount) };
+
+  const distributionAddress = await readDistributionAddress(sdk, fromLookup, publicTrackerAddress);
+  if (distributionAddress.toLowerCase() !== ZERO_ADDRESS) {
+    const callDistribution = async (fn: string) =>
+      ((
+        await sdk.ptx.call({
+          type: TransactionType.PUBLIC,
+          abi: tokenDistributionArtifact.abi,
+          function: fn,
+          to: distributionAddress,
+          from: fromLookup,
+          data: {},
+        })
+      ) as any)["0"];
+    const [purchasePrice, minimumDenomination, paymentToken] = await Promise.all([
+      callDistribution("purchasePrice"),
+      callDistribution("minimumDenomination"),
+      callDistribution("paymentToken") as Promise<string>,
+    ]);
+    result.purchasePrice = String(purchasePrice);
+    result.minimumDenomination = String(minimumDenomination);
+    result.paymentToken = paymentToken.startsWith("0x") ? paymentToken : "0x" + paymentToken;
+  }
+  return result;
+}
+
+// Round terms held by the private BondTracker; only reachable by privacy-group members (BI).
+export interface PrivateRoundReader {
+  availableUnits(): Promise<string>;
+  discountPrice(): Promise<string>;
+  minimumDenomination(): Promise<string>;
+}
+
+// Status-only series: the public tracker has status, tranche count and currency token only.
+// Units and price come from the private tracker when this client can read it (BI); otherwise
+// those fields are left out -- an investor learns the price from BI, not from the chain.
+export async function readStatusOnlyDistributionState(sdk: LockDelegationCheckSdk, fromLookup: string, publicTrackerAddress: string, priv?: PrivateRoundReader): Promise<DistributionState> {
+  const call = async (fn: string) =>
+    ((
+      await sdk.ptx.call({
+        type: TransactionType.PUBLIC,
+        abi: bondTrackerPublicArtifact.abi,
+        function: fn,
+        to: publicTrackerAddress,
+        from: fromLookup,
+        data: {},
+      })
+    ) as any)["0"];
+  const [status, trancheCount, currencyToken] = await Promise.all([call("status"), call("trancheCount"), call("currencyToken") as Promise<string>]);
+  const result: DistributionState = { status: DISTRIBUTION_STATUS[Number(status)], trancheCount: String(trancheCount) };
+  if (!priv) return result;
+  const [availableUnits, discountPrice, minimumDenomination] = await Promise.all([priv.availableUnits(), priv.discountPrice(), priv.minimumDenomination()]);
+  result.availableUnits = availableUnits;
+  // minimumDenomination is 0 until the first round has begun (same as legacy: no terms before then).
+  if (BigInt(minimumDenomination) !== 0n) {
+    result.purchasePrice = discountPrice;
+    result.minimumDenomination = minimumDenomination;
+    result.paymentToken = currencyToken.startsWith("0x") ? currencyToken : "0x" + currencyToken;
+  }
+  return result;
+}
+
+// Price for `units` under the private round terms; same two rules as TokenDistribution.getPrice
+// (whole price divisible by minimumDenomination), plus "a round has begun".
+export function statusOnlyPrice(units: string, discountPrice: string, minimumDenomination: string): string {
+  if (BigInt(minimumDenomination) === 0n) {
+    throw new PaladinClientError("PD_CLIENT_NO_DISTRIBUTION_ROUND", "no distribution round yet -- call beginDistribution first");
+  }
+  const total = BigInt(units) * BigInt(discountPrice);
+  if (total % BigInt(minimumDenomination) !== 0n) {
+    throw new PaladinClientError("PD_CLIENT_INVALID_DENOMINATION", `${units} units x ${discountPrice} = ${total} is not a multiple of the minimum denomination ${minimumDenomination}`);
+  }
+  return total.toString();
 }
 
 export interface SendGroupMessageSdk {
@@ -2435,43 +2559,13 @@ class PaladinClientImpl implements PaladinClient {
       // 0.4.1: resolved via the v2 registry (works from ANY process/node), not the in-memory
       // SeriesContext cache -- see SeriesContext's own doc comment.
       const publicTrackerAddress = (await this.getSeries(token)).publicTracker;
-      const call = async (fn: string) =>
-        (
-          await this.sdk.ptx.call({
-            type: TransactionType.PUBLIC,
-            abi: bondTrackerPublicArtifact.abi,
-            function: fn,
-            to: publicTrackerAddress,
-            from: this.verifier.lookup,
-            data: {},
-          })
-        )["0"];
-      const [status, availableUnits, trancheCount] = await Promise.all([call("status"), call("availableUnits"), call("trancheCount")]);
-      const result: DistributionState = { status: DISTRIBUTION_STATUS[Number(status)], availableUnits: String(availableUnits), trancheCount: String(trancheCount) };
-
-      const distributionAddress = await readDistributionAddress(this.sdk, this.verifier.lookup, publicTrackerAddress);
-      if (distributionAddress.toLowerCase() !== ZERO_ADDRESS) {
-        const callDistribution = async (fn: string) =>
-          (
-            await this.sdk.ptx.call({
-              type: TransactionType.PUBLIC,
-              abi: tokenDistributionArtifact.abi,
-              function: fn,
-              to: distributionAddress,
-              from: this.verifier.lookup,
-              data: {},
-            })
-          )["0"];
-        const [purchasePrice, minimumDenomination, paymentToken] = await Promise.all([
-          callDistribution("purchasePrice"),
-          callDistribution("minimumDenomination"),
-          callDistribution("paymentToken") as Promise<string>,
-        ]);
-        result.purchasePrice = String(purchasePrice);
-        result.minimumDenomination = String(minimumDenomination);
-        result.paymentToken = paymentToken.startsWith("0x") ? paymentToken : "0x" + paymentToken;
+      // 0.7.0: legacy series keep the public-amounts path; status-only series read units and
+      // price from the private tracker (BI only -- a client without a series context gets the
+      // public fields only).
+      if ((await this.publicTrackerSchema(publicTrackerAddress)) === "legacy") {
+        return await readLegacyDistributionState(this.sdk, this.verifier.lookup, publicTrackerAddress);
       }
-      return result;
+      return await readStatusOnlyDistributionState(this.sdk, this.verifier.lookup, publicTrackerAddress, this.privateRoundReader(token));
     } catch (err) {
       throw toPaladinClientError(err);
     }
@@ -2482,6 +2576,13 @@ class PaladinClientImpl implements PaladinClient {
       // 0.4.1: resolved via the v2 registry (works from ANY process/node), not the in-memory
       // SeriesContext cache -- see SeriesContext's own doc comment.
       const publicTrackerAddress = (await this.getSeries(token)).publicTracker;
+      if ((await this.publicTrackerSchema(publicTrackerAddress)) === "status-only") {
+        // 0.7.0: the price is private. Only a client holding the series context (BI) can compute it.
+        const priv = this.privateRoundReader(token);
+        if (!priv) this.requireSeriesContext(token); // throws PD_CLIENT_UNKNOWN_SERIES with the usual hint
+        const [discountPrice, minimumDenomination] = await Promise.all([priv!.discountPrice(), priv!.minimumDenomination()]);
+        return statusOnlyPrice(units, discountPrice, minimumDenomination);
+      }
       const distributionAddress = await readDistributionAddress(this.sdk, this.verifier.lookup, publicTrackerAddress);
       if (distributionAddress.toLowerCase() === ZERO_ADDRESS) {
         throw new PaladinClientError("PD_CLIENT_NO_DISTRIBUTION_ROUND", `${token} has no distribution round yet -- call beginDistribution first`);
@@ -2498,6 +2599,27 @@ class PaladinClientImpl implements PaladinClient {
     } catch (err) {
       throw toPaladinClientError(err);
     }
+  }
+
+  // Cached per public tracker address: the schema of a deployed tracker never changes.
+  private trackerSchemas = new Map<string, PublicTrackerSchema>();
+  private async publicTrackerSchema(publicTrackerAddress: string): Promise<PublicTrackerSchema> {
+    const key = publicTrackerAddress.toLowerCase();
+    let schema = this.trackerSchemas.get(key);
+    if (!schema) {
+      schema = await detectPublicTrackerSchema(this.sdk, this.verifier.lookup, publicTrackerAddress);
+      this.trackerSchemas.set(key, schema);
+    }
+    return schema;
+  }
+
+  // Private round terms via the series' privacy group; undefined when this client holds no series context.
+  private privateRoundReader(token: string): PrivateRoundReader | undefined {
+    const ctx = this.seriesContexts.get(token.toLowerCase());
+    if (!ctx) return undefined;
+    const from = this.requireIdentityVerifier("bondIssuer").lookup;
+    const read = async (fn: string) => String((await ctx.privateTracker.call({ from, function: fn }))[0]);
+    return { availableUnits: () => read("availableUnitsPrivate"), discountPrice: () => read("discountPrice"), minimumDenomination: () => read("minimumDenomination") };
   }
 
   async addInvestor(bondAddress: string, lookup: string, idempotencyKey?: string): Promise<void> {

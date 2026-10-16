@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ethers } from "ethers";
-import { createListenerIdempotent, dispatchBatch, eventSignatureOf, mismatch, verifyLockOwner, verifyDelegatedLeg, verifyCancelCall, isLockDelegated, isLockPrepared, readDistributionAddress, requireLookup, resolveIdempotentFuture, sendGroupMessage, validateClientConfig, loadClientConfigFile, toFixedBytes, fromFixedBytes, toUnixSeconds, fromUnixSeconds, toBytes32Hash, encodeSeriesFields, agreementCacheKey, toGroupMessage, normAddr, requireLegOwner, requireLegRecipientMatch, findReceiptByIdempotencyKey, decodePrepareUnlockReceipt, requireCashToken, isZeroHex } from "../src/client";
+import { createListenerIdempotent, dispatchBatch, eventSignatureOf, mismatch, verifyLockOwner, verifyDelegatedLeg, verifyCancelCall, isLockDelegated, isLockPrepared, readDistributionAddress, requireLookup, resolveIdempotentFuture, sendGroupMessage, validateClientConfig, loadClientConfigFile, toFixedBytes, fromFixedBytes, toUnixSeconds, fromUnixSeconds, toBytes32Hash, encodeSeriesFields, agreementCacheKey, toGroupMessage, normAddr, requireLegOwner, requireLegRecipientMatch, findReceiptByIdempotencyKey, decodePrepareUnlockReceipt, requireCashToken, isZeroHex, detectPublicTrackerSchema, readLegacyDistributionState, readStatusOnlyDistributionState, statusOnlyPrice } from "../src/client";
 import { writeFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -600,6 +600,92 @@ describe("readDistributionAddress", () => {
   it("returns the zero address as-is before any distribution round has started", async () => {
     const sdk = { ptx: { call: vi.fn(async () => ({ "0": "0x0000000000000000000000000000000000000000" })) } };
     expect(await readDistributionAddress(sdk, "bi@node1", "0xtoken")).toBe("0x0000000000000000000000000000000000000000");
+  });
+});
+
+// 0.7.0: the public tracker is status-only for new series (no units/price/supply); the client
+// routes by the tracker's schema() marker and keeps the legacy public-amounts path for series
+// deployed before. One case per version below.
+describe("public tracker schema routing (0.7.0)", () => {
+  const PT = "0xpublic";
+  const legacySdk = () => ({
+    ptx: {
+      call: vi.fn(async (tx: any) => {
+        switch (tx.function) {
+          case "schema": throw new Error("execution reverted (no such function)");
+          case "distribution": return { "0": "0xaaaa000000000000000000000000000000000a" };
+          case "status": return { "0": "2" };
+          case "availableUnits": return { "0": "600" };
+          case "trancheCount": return { "0": "1" };
+          case "purchasePrice": return { "0": "7" };
+          case "minimumDenomination": return { "0": "3" };
+          case "paymentToken": return { "0": "0xbbbb" };
+          default: throw new Error(`legacySdk: unexpected ${tx.function}`);
+        }
+      }),
+    },
+  });
+  const statusOnlySdk = () => ({
+    ptx: {
+      call: vi.fn(async (tx: any) => {
+        switch (tx.function) {
+          case "schema": return { "0": "status-only-v1" };
+          case "status": return { "0": "2" };
+          case "trancheCount": return { "0": "1" };
+          case "currencyToken": return { "0": "0xcccc" };
+          default: throw new Error(`statusOnlySdk: unexpected ${tx.function}`);
+        }
+      }),
+    },
+  });
+  const priv = (units: string, price: string, denom: string) => ({
+    availableUnits: async () => units,
+    discountPrice: async () => price,
+    minimumDenomination: async () => denom,
+  });
+
+  it("legacy series (no schema()): detected via distribution(), state read from the public amounts", async () => {
+    const sdk = legacySdk();
+    expect(await detectPublicTrackerSchema(sdk, "bi@node1", PT)).toBe("legacy");
+    expect(await readLegacyDistributionState(sdk, "bi@node1", PT)).toEqual({
+      status: "DISTRIBUTION_STARTED", availableUnits: "600", trancheCount: "1",
+      purchasePrice: "7", minimumDenomination: "3", paymentToken: "0xbbbb",
+    });
+  });
+
+  it("status-only series (schema() answers): detected, public state has no units or price", async () => {
+    const sdk = statusOnlySdk();
+    expect(await detectPublicTrackerSchema(sdk, "bi@node1", PT)).toBe("status-only");
+    expect(await readStatusOnlyDistributionState(sdk, "investor@node2", PT)).toEqual({ status: "DISTRIBUTION_STARTED", trancheCount: "1" });
+  });
+
+  it("status-only series, BI side: units and round terms come from the private reader", async () => {
+    expect(await readStatusOnlyDistributionState(statusOnlySdk(), "bi@node1", PT, priv("600", "7", "3"))).toEqual({
+      status: "DISTRIBUTION_STARTED", availableUnits: "600", trancheCount: "1",
+      purchasePrice: "7", minimumDenomination: "3", paymentToken: "0xcccc",
+    });
+  });
+
+  it("status-only series before the first round: units reported, no price terms", async () => {
+    const state = await readStatusOnlyDistributionState(statusOnlySdk(), "bi@node1", PT, priv("0", "0", "0"));
+    expect(state.purchasePrice).toBeUndefined();
+    expect(state.minimumDenomination).toBeUndefined();
+  });
+
+  it("an unreachable node is not mistaken for a legacy series: the original error is rethrown", async () => {
+    const sdk = { ptx: { call: vi.fn(async () => { throw new Error("connect ECONNREFUSED"); }) } };
+    await expect(detectPublicTrackerSchema(sdk, "bi@node1", PT)).rejects.toThrow("ECONNREFUSED");
+  });
+
+  it("an unknown schema marker is refused", async () => {
+    const sdk = { ptx: { call: vi.fn(async () => ({ "0": "status-only-v9" })) } };
+    await expect(detectPublicTrackerSchema(sdk, "bi@node1", PT)).rejects.toMatchObject({ code: "PD_CLIENT_UNKNOWN_TRACKER_SCHEMA" });
+  });
+
+  it("statusOnlyPrice: units x price, whole multiples of the minimum denomination only", () => {
+    expect(statusOnlyPrice("50", "2", "5")).toBe("100");
+    expect(() => statusOnlyPrice("1", "2", "5")).toThrowError(/minimum denomination/);
+    expect(() => statusOnlyPrice("50", "2", "0")).toThrowError(/no distribution round/);
   });
 });
 

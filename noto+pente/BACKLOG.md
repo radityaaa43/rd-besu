@@ -369,3 +369,33 @@ Revisit #1/#3/#4 together whenever `forceCompleteDistribution`/force-complete re
 actually gets exposed to users (today it's `backend/shared/src/paladin/gaps.ts`'s own
 acknowledged gap, not wired to any endpoint). #5 and #6 are independent of that and can be
 picked up separately.
+
+# Follow-up after paladin-client 0.7.0 (2026-10-17): public tracker is status-only
+
+For NEW series `BondTrackerPublic` no longer carries units, price, supply or burns, and
+`DistributionState.availableUnits` is optional. `availableUnits`/`purchasePrice`/`minimumDenomination`
+are filled only for a client holding the series context (BI, after `issueSeries`/`resumeSeries`);
+an investor client gets status + trancheCount only. Legacy series behave as before. Backend and
+frontend are NOT changed by this task. Consumers to adapt (paths under /home/ecs-user/alibaba-kube):
+
+- `backend/shared/src/bondSeries/distribution.ts:12-17` copies `state.availableUnits` into the
+  distribution view; handle undefined, make sure BI resumes the series before calling.
+- `backend/bi/src/bondSeries/handler.ts:289-302` burns `BigInt(state.availableUnits)` on reopen:
+  must not run with undefined (fail closed if the series context is missing).
+- `backend/bi/src/allocations/validate.ts:41,86` types and compares `availableUnits` as a required string.
+- `backend/bi/src/bondSeries/routes.ts:144` `trancheBlockedReason(getDistributionState(...))`.
+- `backend/shared/src/paladin/fake.ts:946-1095` and `backend/shared/test/primaryHarness.ts:35,157`
+  model public `availableUnits` and the public TokenDistribution price; update the fake.
+- Investor side: `frontend-v2/packages/shared/src/types.ts:102-104` and
+  `frontend-v2/apps/investor/src/screens/marketplace/canSubscribe.ts:29-42` take price/units from the
+  chain-derived distribution state. An investor can no longer read the price on-chain (that is the
+  point); BI's REST API must expose price/minimumDenomination/availableUnits to authenticated
+  investors instead.
+
+Not covered by the audit fixes (decision needed):
+- `bond/src/index.ts` issuance still distributes through upstream `BondSubscription` and the upstream
+  `AtomFactory`/`Atom` (cancel open to anyone), and `swap-noto/` uses upstream `Atom` too. Only
+  `bond/src/lib/outright.ts` moved to `RestrictedAtom`. Replacing the BondSubscription path means
+  forking that contract.
+- Deployed series keep the old public+private pair (upstream-shaped, amounts public); only newly
+  issued series are status-only.
