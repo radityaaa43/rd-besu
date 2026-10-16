@@ -4,6 +4,8 @@
 // RD is a short cash record.
 // Only the Zeto-specific values are set here; the hash rule is shared with the stealth track:
 //   dataHash = keccak256(UTF-8 bytes of canonicalJson(record)), canonical = keys sorted, no whitespace.
+import * as fs from "fs";
+import * as path from "path";
 import { ethers } from "ethers";
 
 export type ZetoToken = { address: string; tokenName: "Zeto_Anon" | "Zeto_AnonNullifierKyc" };
@@ -51,13 +53,30 @@ export function isValidLei(lei: string): boolean {
   return /^[A-Z0-9]{18}[0-9]{2}$/.test(lei) && BigInt(expand(lei)) % 97n === 1n;
 }
 
-// ---- DFABI record: exactly the BDT v1.2 fields in the spec table (39 R + 11 C), nothing else ----
-// Group titles and field labels are the spec's. Fields in the spec's "Not used for DFABI" list
-// are not in any list below, so supplying one throws (the stealth validator is strict as well).
+// ---- shared record shape (spec "Shared record shape and catalog") ----
+// {schema, kind, profileVersion, bdt: {<catalog id>: string | string[]}, extensions: {...}}.
+// bdt keys are ids from the one shared catalog file (nobody keeps a copy); values are strings.
+export const SCHEMA = "rd-dfabi-instrument/1";
+export const PROFILE_VERSION = "1";
 
-// Inputs the issuer must supply, per group.
+type CatalogField = { id: string; group: string; name: string; repeatable: boolean };
+const CATALOG_PATH = path.join(__dirname, "..", "..", "docs", "instrument-data", "bdt-v1.2.catalog.json");
+const catalog: Map<string, CatalogField> = new Map(
+  (JSON.parse(fs.readFileSync(CATALOG_PATH, "utf8")).fields as CatalogField[]).map((f) => [`${f.group}\u0000${f.name}`, f])
+);
+export function catalogField(group: string, name: string): CatalogField {
+  const f = catalog.get(`${group}\u0000${name}`);
+  if (!f) throw new Error(`instrument: "${group}"."${name}" is not a field of the BDT v1.2 catalog`);
+  return f;
+}
+
+// ---- DFABI: only the spec table's fields (39 R + 11 C), nothing else ----
+// Pairs are [group, catalog name]. Fields in the spec's "Not used for DFABI" list are in no list
+// below, so supplying one throws (the shared validator is strict as well).
+
+// Issuer inputs, per group. Everything not listed is derived in buildDfabiRecord.
 const REQUIRED: Record<string, string[]> = {
-  "Security identifier and status": ["Identifier Value", "Status Notes"],
+  "Security identifier and status": ["Identifier Value", "Status of the Notes"],
   Issuer: ["Issuer LEI"],
   Amounts: ["Specified Denomination", "Final Redemption Amount", "Aggregate Nominal Amount", "Series Number", "Series Amount", "Tranche Amount"],
   "Interest & Calculations": ["Term", "Day Count Fraction", "Business Day Convention", "Maturity Date"],
@@ -74,9 +93,9 @@ const CONDITIONAL: Record<string, string[]> = {
   "Interest & Calculations": ["Accrued Interest"],
   Parties: ["Other Party Roles"],
   Dates: ["Pricing Date"],
-  "Pricing Data": ["Indication Yield"],
+  "Pricing Data": ["Indication of Yield"],
   "Listing and Restrictions": ["Listing", "Listing Market Type", "Use of Proceeds"],
-  "DLT extension": ["Role", "Fee"],
+  "DLT Platform Information": ["Role", "Fee"],
 };
 const INPUT_GROUPS = new Set([...Object.keys(REQUIRED), ...Object.keys(CONDITIONAL)]);
 
@@ -92,10 +111,30 @@ function inputs(terms: Obj, name: string): Obj {
   return g;
 }
 
-// DLT extension: Besu / Private / Security, Name "Paladin zeto domain" (the spec's Zeto value),
-// Identifier = chainId 1337 of this exploration, Smart Contract = the Zeto token.
+// One value as a string: numbers and booleans are printed, so hashing never sees number formatting.
+const str = (v: unknown, what: string): string => {
+  need(typeof v === "string" || typeof v === "number" || typeof v === "boolean", `${what} must be a string, number or boolean`);
+  need(v !== "", `${what} must not be empty`);
+  return String(v);
+};
+// Put group-labelled values into bdt{}, keyed by catalog id. Repeatable fields are arrays.
+function toBdt(groups: Record<string, Obj>): Record<string, string | string[]> {
+  const bdt: Record<string, string | string[]> = {};
+  for (const [group, fields] of Object.entries(groups)) {
+    for (const [name, v] of Object.entries(fields)) {
+      const f = catalogField(group, name);
+      const vals = (Array.isArray(v) ? v : [v]).map((x) => str(x, `${group}."${name}"`));
+      need(f.repeatable || vals.length === 1, `${group}."${name}" is not repeatable`);
+      bdt[f.id] = f.repeatable ? vals : vals[0];
+    }
+  }
+  return bdt;
+}
+
+// DLT Platform Information: Besu / Private / Security, Name "Paladin zeto domain" (the spec's
+// Zeto value), Identifier = chainId 1337 of this exploration, Smart Contract = the Zeto token.
 export const DLT_NAME = "Paladin zeto domain";
-export function dltExtension(t: ZetoToken, extra: Obj = {}): Obj {
+export function dltPlatform(t: ZetoToken, extra: Obj = {}): Obj {
   return {
     Type: "Hyperledger Besu",
     Accessibility: "Private",
@@ -107,8 +146,8 @@ export function dltExtension(t: ZetoToken, extra: Obj = {}): Obj {
   };
 }
 
-// terms = the issuer's inputs, grouped by the spec's group titles (see REQUIRED / CONDITIONAL).
-// Everything else is derived here. Optional top-level terms.extensions.bi carries backend-only fields.
+// terms = the issuer's inputs, grouped by the catalog group title with the catalog field name as
+// key (see REQUIRED / CONDITIONAL). Everything else is derived here. terms.extensions may hold "bi".
 export function buildDfabiRecord(terms: Obj, token: ZetoToken): Obj {
   for (const k of Object.keys(terms)) need(INPUT_GROUPS.has(k) || k === "extensions" || k === "Parties", `terms."${k}" is not an input group`);
   const ident = inputs(terms, "Security identifier and status");
@@ -119,50 +158,63 @@ export function buildDfabiRecord(terms: Obj, token: ZetoToken): Obj {
   const dates = inputs(terms, "Dates");
   const pricing = inputs(terms, "Pricing Data");
   const listing = inputs(terms, "Listing and Restrictions");
-  const dlt = inputs(terms, "DLT extension");
+  const dlt = inputs(terms, "DLT Platform Information");
   need(isValidIsin(ident["Identifier Value"]), "Identifier Value is not a valid ISIN (ISO 6166 check digit)");
   need(isValidLei(issuer["Issuer LEI"]), "Issuer LEI is not valid (ISO 17442, mod 97)");
   need(String(interest["Maturity Date"]) > String(dates["Issue Date"]), "Maturity Date must be after Issue Date");
-  need(Number.isSafeInteger(interest["Term"]) && interest["Term"] > 0, "Term must be a positive integer number of days");
+  need(Number.isSafeInteger(interest["Term"]) || /^[1-9][0-9]*$/.test(String(interest["Term"])), "Term must be a positive integer number of days");
   if (terms.extensions !== undefined) need(Object.keys(terms.extensions).every((k) => k === "bi"), 'extensions may only hold "bi"');
 
   const agent = `LEI-${issuer["Issuer LEI"]}`; // BI is Issuer, Principal Paying Agent and Calculation Agent
   return {
+    schema: SCHEMA,
     kind: "DFABI",
-    "Security identifier and status": { ...ident, "Identifier Type": "ISIN", "Form Note": "Registered", "DLT Bond Indicator": true },
-    Issuer: { "Issuer Name": "Bank Indonesia", ...issuer },
-    Amounts: { "Tranche Number": "1", ...amounts, "Calculation Amount": amounts["Specified Denomination"] },
-    Currency: { "Specified Currency": "IDR", "Payment Currency": "IDR", "Settlement Currency": "IDR" },
-    "Interest & Calculations": { ...interest, "Interest Type": "Zero coupon", "Term Period": "Days", "Business Days": "IDJA" },
-    Parties: { ...parties, "Clearing/Settlement System": DLT_NAME, "Principal Paying Agent": agent, "Calculation Agent": agent },
-    Dates: dates,
-    "Pricing Data": pricing,
-    "Listing and Restrictions": { ...listing, "Governing Law": "Indonesia" },
-    "DLT extension": dltExtension(token, dlt),
-    ...(terms.extensions ? { extensions: terms.extensions } : {}),
+    profileVersion: PROFILE_VERSION,
+    bdt: toBdt({
+      "Security identifier and status": { ...ident, "Identifier Type": "ISIN", "Form of the Note": "Registered", "DLT Bond Indicator": true },
+      Issuer: { "Issuer Name": "Bank Indonesia", ...issuer },
+      Amounts: { "Tranche Number": "1", ...amounts, "Calculation Amount": amounts["Specified Denomination"] },
+      Currency: { "Specified Currency": "IDR", "Payment Currency": "IDR", "Settlement Currency": "IDR" },
+      "Interest & Calculations": { ...interest, "Interest Type": "Zero coupon", "Term Period": "Days", "Business Days": "IDJA" },
+      Parties: { ...parties, "Clearing/Settlement System": DLT_NAME, "Principal Paying Agent": agent, "Calculation Agent": agent },
+      Dates: dates,
+      "Pricing Data": pricing,
+      "Listing and Restrictions": { ...listing, "Governing Law": "Indonesia" },
+      "DLT Platform Information": dltPlatform(token, dlt),
+    }),
+    extensions: terms.extensions ?? {},
   };
 }
 
-// RD is cash, so BDT does not apply (spec "RD record"). Zeto has no decimals of its own: a Zeto
-// amount is an integer unit and 1 unit = 1 rupiah, matching the stealth RD (decimals 0).
+// RD is cash, so BDT does not apply: bdt is empty and the attributes sit in extensions.cash
+// (spec "RD record"). Zeto has no decimals of its own: a Zeto amount is an integer unit and
+// 1 unit = 1 rupiah, matching the stealth RD (decimals 0).
 // ponytail: the backing SampleERC20 inherits OpenZeppelin's default decimals() of 18, so a wallet
 // reading the ERC20 shows 1 unit as 1e-18; not verified against the deployed token.
 export function buildRdRecord(input: { issuerLei: string }, token: ZetoToken): Obj {
   need(isValidLei(input.issuerLei), "issuerLei is not valid (ISO 17442, mod 97)");
   return {
+    schema: SCHEMA,
     kind: "RD",
-    currency: "IDR",
-    currencyNumeric: 360,
-    issuer: { name: "Bank Indonesia", lei: input.issuerLei },
-    decimals: 0,
-    token: ethers.getAddress(token.address),
-    platform: `Hyperledger Besu, ${DLT_NAME}`,
-    tokenStandard: token.tokenName,
+    profileVersion: PROFILE_VERSION,
+    bdt: {},
+    extensions: {
+      cash: {
+        currency: "IDR",
+        issuerName: "Bank Indonesia",
+        issuerLei: input.issuerLei,
+        decimals: "0",
+        token: ethers.getAddress(token.address),
+        platform: ["Hyperledger Besu", DLT_NAME],
+        tokenStandard: token.tokenName,
+      },
+    },
   };
 }
 
 // primaryId for the registry: ISIN for DFABI, "IDR" for RD.
-export const primaryIdOf = (record: Obj): string => (record.kind === "RD" ? "IDR" : record["Security identifier and status"]["Identifier Value"]);
+export const primaryIdOf = (record: Obj): string =>
+  record.kind === "RD" ? "IDR" : [record.bdt[catalogField("Security identifier and status", "Identifier Value").id]].flat()[0];
 
 // Runnable self-check: `npx ts-node src/instrument.ts`.
 if (require.main === module) {
@@ -179,15 +231,19 @@ if (require.main === module) {
   const terms = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "docs", "samples", "dfabi-terms.sample.json"), "utf8"));
   delete terms._note;
   const rec = buildDfabiRecord(terms, t);
-  const labels = Object.entries(rec).filter(([k]) => k !== "kind").flatMap(([, g]) => Object.keys(g as Obj));
-  assert.strictEqual(labels.length, 42);
-  assert.strictEqual(rec["Parties"]["Clearing/Settlement System"], rec["DLT extension"]["Name"]);
+  assert.strictEqual(Object.keys(rec.bdt).length, 42);
+  assert.ok(Object.values(rec.bdt).every((v) => typeof v === "string" || (Array.isArray(v) && v.every((x) => typeof x === "string"))));
+  const id = (g: string, n: string) => catalogField(g, n).id;
+  assert.strictEqual(rec.bdt[id("Parties", "Clearing/Settlement System")], rec.bdt[id("DLT Platform Information", "Name")]);
+  assert.deepStrictEqual(rec.bdt[id("Security identifier and status", "Identifier Value")], ["IDZETOTEST11"]);
+  assert.strictEqual(rec.bdt[id("Interest & Calculations", "Term")], "365");
+  assert.strictEqual(primaryIdOf(rec), "IDZETOTEST11");
   const bad = (edit: (x: Obj) => void) => { const x = JSON.parse(JSON.stringify(terms)); edit(x); return () => buildDfabiRecord(x, t); };
   assert.throws(bad((x) => (x["Interest & Calculations"]["Interest Rate"] = "3.875")), /not an input field/);
   assert.throws(bad((x) => (x["Guarantor"] = { "Guarantor Name": "X" })), /not an input group/);
   assert.throws(bad((x) => (x["Security identifier and status"]["Identifier Value"] = "IDZETOTEST12")), /valid ISIN/);
   assert.throws(bad((x) => delete x["Pricing Data"]["Issue Price"]), /required/);
   assert.throws(bad((x) => (x["Interest & Calculations"]["Maturity Date"] = "2026-10-16")), /after Issue Date/);
-  assert.strictEqual(buildRdRecord({ issuerLei: "5493ZETOTEST00000283" }, t).decimals, 0);
+  assert.strictEqual(buildRdRecord({ issuerLei: "5493ZETOTEST00000283" }, t).extensions.cash.decimals, "0");
   console.log("instrument self-check: PASS");
 }

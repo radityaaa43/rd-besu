@@ -11,10 +11,11 @@
  *   npx ts-node spike-zeto-instrument.ts [--execute]
  */
 import * as fs from "fs";
+import { ethers } from "ethers";
 import * as path from "path";
 import PaladinClient, { ITransactionReceipt, TransactionType } from "@lfdecentralizedtrust/paladin-sdk";
 import { DEFAULT_POLL_TIMEOUT, nodeConnections } from "./src/common";
-import { ZetoToken, buildDfabiRecord, buildRdRecord, canonicalJson, dataHash, primaryIdOf } from "./src/instrument";
+import { ZetoToken, buildDfabiRecord, buildRdRecord, canonicalJson, catalogField, dataHash, primaryIdOf } from "./src/instrument";
 
 const logger = console;
 const ARTIFACT = path.join(__dirname, "abis", "InstrumentRegistry.json");
@@ -23,7 +24,12 @@ const SAMPLES = path.join(__dirname, "docs", "samples");
 
 // ASSUMED registry interface (spec "On chain" list): confirm each name and argument order
 // against the stealth artifact before --execute. The run stops if the ABI lacks any of them.
-const REGISTER = { fn: "register", args: (kind: string, token: string, primaryId: string, hash: string, uri: string) => ({ token, kind, primaryId, dataHash: hash, dataUri: uri }) };
+// Per the lead: register(token, kind bytes32, profileVersion, primaryId, dataHash, dataUri).
+const REGISTER = {
+  fn: "register",
+  args: (kind: string, token: string, profileVersion: string, primaryId: string, hash: string, uri: string) =>
+    ({ token, kind: ethers.encodeBytes32String(kind), profileVersion, primaryId, dataHash: hash, dataUri: uri }),
+};
 const GET = { fn: "getInstrument", args: (token: string) => ({ token }) };
 
 const results: { name: string; pass: boolean }[] = [];
@@ -44,8 +50,8 @@ function buildRecords() {
   const rd = buildRdRecord(strip(readJson(path.join(SAMPLES, "rd-terms.sample.json"))), tok("rd"));
   const dfabi = buildDfabiRecord(strip(readJson(path.join(SAMPLES, "dfabi-terms.sample.json"))), tok("dfabi"));
   return [
-    { kind: "RD", name: "RD", token: rd.token as string, rec: rd },
-    { kind: "DFABI", name: "DFABI", token: dfabi["DLT extension"]["Smart Contract"] as string, rec: dfabi },
+    { kind: "RD", name: "RD", token: rd.extensions.cash.token as string, rec: rd },
+    { kind: "DFABI", name: "DFABI", token: dfabi.bdt[catalogField("DLT Platform Information", "Smart Contract").id] as string, rec: dfabi },
   ];
 }
 
@@ -92,7 +98,7 @@ async function main() {
     const hash = dataHash(i.rec);
     const uri = `https://instruments.invalid/zeto/${i.kind.toLowerCase()}.json`; // placeholder host
     fs.writeFileSync(path.join(__dirname, "out", `instrument-${i.kind.toLowerCase()}.json`), JSON.stringify(i.rec, null, 2));
-    await pub(registry, REGISTER.fn, REGISTER.args(i.kind, i.token, primaryIdOf(i.rec), hash, uri));
+    await pub(registry, REGISTER.fn, REGISTER.args(i.kind, i.token, i.rec.profileVersion, primaryIdOf(i.rec), hash, uri));
     const back = await c.ptx.call({ type: TransactionType.PUBLIC, from, to: registry, function: GET.fn, abi: art.abi, data: GET.args(i.token) } as any);
     const onChain = hashFrom(back);
     const recomputed = dataHash(readJson(path.join(__dirname, "out", `instrument-${i.kind.toLowerCase()}.json`)));
