@@ -18,6 +18,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript"
+    "@lfdecentralizedtrust/paladin-sdk": "1.0.0"
   }
 }

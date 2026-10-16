@@ -6,7 +6,7 @@
 //   node scripts/contracts.mjs
 //
 // ENV variables:
-//   PALADIN_ABI_VERSION: the version of the Paladin contracts to download (default: latest)
+//   PALADIN_ABI_VERSION: the version of the Paladin contracts to download (default: v1.0.0)
 //   ZETO_ABI_VERSION: the version of the Zeto contracts to download (default: v0.2.0)
 
 import fs from 'fs';
@@ -15,7 +15,7 @@ import { copyFile} from 'copy-file';
 import { downloadPaladinAbis, downloadZetoAbis } from './download.mjs';
 
 const destinationDir = "contracts";
-const paladinVersion = process.env.PALADIN_ABI_VERSION || "latest";
+const paladinVersion = process.env.PALADIN_ABI_VERSION || "v1.0.0";
 const zetoVersion = process.env.ZETO_ABI_VERSION || "v0.2.0";
 
 console.log(`Paladin version: ${paladinVersion}`);

@@ -8,7 +8,6 @@
     "start": "ts-node ./src/index.ts --cache ./data",
     "start:prod": "node ./build/index.js --cache ./data",
     "verify": "ts-node ./src/tests/data-persistence.ts --cache ./data",
-    "abi": "node scripts/abi.mjs",
     "copy-abi": "node scripts/contracts.mjs"
   },
   "author": "",
@@ -20,7 +19,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "@lfdecentralizedtrust/paladin-sdk": "1.0.0",
     "paladin-example-common": "file:../common"
   }
 }

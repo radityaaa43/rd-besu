@@ -11,7 +11,6 @@
     "outright": "ts-node ./src/outright.ts --cache ./data",
     "test": "ts-node ./src/tests/consideration.ts",
     "test:rollback": "ts-node ./src/tests/rollback.ts --cache ./data",
-    "abi": "node scripts/abi.mjs",
     "copy-abi": "node scripts/contracts.mjs"
   },
   "author": "",
@@ -23,7 +22,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "@lfdecentralizedtrust/paladin-sdk": "1.0.0",
     "paladin-example-common": "file:../common"
   }
 }

@@ -1,6 +1,6 @@
 node_modules/
 build/
-src/abis/*.json
+# src/abis/*.json is committed on purpose: pinned to Paladin v1.0.0, see src/abis/README.md
 src/zeto-abis/*.json
 data/
 logs/
