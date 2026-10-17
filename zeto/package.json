@@ -9,6 +9,7 @@
     "smoke": "ts-node smoke-zeto.ts",
     "dvp": "ts-node spike-zeto-dvp-zz.ts",
     "bi": "ts-node spike-zeto-bi.ts",
+    "bi-offline": "ts-node spike-zeto-bi-offline.ts",
     "e2e": "ts-node spike-zeto-e2e.ts"
   },
   "devDependencies": {
