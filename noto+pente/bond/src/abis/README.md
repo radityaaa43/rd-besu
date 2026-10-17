@@ -17,3 +17,11 @@ trade parties / the executor. Rebuild with `forge build` in `contracts/` and re-
 change to those contracts. `RestrictedBondSubscription` is the fork of upstream `BondSubscription`
 used for primary-sale issuance (header of the .sol lists every change); `BondSubscription.json`,
 `AtomFactory.json` and `Atom.json` above are no longer used by `bond/src`.
+
+## BondTracker / BondTrackerPublic (platform forks, not the upstream release asset)
+
+`BondTracker.json` and `BondTrackerPublic.json` here are built from this repo's
+`contracts/src/BondTracker.sol` and `BondTrackerPublic.sol` (the status-only public tracker, the
+cancel-outcome fix and `lockedBalanceOf`), so a series issued by `npm run start` carries the same
+tracker pair the platform deploys. The upstream v1.0.0 versions of these two files are in git
+history (commit 8fa44ab). `InvestorList.json` and `NotoTrackerERC20.json` stay upstream.
