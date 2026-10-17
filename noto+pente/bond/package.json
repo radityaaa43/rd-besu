@@ -11,7 +11,7 @@
     "outright": "ts-node ./src/outright.ts --cache ./data",
     "test": "ts-node ./src/tests/consideration.ts && ts-node ./src/tests/restricted-atom.ts && ts-node ./src/tests/reconcile.ts",
     "reconcile": "ts-node ./src/reconcile.ts --cache ./data",
-    "test:rollback": "ts-node ./src/tests/rollback.ts --cache ./data",
+    "test:live-atom":"ts-node ./src/tests/live-restricted-atom.ts --cache ./data","test:rollback": "ts-node ./src/tests/rollback.ts --cache ./data",
     "copy-abi": "node scripts/contracts.mjs"
   },
   "author": "",
