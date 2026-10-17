@@ -28,8 +28,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract BondTrackerPublic is Ownable {
     /// @notice This DISTRIBUTION cycle status only -- deliberately independent of
-    /// `BondSeriesRegistry.Status` (ACTIVE/MATURED/REDEEMED/SUSPENDED), which tracks the
-    /// series' lifecycle instead and is set directly by BI, never derived from this enum.
+    /// any series-lifecycle status kept elsewhere (ACTIVE/MATURED/REDEEMED/SUSPENDED): this enum
+    /// is never derived from, or mapped onto, such a status.
     enum Status {
         INITIALIZED,
         ISSUED,

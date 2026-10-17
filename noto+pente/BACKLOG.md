@@ -199,9 +199,9 @@ E5 primary, E7 cancel, E9 redemption+burn) on their normal paths. Not fixed, not
 2. **`handleDelegateUnlock` access-control gap** -- see its own section near the bottom (tracked
    as D21, accepted risk during E2E). Add the `msg.sender == the deployer` gate +
    cross-check recipients against `lock.recipients`.
-3. **#10 below** -- `issueSeries` pre-flight encoding validation, so a bad ISIN/date/hash never
+3. **[Dropped, backend out of scope (user 2026-10-17).]** **#10 below** -- `issueSeries` pre-flight encoding validation, so a bad ISIN/date/hash never
    orphans a group + 2 trackers + a Noto token again.
-4. **New (D31, 2026-10-07)**: the D30 presence-probe pattern (`onboard-presence-probe`, seen
+4. **[Dropped, backend out of scope (user 2026-10-17).]** **New (D31, 2026-10-07)**: the D30 presence-probe pattern (`onboard-presence-probe`, seen
    repeatedly in guard-check logs this session as a `transaction reverted` + `PD011206` ERROR
    pair) is a deliberate existence check, not a failure -- but it logs a real ERROR line every
    time it runs, costing guard-check signal (every occurrence has to be manually distinguished
@@ -298,6 +298,8 @@ creation time and checked at settlement -- not a small change, needs its own des
 
 ## 7. Report upstream: `pollForReceipt`'s counter-based loop
 
+> Dropped, backend out of scope (user 2026-10-17): noto+pente is contracts plus script-level flows only (bond/, swap-noto/); the backend SDK path was removed.
+
 `sdk/typescript/src/paladin.ts:128-137`'s `pollForReceipt` loops on a plain counter
 (`for (let i = 0; i < waitMs; i += POLL_INTERVAL_MS)`), NOT `Date.now()` -- if a single
 underlying HTTP call inside that loop hangs, the function never gets back to checking
@@ -312,6 +314,8 @@ itself still can. Recommend reporting this to the upstream Paladin project.
 
 ## 8. Report upstream: no axios request timeout configured
 
+> Dropped, backend out of scope (user 2026-10-17): noto+pente is contracts plus script-level flows only (bond/, swap-noto/); the backend SDK path was removed.
+
 `sdk/typescript/src/paladin.ts:56-59`'s axios instance has no `timeout` configured, so
 nothing bounds how long a single stalled HTTP request can hang underneath
 `pollForReceipt` (see #7) or any other SDK call. NOT fixed here, same reasoning as #7 --
@@ -321,6 +325,8 @@ axios instance itself is untouched. Recommend reporting this to the upstream Pal
 project.
 
 ## 9. Incident `issueSeries` approval `cc982051-19cc-43d2-9db9-6de7eddd822a` stays orphaned
+
+> Dropped, backend out of scope (user 2026-10-17): noto+pente is contracts plus script-level flows only (bond/, swap-noto/); the backend SDK path was removed.
 
 The specific approval that hung for 3.5 minutes stays orphaned, NOT re-approved/retried.
 `newPrivacyGroup` (the first step of `issueSeries`) has no idempotency key support at all
@@ -335,6 +341,8 @@ creation, or a recovery path that re-derives/reuses the original group) before t
 approval can be safely retried.
 
 ## 10. `issueSeries` doesn't validate registry-field encodings before the first deploy (D26)
+
+> Dropped, backend out of scope (user 2026-10-17): noto+pente is contracts plus script-level flows only (bond/, swap-noto/); the backend SDK path was removed.
 
 Turned out to be the REAL cause of both orphaned approvals above (not a hang, confirmed by
 backend): `toFixedBytes(isin, 12)` (`client.ts:91`, called at `:2161` for `registerSeries`'s
@@ -371,6 +379,8 @@ acknowledged gap, not wired to any endpoint). #5 and #6 are independent of that 
 picked up separately.
 
 # Follow-up after paladin-client 0.7.0 (2026-10-17): public tracker is status-only
+
+> The backend and frontend adaptation items below are dropped, backend out of scope (user 2026-10-17). The two "Not covered by audit fixes" bullets at the end were done afterwards: issuance and swap-noto now settle through `RestrictedAtom` (`RestrictedBondSubscription`, commits 5dd82ee, f8f9009, 715a426), and the bond example deploys the status-only tracker pair (4018dd6).
 
 For NEW series `BondTrackerPublic` no longer carries units, price, supply or burns, and
 `DistributionState.availableUnits` is optional. `availableUnits`/`purchasePrice`/`minimumDenomination`

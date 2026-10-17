@@ -63,7 +63,7 @@ done
 # `kubectl get svc paladin-nodeN -o jsonpath='{.spec.ports}'`). Added additively (task #4b): the
 # :8548 loop above and its port numbers are unchanged, so anything already depending on this
 # script's existing behavior is unaffected. Local WS port = HTTP port + 1 (e.g. node2's HTTP is
-# 31648, its WS is 31649) -- paladin-client callers pass this as `wsUrl`.
+# 31648, its WS is 31649) -- SDK callers pass this as `wsUrl`.
 for svc in "${!PORTS[@]}"; do
   local_port="$((${PORTS[$svc]} + 1))"
   if [ -n "$ONLY_PORT" ] && [ "$local_port" != "$ONLY_PORT" ]; then continue; fi

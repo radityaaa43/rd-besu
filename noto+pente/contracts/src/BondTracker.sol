@@ -82,7 +82,7 @@ contract BondTracker is NotoTrackerERC20 {
         }
     }
 
-    // Private round terms, for BI-side clients (paladin-client getDistributionState/getPrice):
+    // Private round terms, for BI-side readers (pgroup_call on getDistributionState/getPrice):
     // they are not published on the public tracker any more.
     function discountPrice() external view returns (uint256) {
         return _discountPrice;
@@ -509,7 +509,7 @@ contract BondTracker is NotoTrackerERC20 {
         // Gate: live-sender verified against upstream (BACKLOG "D21 gate live-sender
         // verification") -- the production hook tx is submitted FROM the token's NOTARY
         // (domains/noto/internal/noto/events.go:264, `From: domainConfig.NotaryLookup`;
-        // our bond token's notary = bondCustodian, paladin-client client.ts:2219), while
+        // our bond token's notary = bondCustodian), while
         // _issuer is only the deployer. A deployer-only gate reverted every real
         // production delegate unlock. Lead decision 2026-10-07: allow BOTH -- _issuer
         // (deployer) and _custodian (notary/live sender); investors are neither. Also
