@@ -60,7 +60,8 @@ async function main(): Promise<boolean> {
   const assetAmount = 100;
   const cashAmount = 10;
 
-  // Deploy the atom factory on the base ledger
+  // Deploy the atom factory on the base ledger (RestrictedAtomFactory: only the two investors and
+  // the executor may cancel/execute the swap atom, unlike upstream's Atom).
   logger.log("Creating atom factory...");
   const atomFactory = await newAtomFactory(paladin1, cashIssuer);
   if (!checkDeploy(atomFactory)) return false;
@@ -186,7 +187,8 @@ async function main(): Promise<boolean> {
 
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
   const assetUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (assetUnlockCall === undefined) {
+  const assetCancelCall = domainReceipt?.lockInfo?.cancelCall;
+  if (assetUnlockCall === undefined || assetCancelCall === undefined) {
     logger.error("No unlock data found in asset domain receipt");
     return false;
   }
@@ -224,17 +226,28 @@ async function main(): Promise<boolean> {
 
   domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
   const cashUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-  if (cashUnlockCall === undefined) {
+  const cashCancelCall = domainReceipt?.lockInfo?.cancelCall;
+  if (cashUnlockCall === undefined || cashCancelCall === undefined) {
     logger.error("No unlock data found in cash domain receipt");
     return false;
   }
 
   // Create an atom combining both unlock calls
   logger.log("Creating atom...");
-  const atom = await atomFactory.create(cashIssuer, [
-    { contractAddress: notoAsset.address, callData: assetUnlockCall },
-    { contractAddress: notoCash.address, callData: cashUnlockCall },
-  ]);
+  // parties = the two investors whose legs are in it; investor2 (who runs execute) is the executor.
+  const atom = await atomFactory.create(
+    cashIssuer,
+    [
+      { contractAddress: notoAsset.address, callData: assetUnlockCall },
+      { contractAddress: notoCash.address, callData: cashUnlockCall },
+    ],
+    [
+      { contractAddress: notoAsset.address, lockId: assetLockId, callData: assetCancelCall },
+      { contractAddress: notoCash.address, lockId: cashLockId, callData: cashCancelCall },
+    ],
+    [await investor1.address(), await investor2.address()],
+    await investor2.address()
+  );
   if (!checkDeploy(atom)) return false;
   logger.log(`Atom created successfully at address: ${atom.address}`);
 
