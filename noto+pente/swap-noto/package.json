@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "ts-node ./src/index.ts --cache ./data",
     "start:prod": "node ./build/index.js --cache ./data",
-    "verify": "ts-node ./src/tests/data-persistence.ts --cache ./data",
+    "test:live-cancel":"ts-node ./src/tests/live-cancel-swap.ts --cache ./data","verify": "ts-node ./src/tests/data-persistence.ts --cache ./data",
     "copy-abi": "node scripts/contracts.mjs"
   },
   "author": "",
