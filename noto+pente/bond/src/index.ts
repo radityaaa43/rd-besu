@@ -25,8 +25,8 @@ import {
   getCachePath,
   DEFAULT_POLL_TIMEOUT,
 } from "paladin-example-common";
-import atomFactoryJson from "./abis/AtomFactory.json";
-import atomJson from "./abis/Atom.json";
+import atomJson from "./abis/RestrictedAtom.json";
+import atomFactoryJson from "./abis/RestrictedAtomFactory.json";
 import bondTrackerPublicJson from "./abis/BondTrackerPublic.json";
 import { newAtomFactory } from "./helpers/atom";
 import { newBondSubscription } from "./helpers/bondsubscription";
@@ -215,24 +215,7 @@ async function main(): Promise<boolean> {
     .waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(notoBond)) return false;
 
-  logger.log("Creating atom factory...");
-  txID = await paladin1.ptx.sendTransaction({
-    type: TransactionType.PUBLIC,
-    abi: atomFactoryJson.abi,
-    bytecode: atomFactoryJson.bytecode,
-    function: "",
-    from: bondIssuer.lookup,
-    data: {},
-  });
-  receipt = await paladin1.pollForReceipt(txID, DEFAULT_POLL_TIMEOUT);
-  if (receipt?.contractAddress === undefined) {
-    logger.error("Failed!");
-    return false;
-  }
-  const atomFactoryAddress = receipt.contractAddress;
-  logger.log(`Success! address: ${atomFactoryAddress}`);
-
-  logger.log("Creating restricted atom factory (platform trades)...");
+  logger.log("Creating restricted atom factory (issuance and platform trades)...");
   const restrictedAtomFactory = await newAtomFactory(paladin1, bondIssuer);
   if (restrictedAtomFactory === undefined) {
     logger.error("Failed!");
@@ -285,7 +268,7 @@ async function main(): Promise<boolean> {
       bondAddress_: notoBond.address,
       units_: BOND_UNITS_PER_INVESTOR,
       custodian_: await bondCustodian.address(),
-      atomFactory_: atomFactoryAddress,
+      atomFactory_: restrictedAtomFactoryAddress,
     });
     if (!checkDeploy(bondSubscription)) return false;
 
@@ -316,8 +299,9 @@ async function main(): Promise<boolean> {
     if (!checkReceipt(receipt)) return false;
     domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
     const cashUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-    if (cashUnlockCall === undefined) {
-      logger.error("No cash unlock data found in domain receipt");
+    const cashCancelCall = domainReceipt?.lockInfo?.cancelCall;
+    if (cashUnlockCall === undefined || cashCancelCall === undefined) {
+      logger.error("No cash unlock/cancel data found in domain receipt");
       return false;
     }
 
@@ -346,22 +330,33 @@ async function main(): Promise<boolean> {
     if (!checkReceipt(receipt)) return false;
     domainReceipt = receipt?.domainReceipt as INotoDomainReceipt | undefined;
     const bondUnlockCall = domainReceipt?.lockInfo?.unlockCall;
-    if (bondUnlockCall === undefined) {
-      logger.error("No bond unlock data found in domain receipt");
+    const bondCancelCall = domainReceipt?.lockInfo?.cancelCall;
+    if (bondUnlockCall === undefined || bondCancelCall === undefined) {
+      logger.error("No bond unlock/cancel data found in domain receipt");
       return false;
     }
 
     logger.log("Adding payment to subscription request...");
     receipt = await bondSubscription
       .using(invClient)
-      .preparePayment(investor, { to: notoCash.address, encodedCall: cashUnlockCall })
+      .preparePayment(investor, {
+        to: notoCash.address,
+        encodedCall: cashUnlockCall,
+        lockId: cashLockId,
+        cancelCall: cashCancelCall,
+      })
       .waitForReceipt(DEFAULT_POLL_TIMEOUT);
     if (!checkReceipt(receipt)) return false;
 
     logger.log("Adding bond to subscription request...");
     receipt = await bondSubscription
       .using(paladin1)
-      .prepareBond(bondCustodian, { to: notoBond.address, encodedCall: bondUnlockCall })
+      .prepareBond(bondCustodian, {
+        to: notoBond.address,
+        encodedCall: bondUnlockCall,
+        lockId: bondLockId,
+        cancelCall: bondCancelCall,
+      })
       .waitForReceipt(DEFAULT_POLL_TIMEOUT);
     if (!checkReceipt(receipt)) return false;
 
@@ -463,7 +458,6 @@ async function main(): Promise<boolean> {
     issuerCustodianGroupAddress: issuerCustodianGroup.address,
     bondTrackerAddress: bondTracker.address,
     bondTrackerPublicAddress,
-    atomFactoryAddress,
     restrictedAtomFactoryAddress,
     bondDetails: {
       issueDate,

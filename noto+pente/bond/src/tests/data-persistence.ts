@@ -50,8 +50,9 @@ export interface ContractData {
   issuerCustodianGroupAddress: string;
   bondTrackerAddress: string;
   bondTrackerPublicAddress: string;
-  atomFactoryAddress: string;
-  // Platform trades (bond/src/lib/outright.ts) settle through this one, not the upstream atomFactory above.
+  // Upstream AtomFactory: only in data dirs written before issuance moved to RestrictedAtom.
+  atomFactoryAddress?: string;
+  // Issuance (RestrictedBondSubscription) and platform trades (bond/src/lib/outright.ts) both settle through this one.
   restrictedAtomFactoryAddress: string;
   bondDetails: {
     issueDate: number;

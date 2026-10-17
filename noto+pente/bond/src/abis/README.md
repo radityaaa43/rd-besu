@@ -8,10 +8,12 @@ clone builds without network access to the release.
 To refresh from the same pinned release: `cd ../../../common && npm run download-abi`
 (defaults to v1.0.0, override with `PALADIN_ABI_VERSION`), then `npm run copy-abi` here.
 
-## RestrictedAtom / RestrictedAtomFactory (not upstream)
+## RestrictedAtom / RestrictedAtomFactory / RestrictedBondSubscription (not upstream)
 
-`RestrictedAtom.json` and `RestrictedAtomFactory.json` are built from this repo's own
-`contracts/src/RestrictedAtom*.sol` (forge, evm shanghai) and converted to the same
+`RestrictedAtom.json`, `RestrictedAtomFactory.json` and `RestrictedBondSubscription.json` are built from this repo's own
+`contracts/src/Restricted*.sol` (forge, evm shanghai) and converted to the same
 `{abi, bytecode}` shape. Unlike upstream's Atom, `cancel()`/`execute()` are restricted to the
 trade parties / the executor. Rebuild with `forge build` in `contracts/` and re-copy after any
-change to those two contracts.
+change to those contracts. `RestrictedBondSubscription` is the fork of upstream `BondSubscription`
+used for primary-sale issuance (header of the .sol lists every change); `BondSubscription.json`,
+`AtomFactory.json` and `Atom.json` above are no longer used by `bond/src`.

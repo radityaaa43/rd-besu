@@ -4,7 +4,9 @@ import PaladinClient, {
   PentePrivateContract,
 } from "@lfdecentralizedtrust/paladin-sdk";
 import { DEFAULT_POLL_TIMEOUT } from "paladin-example-common";
-import bondSubscription from "../abis/BondSubscription.json";
+// Fork of upstream BondSubscription (contracts/src/RestrictedBondSubscription.sol): the atom it
+// builds is a RestrictedAtom, so `atomFactory_` must be a RestrictedAtomFactory address.
+import bondSubscription from "../abis/RestrictedBondSubscription.json";
 
 const bondSubscriptionConstructor = bondSubscription.abi.find(
   (entry) => entry.type === "constructor"
@@ -17,14 +19,20 @@ export interface BondSubscriptionConstructorParams {
   atomFactory_: string;
 }
 
+// lockId / cancelCall come from the same prepareUnlock receipt as encodedCall; the atom uses
+// them to release the leg if the sale is cancelled after the lock was delegated to it.
 export interface PreparePaymentParams {
   to: string;
   encodedCall: string;
+  lockId: string;
+  cancelCall: string;
 }
 
 export interface PrepareBondParams {
   to: string;
   encodedCall: string;
+  lockId: string;
+  cancelCall: string;
 }
 
 export const newBondSubscription = async (
