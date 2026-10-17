@@ -5,4 +5,3 @@ build/
 .env
 .env.*
 !.env.example
-common/paladin-client/releases/*.tgz
