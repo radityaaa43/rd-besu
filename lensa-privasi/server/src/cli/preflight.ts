@@ -25,8 +25,11 @@ export async function runPreflight(
   check(nodes.besu, 'Besu', 'tidak menjawab');
 
   const capacity = async (a: ModelAdapter, name: string) => {
-    try { check(true, `Kapasitas ${name}: ${await withDeadline(a.loadCapacity(), HEALTH_MS, 'Cek kapasitas')} tx`); }
-    catch (e) { check(false, `Kapasitas ${name}`, msg(e)); }
+    try {
+      const cap = await withDeadline(a.loadCapacity(), HEALTH_MS, 'Cek kapasitas');
+      if (opts.prepare && cap < opts.prepare) check(false, `Kapasitas ${name}`, `${opts.prepare} tx diminta, siap ${cap}`);
+      else check(true, `Kapasitas ${name}: ${cap} tx`);
+    } catch (e) { check(false, `Kapasitas ${name}`, msg(e)); }
   };
   for (const m of Object.keys(MODEL_NAMES) as ModelId[]) {
     const name = MODEL_NAMES[m];
@@ -45,12 +48,24 @@ export async function runPreflight(
   return failed ? 1 : 0;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const i = process.argv.indexOf('--prepare');
-  const prepare = i < 0 ? undefined : Number(process.argv[i + 1]);
-  if (i >= 0 && !(Number.isInteger(prepare) && prepare! > 0)) {
-    console.error('Pemakaian: npm run preflight [-- --prepare N]');
-    process.exit(1);
+const PREPARE_MAX = 10_000;
+
+// undefined when --prepare is absent; otherwise a strict positive integer <= PREPARE_MAX
+export function parsePrepare(argv: string[]): number | undefined {
+  const i = argv.indexOf('--prepare');
+  if (i < 0) return undefined;
+  const arg = argv[i + 1] ?? '';
+  const n = Number(arg);
+  if (!/^[1-9]\d*$/.test(arg) || !Number.isSafeInteger(n) || n > PREPARE_MAX) {
+    throw new Error(`--prepare butuh bilangan bulat positif (1..${PREPARE_MAX}), dapat: "${arg}"`);
   }
-  process.exit(await runPreflight(await loadAdapters(), probeNodes, { prepare }, console.log));
+  return n;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  let prepare: number | undefined;
+  try { prepare = parsePrepare(process.argv); } catch (e) { console.error(msg(e)); process.exit(2); }
+  let adapters;
+  try { adapters = await loadAdapters(); } catch (e) { console.log(`GAGAL Muat adapter: ${msg(e)}`); process.exit(1); }
+  process.exit(await runPreflight(adapters, probeNodes, { prepare }, console.log));
 }

@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
-import { runPreflight } from '../src/cli/preflight.ts';
+import { parsePrepare, runPreflight } from '../src/cli/preflight.ts';
 import { fakeAdapter } from './fake-adapter.ts';
+import { HEALTH_MS } from '../src/stress.ts';
 
 const up = async () => ({ besu: true, paladin: [true, true, true, true] });
 const run = async (adapters: Parameters<typeof runPreflight>[0], opts = {}, probe = up) => {
@@ -40,3 +41,33 @@ test('--prepare N prepares ready models only, then prints the new capacity', asy
   expect(out).toContain('OK Kapasitas Zeto: 1000 tx');
   expect(code).toBe(1);
 });
+
+test('--prepare fails a model whose capacity is still below N', async () => {
+  const { code, out } = await run({ zeto: fakeAdapter('zeto', { capacity: 3 }) }, { prepare: 5 });
+  expect(code).toBe(1);
+  expect(out).toContain('GAGAL Kapasitas Zeto: 5 tx diminta, siap 3');
+});
+
+test('a hanging loadCapacity hits the deadline instead of hanging', async () => {
+  vi.useFakeTimers();
+  try {
+    const a = fakeAdapter('zeto');
+    a.loadCapacity = () => new Promise(() => {});
+    const p = run({ zeto: a });
+    await vi.advanceTimersByTimeAsync(HEALTH_MS + 1);
+    const { code, out } = await p;
+    expect(code).toBe(1);
+    expect(out).toContain('GAGAL Kapasitas Zeto');
+  } finally { vi.useRealTimers(); }
+});
+
+test('parsePrepare: absent is undefined, 200 parses', () => {
+  expect(parsePrepare(['x'])).toBeUndefined();
+  expect(parsePrepare(['--prepare', '200'])).toBe(200);
+});
+
+test.each(['1e3', '0x10', '-5', '2.5', '0', '20000', ''])('parsePrepare rejects %j', (v) => {
+  expect(() => parsePrepare(['--prepare', v])).toThrow('--prepare butuh bilangan bulat positif (1..10000)');
+});
+
+test('parsePrepare rejects a missing value', () => expect(() => parsePrepare(['--prepare'])).toThrow('dapat: ""'));
