@@ -15,6 +15,8 @@ export interface NotoTxView {
   visible: boolean; // this node holds the private state of the tx
   amount?: bigint; // sum of the transfers the node can see
   parties: string[]; // from / to / sender addresses or lookups the node can see, lower-cased
+  spenders: string[]; // owners of the (locked) input states the node holds, lower-cased
+  receivers: string[]; // owners of the output states the node holds that are not spenders (change excluded)
   hidden: string[]; // state ids the node knows exist but cannot read
 }
 
@@ -27,16 +29,20 @@ export async function readNotoTx(client: PaladinClient, txId: string): Promise<N
   const dom = await client.ptx.getDomainReceipt("noto", id).catch(() => undefined);
   if (dom?.transfers && dom.states?.outputs?.length) {
     const transfers: { from?: string; to?: string; amount: string }[] = dom.transfers;
+    const owners = (xs?: { data: { owner: string } }[]) => [...new Set((xs ?? []).map((x) => x.data.owner.toLowerCase()))];
+    const spenders = [...new Set([...owners(dom.states.inputs), ...owners(dom.states.lockedInputs)])];
     return {
       visible: true,
       amount: transfers.reduce((sum, t) => sum + BigInt(t.amount), 0n),
       parties: [...transfers.flatMap((t) => [t.from, t.to]), dom.sender].filter((x): x is string => !!x).map((x) => x.toLowerCase()),
+      spenders,
+      receivers: owners(dom.states.outputs).filter((o) => !spenders.includes(o)),
       hidden: [],
     };
   }
   const st = await client.ptx.getStateReceipt(id).catch(() => undefined);
   const u = st?.unavailable ?? {};
-  return { visible: false, parties: [], hidden: [...(u.confirmed ?? []), ...(u.spent ?? []), ...(u.info ?? [])] };
+  return { visible: false, parties: [], spenders: [], receivers: [], hidden: [...(u.confirmed ?? []), ...(u.spent ?? []), ...(u.info ?? [])] };
 }
 
 // Base-ledger hash and block of a tx (every node has this, outsiders included).
