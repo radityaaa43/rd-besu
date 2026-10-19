@@ -45,6 +45,17 @@ export function outsiderVerdict(hits: number, opened: unknown): 'partial' {
   throw new Error('Pihak luar ternyata bisa membaca transaksi');
 }
 
+// The sender and issuer lens is a read, not an echo: the announcement found on chain must agree with what the sender built.
+export function checkOwnTx(
+  ctx: { stealthAddress: string; amount: bigint },
+  chain: { stealthAddress: string; amount: bigint; token: string },
+  token: string,
+): void {
+  if (lc(chain.stealthAddress) !== lc(ctx.stealthAddress) || chain.amount !== ctx.amount || lc(chain.token) !== lc(token)) {
+    throw new Error('Data on-chain tidak cocok dengan transaksi yang dibangun pengirim');
+  }
+}
+
 export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl ?? 'http://127.0.0.1:8545'): ModelAdapter {
   const provider = new JsonRpcProvider(rpcUrl, undefined, { cacheTimeout: -1 });
   const { deployed: d, chainId, banks } = state;
@@ -220,15 +231,20 @@ export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl 
   async function lens(req: Parameters<ModelAdapter['lens']>[0], result: FlowResult, party: PartyId): Promise<LensView> {
     const role = roleOf(req, party);
     const ctx = result.context as Ctx;
-    if (role === 'sender' || role === 'issuer') {
-      return {
-        party, role, verdict: 'clear', amount: ctx.amount.toString(), counterparty: { from: party, to: req.to },
-        onChain: onChain(result.txHash, ctx.stealthAddress, ctx.memo, ctx.amount),
-        method: 'deriveStealth + buildMemo (data yang dibangun pengirim)',
-      };
-    }
     const anns = await txAnnouncements(result.block, result.txHash, ctx.kind);
     if (!anns.length) throw new Error('Pengumuman transaksi tidak ditemukan di block');
+    if (role === 'sender' || role === 'issuer') {
+      // Read the tx's announcement back from the chain; amount, stealth address and token shown are the on-chain ones.
+      const own = anns.find((a) => lc(a.stealthAddress) === lc(ctx.stealthAddress));
+      if (!own) throw new Error('Data on-chain tidak cocok dengan transaksi yang dibangun pengirim');
+      const chain = parse(ctx.kind, own.metadata)!;
+      checkOwnTx(ctx, { stealthAddress: own.stealthAddress, amount: chain.amount, token: chain.token }, tokenOf(ctx.kind === 'rd' ? 'RD' : 'DFABI'));
+      return {
+        party, role, verdict: 'clear', amount: chain.amount.toString(), counterparty: { from: party, to: req.to },
+        onChain: onChain(result.txHash, own.stealthAddress, chain.memo, chain.amount),
+        method: 'Baca pengumuman transaksi dari chain (`announcements`), lalu cocokkan dengan data yang dibangun pengirim (`deriveStealth`, `buildMemo`)',
+      };
+    }
     const ann = anns[0];
     const md = parse(ctx.kind, ann.metadata)!;
     const view = (verdict: LensView['verdict'], amount: bigint, counterparty: Counterparty | null, method: string): LensView =>
