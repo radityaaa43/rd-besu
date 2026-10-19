@@ -75,6 +75,16 @@ test('health reports models and nodes', async () => {
   expect(body.nodes).toEqual({ besu: true, paladin: [true, true, true, true] });
 });
 
+test('health answers within 4 s with nodes even when an adapter health never resolves', async () => {
+  const z = fakeAdapter('zeto');
+  z.health = () => new Promise(() => {});
+  const t0 = Date.now();
+  const body = (await make({ zeto: z }).inject('/api/health')).json();
+  expect(Date.now() - t0).toBeLessThan(4000);
+  expect(body.nodes).toEqual({ besu: true, paladin: [true, true, true, true] });
+  expect(body.models.zeto).toEqual({ ready: false, detail: 'Cek kesiapan tidak selesai dalam 3 detik' });
+});
+
 test('400 on bad amount', async () => {
   const res = await post(make(), '/api/tx', { ...req, amount: '0' });
   expect(res.statusCode).toBe(400);

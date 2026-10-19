@@ -17,6 +17,7 @@ type Probe = () => Promise<{ besu: boolean; paladin: boolean[] }>;
 const MODELS = Object.keys(MODEL_NAMES) as ModelId[];
 const PARTY_IDS = Object.keys(PARTIES) as PartyId[];
 const TX_DEADLINE_MS = 120_000;
+const HEALTH_POLL_MS = 3_000; // /api/health is polled by the UI; stress and tx keep the longer HEALTH_MS
 const KEEP_RUN_MS = 5 * 60_000;
 const BUSY_REASON = 'Transaksi lain sedang diproses';
 const NA = 'Belum tersedia';
@@ -133,7 +134,7 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
       ...MODELS.map((m) => {
         const a = adapters[m];
         if (!a) return { ready: false, detail: NA };
-        return withDeadline(a.health(), HEALTH_MS, 'Cek kesiapan').catch((e) => ({ ready: false, detail: msg(e) }));
+        return withDeadline(a.health(), HEALTH_POLL_MS, 'Cek kesiapan').catch((e) => ({ ready: false, detail: msg(e) }));
       }),
     ]);
     return { models: Object.fromEntries(MODELS.map((m, i) => [m, health[i]])), nodes };

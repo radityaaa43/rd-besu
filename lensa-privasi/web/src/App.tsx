@@ -7,13 +7,19 @@ const DOWN = '#C24A4A';
 const dot = (up: boolean | undefined) =>
   up === undefined ? { background: 'var(--faint)', animation: 'none' } : up ? undefined : { background: DOWN, animation: 'none' };
 
+const status = (name: string, up: boolean | undefined) =>
+  `${name}: ${up === undefined ? 'memeriksa' : up ? 'terhubung' : 'tidak terjangkau'}`;
+
 function useHealth(): Health | null | undefined {
   // undefined = not asked yet, null = server unreachable
   const [h, setH] = useState<Health | null | undefined>();
   useEffect(() => {
-    let alive = true;
+    let alive = true, inFlight = false;
     const poll = async () => {
+      if (inFlight) return; // an older reply must never overwrite a newer one
+      inFlight = true;
       const r = await getHealth();
+      inFlight = false;
       if (alive) setH(r.ok ? r.body : null);
     };
     poll();
@@ -45,8 +51,8 @@ export default function App() {
           <button aria-current={view === 'tps' ? 'page' : undefined} onClick={() => setView('tps')}>Stress test TPS</button>
         </nav>
         <div className="net">
-          <span><i className="pulse" style={dot(besu)} />Besu · 4 validator</span>
-          <span><i className="pulse" style={dot(paladin)} />Paladin · 4 node (BI + 3 bank)</span>
+          <span title={status('Besu', besu)} aria-label={status('Besu', besu)}><i className="pulse" aria-hidden="true" style={dot(besu)} />Besu · 4 validator</span>
+          <span title={status('Paladin', paladin)} aria-label={status('Paladin', paladin)}><i className="pulse" aria-hidden="true" style={dot(paladin)} />Paladin · 4 node (BI + 3 bank)</span>
         </div>
       </header>
       {meta ? (

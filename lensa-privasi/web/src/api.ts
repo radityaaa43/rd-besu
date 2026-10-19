@@ -50,7 +50,11 @@ export function watchTx(
   es.addEventListener('result', (e) => { es.close(); h.onResult(data(e)); });
   es.addEventListener('error', (e) => {
     // server-sent `error` carries data; a bare transport error does not and is retried by the browser
-    if (!(e as MessageEvent).data) return;
+    // until readyState becomes CLOSED, at which point nothing more will arrive
+    if (!(e as MessageEvent).data) {
+      if (es.readyState === EventSource.CLOSED) { es.close(); h.onError('Koneksi ke server terputus'); }
+      return;
+    }
     es.close();
     h.onError(data(e).reason);
   });

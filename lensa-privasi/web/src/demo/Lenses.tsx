@@ -41,7 +41,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
   const inside = lenses.filter((l) => l.role !== 'outsider').sort((a, b) => INSIDE_ORDER.indexOf(a.role) - INSIDE_ORDER.indexOf(b.role));
   const outside = lenses.filter((l) => l.role === 'outsider');
 
-  const cp = (v: string) => (v in meta.parties ? nm(v as PartyId) : shortHash(v));
+  const cp = (v: string) => (Object.hasOwn(meta.parties, v) ? nm(v as PartyId) : shortHash(v));
   const line = (l: LensView) => {
     if (l.counterparty === null) return 'Pihak tidak terbaca';
     const c = cp(l.counterparty);
@@ -49,23 +49,27 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
       case 'issuer': return `diterbitkan untuk ${c}`;
       case 'sender': return `${f.dvp ? 'jual ke' : 'ke'} ${c}`;
       case 'receiver': return `${f.dvp ? 'beli dari' : 'dari'} ${c}`;
-      case 'regulator': return `${nm(s.from)} → ${nm(s.to)}`;
+      case 'regulator': return c; // what the party's own read returned, never rebuilt from the request
       default: return `ke ${c}`;
     }
   };
   const value = (l: LensView) => {
     if (l.amount === null) return <span className="redact">Rp 000.000.000</span>;
-    const a = BigInt(l.amount);
-    return (
-      <>
-        {f.asset === 'RD' ? formatRupiah(a) : formatUnits(a)}
-        {f.dvp && <div className="leg">⇄ {formatRupiah(a * PRICE_PER_UNIT)}</div>}
-      </>
-    );
+    try {
+      const a = BigInt(l.amount);
+      return (
+        <>
+          {f.asset === 'RD' ? formatRupiah(a) : formatUnits(a)}
+          {f.dvp && <div className="leg">⇄ {formatRupiah(a * PRICE_PER_UNIT)}</div>}
+        </>
+      );
+    } catch {
+      return <>{String(l.amount)}</>; // malformed server data is shown as received, not hidden or crashed on
+    }
   };
 
   const card = (l: LensView, i: number) => {
-    const v = VERDICT[l.verdict];
+    const v = VERDICT[l.verdict] ?? { cls: '', icon: null, text: String(l.verdict) }; // unknown verdict: show it raw
     return (
       <button key={l.party} className={`lens ${v.cls} reveal`} style={{ animationDelay: `${i * 90}ms` }}
         aria-expanded={s.open === l.party} onClick={() => dispatch({ type: 'open', party: l.party })}>
@@ -73,10 +77,10 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
         <h5>{nm(l.party)}</h5>
         <div className="val">{value(l)}</div>
         <div className="line">{line(l)}</div>
-        {v.cls !== 'clear' && l.onChain.length > 0 && (
+        {v.cls !== 'clear' && (l.onChain?.length ?? 0) > 0 && (
           <div className="hex">{l.onChain.map((o, k) => <span key={k}>{k > 0 && <br />}{o.label} {shortHash(o.value)}</span>)}</div>
         )}
-        <div className="verdict">{ICON[v.icon]}{v.text}</div>
+        <div className="verdict">{v.icon && ICON[v.icon]}{v.text}</div>
       </button>
     );
   };
@@ -114,7 +118,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
             <h4>Yang tercatat di chain</h4>
             <ul>
               <li>Tx <code title={s.result!.txHash}>{shortHash(s.result!.txHash)}</code>, block {s.result!.block}</li>
-              {open.onChain.map((o, k) => <li key={k}>{o.label}: <code title={o.value}>{shortHash(o.value)}</code></li>)}
+              {(open.onChain ?? []).map((o, k) => <li key={k}>{o.label}: <code title={o.value}>{shortHash(o.value)}</code></li>)}
             </ul>
           </div>
         </div>
