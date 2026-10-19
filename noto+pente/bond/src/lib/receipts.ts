@@ -24,9 +24,15 @@ export interface NotoTxView {
 // receipt (PD011658) and only the ids of the states in its state receipt. A node that merely knows an INPUT coin it
 // created earlier gets a domain receipt with inputs but no outputs: it learns nothing of this transfer, so it is
 // not "visible". Visible = the node can read the tx's output states.
+// Only PD011658 ("none of the private state data is available on the local node") counts as the node's refusal;
+// any other error (node down, unknown tx, ...) propagates, so a failed read is never mistaken for "sealed".
+// `hidden` non-empty (with visible false) = the node's state receipt positively lists states it knows exist but cannot read.
 export async function readNotoTx(client: PaladinClient, txId: string): Promise<NotoTxView> {
   const id = txUuid(txId);
-  const dom = await client.ptx.getDomainReceipt("noto", id).catch(() => undefined);
+  const dom = await client.ptx.getDomainReceipt("noto", id).catch((e: unknown) => {
+    if (!String((e as Error)?.message ?? e).includes("PD011658")) throw e;
+    return undefined;
+  });
   if (dom?.transfers && dom.states?.outputs?.length) {
     const transfers: { from?: string; to?: string; amount: string }[] = dom.transfers;
     const owners = (xs?: { data: { owner: string } }[]) => [...new Set((xs ?? []).map((x) => x.data.owner.toLowerCase()))];
@@ -40,7 +46,7 @@ export async function readNotoTx(client: PaladinClient, txId: string): Promise<N
       hidden: [],
     };
   }
-  const st = await client.ptx.getStateReceipt(id).catch(() => undefined);
+  const st = await client.ptx.getStateReceipt(id);
   const u = st?.unavailable ?? {};
   return { visible: false, parties: [], spenders: [], receivers: [], hidden: [...(u.confirmed ?? []), ...(u.spent ?? []), ...(u.info ?? [])] };
 }
@@ -50,6 +56,20 @@ export async function readTxReceipt(client: PaladinClient, txId: string): Promis
   const r = await client.ptx.getTransactionReceipt(txUuid(txId));
   if (!r?.transactionHash) throw new Error(`no receipt for ${txId}`);
   return { txHash: r.transactionHash, block: r.blockNumber };
+}
+
+// Waits until `client`'s own node has indexed the tx (its receipt is readable), or throws `Error(onTimeout)`.
+export async function waitTxIndexed(client: PaladinClient, txId: string, timeoutMs: number, onTimeout: string): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await readTxReceipt(client, txId);
+      return;
+    } catch (e) {
+      if (Date.now() > end) throw new Error(`${onTimeout} (${(e as Error).message})`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 // Spent/created state hashes the base ledger shows for a tx, decoded from its events as seen by `client`'s node.

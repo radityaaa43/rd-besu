@@ -64,6 +64,21 @@ describe('noto adapter (live)', () => {
     for (const p of PARTIES) expectOnChain(lenses[p], result.txHash);
   });
 
+  it('two concurrent rd-transfers from the same sender both succeed', async () => {
+    const [a0, b0] = [await adapter.balanceOf('A', 'RD'), await adapter.balanceOf('B', 'RD')];
+    const runs = await Promise.all([runFlow(req('rd-transfer', 'A', 'B', '10')), runFlow(req('rd-transfer', 'A', 'B', '11'))]);
+    expect(new Set(runs.map((r) => r.result.txHash)).size).toBe(2);
+    expect(await adapter.balanceOf('A', 'RD')).toBe(a0 - 21n);
+    expect(await adapter.balanceOf('B', 'RD')).toBe(b0 + 21n);
+    expect(runs.map((r) => r.lenses.C.verdict)).toEqual(['sealed', 'sealed']);
+  });
+
+  it('an outsider whose node has not indexed the tx throws instead of reporting sealed', async () => {
+    const r = req('rd-transfer', 'A', 'B', '1');
+    const unknown = { txHash: '0x' + '00'.repeat(32), block: 1, steps: [], context: { txIds: ['00000000-0000-4000-8000-000000000000'] } };
+    await expect(adapter.lens(r, unknown, 'C')).rejects.toThrow(/belum mengindeks transaksi/);
+  }, 60_000);
+
   it('dfabi-transfer B -> C: outsider A sealed', async () => {
     const { result, events, lenses } = await runFlow(req('dfabi-transfer', 'B', 'C', '2'));
     expectSteps(events, result);

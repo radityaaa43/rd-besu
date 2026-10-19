@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent, Verdict } from '../adapter.ts';
 import { LOAD_AMOUNT } from '../adapter.ts';
 import { DeadlineError, withDeadline } from '../deadline.ts';
-import { BANKS, FLOWS, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type FlowRequest, type PartyId } from '../domain.ts';
+import { BANKS, FLOWS, PARTIES, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type FlowRequest, type PartyId } from '../domain.ts';
 import { readState } from '../state.ts';
 import type { Sample } from '../stats.ts';
 // Everything Paladin goes through the bond project's modules (its SDK 1.0.0 copy is the only one in play).
@@ -10,14 +10,31 @@ import { appendTrade, loadPlatform, type Platform } from '../../../../noto+pente
 import { transferNoto } from '../../../../noto+pente/bond/src/lib/transfer.ts';
 import { issueBond, issueCash } from '../../../../noto+pente/bond/src/lib/issue.ts';
 import { executeOutright } from '../../../../noto+pente/bond/src/lib/outright.ts';
-import { readNotoTx, readStateHashes, readTxReceipt, tradeSpendTxIds, watchDispatch, type NotoTxView } from '../../../../noto+pente/bond/src/lib/receipts.ts';
+import { readNotoTx, readStateHashes, readTxReceipt, tradeSpendTxIds, waitTxIndexed, watchDispatch, type NotoTxView } from '../../../../noto+pente/bond/src/lib/receipts.ts';
 
 const DEADLINE = 120_000;
+const DVP_DEADLINE = 100_000; // inside the app's 120 s flow deadline
 const NODE_PROBE_MS = 2_000;
 const LENS_WAIT_MS = 20_000;
 const INVESTOR: Record<BankId, string> = { A: 'investor1', B: 'investor2', C: 'investor3' };
 const FLOW_IDS = Object.keys(FLOWS) as FlowId[];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// ponytail: in-process per-sender promise chain (same idea as zeto's `exclusive`); a multi-process server needs a shared lock.
+// Noto picks input coins on the sender's node, so two concurrent transfers from one sender may select the same coin.
+const chains = new Map<string, Promise<unknown>>();
+async function exclusive<T>(senders: PartyId[], fn: () => Promise<T>): Promise<T> {
+  const keys = [...new Set(senders)].sort(); // sorted: two-party locks cannot deadlock
+  const previous = keys.map((k) => chains.get(k) ?? Promise.resolve());
+  const current = Promise.allSettled(previous).then(fn);
+  const settled = current.catch(() => undefined);
+  keys.forEach((k) => chains.set(k, settled));
+  try {
+    return await current;
+  } finally {
+    keys.forEach((k) => chains.get(k) === settled && chains.delete(k));
+  }
+}
 
 interface NotoContext { txIds: string[] } // plain flows: [tx]; dvp: [bond-leg spend tx, cash-leg spend tx]
 
@@ -41,7 +58,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
 
   async function untilBalance(party: PartyId, asset: 'RD' | 'DFABI', expected: bigint): Promise<void> {
     const end = Date.now() + DEADLINE;
-    while ((await balanceOf(party, asset)) !== expected) {
+    while ((await balanceOf(party, asset)) < expected) { // >=: the receiver may be paid by another sender meanwhile
       if (Date.now() > end) throw new DeadlineError(`Saldo ${asset} ${party} belum berubah, dan`, DEADLINE);
       await sleep(250);
     }
@@ -61,6 +78,75 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
     for (const b of BANKS) await add(bank(p, b).verifier, b);
     return m;
   })().catch((e) => { keys = undefined; throw e; }));
+
+  async function runUnlocked(req: FlowRequest, amount: bigint, onStep: (s: StepEvent) => void): Promise<FlowResult> {
+    const p = await plat();
+    const flow = FLOWS[req.flow];
+    const asset = flow.asset;
+    const to = req.to as BankId; // validateRequest: receiver is always a bank
+    const before = await balanceOf(to, asset);
+    const steps: StepEvent[] = [];
+    const emit = (index: number, from: number, until: number) => {
+      const s = { index, label: adapter.stepLabels[index], ms: until - from };
+      steps.push(s);
+      onStep(s);
+    };
+    const t0 = Date.now();
+    // The SDK exposes one boundary for "notary checked" and "handed to the Paladin network" together, so both
+    // steps are reported at it and share its duration (never split).
+    let boundary: number | undefined;
+    const reach = (at = Date.now()) => {
+      if (boundary !== undefined) return;
+      boundary = at;
+      emit(0, t0, at);
+      emit(1, t0, at);
+    };
+
+    if (flow.dvp) {
+      const seller = bank(p, req.from as BankId), buyer = bank(p, to);
+      const tradeId = randomUUID();
+      let executedAt: number | undefined;
+      const log = (m: string) => {
+        if (m.startsWith('[atom-create]')) reach(); // every lock / prepare-unlock tx has been notarised and dispatched
+        else if (m.startsWith('[settle]')) { executedAt = Date.now(); emit(2, boundary ?? t0, executedAt); } // atom executed on Besu
+      };
+      // The record is written from the raw promise, so it survives the deadline below (executeOutright keeps running after it).
+      const raw = executeOutright(p, { seller: seller.name, buyer: buyer.name, units: amount.toString(), price: PRICE_PER_UNIT.toString(), tradeId }, log)
+        .then((t) => { appendTrade(p.dataDir, t); return t; });
+      const trade = await withDeadline(raw, DVP_DEADLINE, 'DvP Noto').catch((e) => {
+        if (e instanceof DeadlineError) throw new Error(`Status DvP belum diketahui; cek ulang (trade ${tradeId} di trades.jsonl, periksa saldo dan lock)`);
+        throw e;
+      });
+      if (trade.status !== 'SETTLED') throw new Error(`DvP Noto gagal di langkah ${trade.failedStep ?? '?'} (${trade.status}): ${trade.error ?? ''}`);
+      const executed = executedAt ?? Date.now();
+      const legs = await tradeSpendTxIds(p, tradeId, seller, buyer);
+      const { txHash, block } = await readTxReceipt(p.node1, legs.bond);
+      emit(3, executed, Date.now()); // executeOutright returns once all four balances moved
+      return { txHash, block, steps, context: { txIds: [legs.bond, legs.cash] } satisfies NotoContext };
+    }
+
+    let submittedAt: number | undefined;
+    let stop = () => {};
+    const onSubmitted = (id: string) => { submittedAt = Date.now(); stop = watchDispatch(clientOf(p, req.from), id, reach); };
+    const send = () => {
+      const lookup = bank(p, to).verifier.lookup;
+      if (req.flow === 'rd-issue') return issueCash(p, lookup, amount, onSubmitted);
+      if (req.flow === 'dfabi-issue') return issueBond(p, lookup, amount, onSubmitted);
+      return transferNoto(p, asset === 'RD' ? 'cash' : 'bond', bank(p, req.from as BankId), lookup, amount, onSubmitted);
+    };
+    let receipt: Awaited<ReturnType<typeof send>>;
+    try {
+      receipt = await withDeadline(send(), DEADLINE, 'Receipt Noto');
+    } finally {
+      stop();
+    }
+    const tReceipt = Date.now();
+    reach(submittedAt ?? tReceipt); // watcher never saw the notary dispatch before the receipt: fall back to the submit time
+    emit(2, boundary!, tReceipt);
+    await untilBalance(to, asset, before + amount);
+    emit(3, tReceipt, Date.now());
+    return { txHash: receipt.transactionHash, block: receipt.blockNumber, steps, context: { txIds: [receipt.id] } satisfies NotoContext };
+  }
 
   const adapter: ModelAdapter = {
     id: 'noto',
@@ -83,71 +169,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
 
     balanceOf,
 
-    async run(req: FlowRequest, amount: bigint, onStep: (s: StepEvent) => void): Promise<FlowResult> {
-      const p = await plat();
-      const flow = FLOWS[req.flow];
-      const asset = flow.asset;
-      const to = req.to as BankId; // validateRequest: receiver is always a bank
-      const before = await balanceOf(to, asset);
-      const steps: StepEvent[] = [];
-      const emit = (index: number, from: number, until: number) => {
-        const s = { index, label: adapter.stepLabels[index], ms: until - from };
-        steps.push(s);
-        onStep(s);
-      };
-      const t0 = Date.now();
-      // The SDK exposes one boundary for "notary checked" and "handed to the Paladin network" together, so both
-      // steps are reported at it and share its duration (never split).
-      let boundary: number | undefined;
-      const reach = (at = Date.now()) => {
-        if (boundary !== undefined) return;
-        boundary = at;
-        emit(0, t0, at);
-        emit(1, t0, at);
-      };
-
-      if (flow.dvp) {
-        const seller = bank(p, req.from as BankId), buyer = bank(p, to);
-        const tradeId = randomUUID();
-        let executedAt: number | undefined;
-        const log = (m: string) => {
-          if (m.startsWith('[atom-create]')) reach(); // every lock / prepare-unlock tx has been notarised and dispatched
-          else if (m.startsWith('[settle]')) { executedAt = Date.now(); emit(2, boundary ?? t0, executedAt); } // atom executed on Besu
-        };
-        const trade = await withDeadline(
-          executeOutright(p, { seller: seller.name, buyer: buyer.name, units: amount.toString(), price: PRICE_PER_UNIT.toString(), tradeId }, log),
-          DEADLINE * 3, 'DvP Noto');
-        appendTrade(p.dataDir, trade);
-        if (trade.status !== 'SETTLED') throw new Error(`DvP Noto gagal di langkah ${trade.failedStep ?? '?'} (${trade.status}): ${trade.error ?? ''}`);
-        const executed = executedAt ?? Date.now();
-        const legs = await tradeSpendTxIds(p, tradeId, seller, buyer);
-        const { txHash, block } = await readTxReceipt(p.node1, legs.bond);
-        emit(3, executed, Date.now()); // executeOutright returns once all four balances moved
-        return { txHash, block, steps, context: { txIds: [legs.bond, legs.cash] } satisfies NotoContext };
-      }
-
-      let submittedAt: number | undefined;
-      let stop = () => {};
-      const onSubmitted = (id: string) => { submittedAt = Date.now(); stop = watchDispatch(clientOf(p, req.from), id, reach); };
-      const send = () => {
-        const lookup = bank(p, to).verifier.lookup;
-        if (req.flow === 'rd-issue') return issueCash(p, lookup, amount, onSubmitted);
-        if (req.flow === 'dfabi-issue') return issueBond(p, lookup, amount, onSubmitted);
-        return transferNoto(p, asset === 'RD' ? 'cash' : 'bond', bank(p, req.from as BankId), lookup, amount, onSubmitted);
-      };
-      let receipt: Awaited<ReturnType<typeof send>>;
-      try {
-        receipt = await withDeadline(send(), DEADLINE, 'Receipt Noto');
-      } finally {
-        stop();
-      }
-      const tReceipt = Date.now();
-      reach(submittedAt ?? tReceipt); // watcher never saw the notary dispatch before the receipt: fall back to the submit time
-      emit(2, boundary!, tReceipt);
-      await untilBalance(to, asset, before + amount);
-      emit(3, tReceipt, Date.now());
-      return { txHash: receipt.transactionHash, block: receipt.blockNumber, steps, context: { txIds: [receipt.id] } satisfies NotoContext };
-    },
+    run: (req, amount, onStep) => exclusive(FLOWS[req.flow].dvp ? [req.from, req.to] : [req.from], () => runUnlocked(req, amount, onStep)),
 
     async lens(req: FlowRequest, result: FlowResult, party: PartyId): Promise<LensView> {
       const p = await plat();
@@ -156,7 +178,10 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       const client = clientOf(p, party);
       const mustSee = role !== 'outsider';
 
-      // A party's node gets the private state a moment after the receipt; the outsider is read once.
+      // Never read a verdict off a node that has not indexed the tx yet: an absent receipt looks the same as a refusal.
+      await Promise.all(txIds.map((id) => waitTxIndexed(client, id, LENS_WAIT_MS, `Node ${PARTIES[party].name} belum mengindeks transaksi`)));
+      // A party's node gets the private state a moment after the receipt. readNotoTx throws on anything but the
+      // node's own refusal (PD011658), so errors never turn into 'sealed'.
       let reads: NotoTxView[] = [];
       for (const end = Date.now() + LENS_WAIT_MS; ; await sleep(500)) {
         reads = await Promise.all(txIds.map((id) => readNotoTx(client, id)));
@@ -164,6 +189,10 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       }
       const visible = reads.some((r) => r.visible);
       if (mustSee && !visible) throw new Error(`Node ${party} belum memiliki state transaksi ini`);
+      // Sealed needs positive evidence: the refusal above plus a state receipt that lists states the node cannot read.
+      if (!visible && reads.some((r) => r.hidden.length === 0)) {
+        throw new Error(`Node ${PARTIES[party].name} belum mengindeks transaksi (state receipt belum memuat state tersembunyi)`);
+      }
 
       const hashes = await readStateHashes(client, result.txHash);
       const onChain = [
@@ -206,16 +235,23 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       for (const b of BANKS) {
         const have = await balanceOf(b, 'RD');
         if (have >= need) continue;
-        await withDeadline(issueCash(p, bank(p, b).verifier.lookup, need - have), DEADLINE, `Penerbitan RD ke ${b}`);
+        // One exact LOAD_AMOUNT coin per mint (the issue helper mints a single coin per call), 8 in flight; mints have no inputs, so no coin contention.
+        const coins = Number((need - have + LOAD_AMOUNT - 1n) / LOAD_AMOUNT);
+        const lookup = bank(p, b).verifier.lookup;
+        for (let i = 0; i < coins; i += 8) {
+          await withDeadline(Promise.all(Array.from({ length: Math.min(8, coins - i) }, () => issueCash(p, lookup, LOAD_AMOUNT))), DEADLINE, `Penerbitan RD ke ${b}`);
+        }
         await untilBalance(b, 'RD', need);
       }
     },
 
     async transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample> {
       const p = await plat();
-      const submittedAt = Date.now();
-      await withDeadline(transferNoto(p, 'cash', bank(p, from), bank(p, to).verifier.lookup, amount), DEADLINE, 'Transfer RD Noto');
-      return { submittedAt, confirmedAt: Date.now() };
+      return exclusive([from], async () => {
+        const submittedAt = Date.now(); // after the lock: queue time is not transfer latency
+        await withDeadline(transferNoto(p, 'cash', bank(p, from), bank(p, to).verifier.lookup, amount), DEADLINE, 'Transfer RD Noto');
+        return { submittedAt, confirmedAt: Date.now() };
+      });
     },
   };
   return adapter;
