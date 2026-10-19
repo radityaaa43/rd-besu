@@ -15,10 +15,11 @@ export interface StressSnapshot {
 const PAIRS: [BankId, BankId][] = [['A', 'B'], ['B', 'C'], ['C', 'A']];
 const CALL_DEADLINE_MS = 120_000;
 const DRAIN_MS = 30_000;
+export const HEALTH_MS = 10_000;
 
 export function validateStress(c: StressConfig, capacity: Partial<Record<ModelId, number>>): { ok: true } | { ok: false; reason: string } {
   if (c.models.length === 0) return { ok: false, reason: 'Pilih minimal satu model' };
-  if (!(c.count >= 1)) return { ok: false, reason: 'Jumlah transaksi minimal 1' };
+  if (!(Number.isInteger(c.count) && c.count >= 1)) return { ok: false, reason: 'Jumlah transaksi minimal 1' };
   for (const m of c.models) {
     // a model absent from the capacity map has no adapter loaded
     if (capacity[m] === undefined) return { ok: false, reason: `${MODEL_NAMES[m]} belum tersedia` };
@@ -73,10 +74,9 @@ export class StressRun extends EventEmitter {
       }
     } finally {
       this.state = this.stopped ? 'stopped' : 'done';
+      this.emit('done', this.snapshot());
     }
-    const snap = this.snapshot();
-    this.emit('done', snap);
-    return snap;
+    return this.snapshot();
   }
 
   private tick(): void {
@@ -90,8 +90,12 @@ export class StressRun extends EventEmitter {
     const st = this.states[m]!;
     const adapter = this.adapters[m];
     if (!adapter) { st.status = 'skipped'; st.reason = `${MODEL_NAMES[m]} belum tersedia`; return; }
-    const health = await adapter.health();
-    if (!health.ready) { st.status = 'skipped'; st.reason = health.detail; return; }
+    try {
+      const health = await withDeadline(adapter.health(), HEALTH_MS, 'Cek kesiapan');
+      if (!health.ready) { st.status = 'skipped'; st.reason = health.detail; return; }
+    } catch (e) {
+      st.status = 'skipped'; st.reason = e instanceof Error ? e.message : String(e); return;
+    }
 
     st.status = 'running';
     st.startedAt = this.clock.now();

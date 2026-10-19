@@ -117,6 +117,30 @@ test('emits at most one tick per second and a final done', async () => {
   expect(done.mock.calls[0][0].state).toBe('done');
 });
 
+test('hung health() is skipped after 10 s, next model still runs, done emitted', async () => {
+  const n = fakeAdapter('noto');
+  n.health = () => new Promise(() => {});
+  const run = new StressRun(cfg({ models: ['noto', 'zeto'], count: 3 }), { noto: n, zeto: fakeAdapter('zeto') });
+  const done = vi.fn();
+  run.on('done', done);
+  const snap = await finish(run);
+  expect(snap.models.noto).toMatchObject({ status: 'skipped', reason: 'Cek kesiapan tidak selesai dalam 10 detik' });
+  expect(snap.models.zeto?.summary.ok).toBe(3);
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
+test('rejecting health() is skipped with the error message, next model still runs, done emitted', async () => {
+  const n = fakeAdapter('noto');
+  n.health = () => Promise.reject(new Error('port-forward putus'));
+  const run = new StressRun(cfg({ models: ['noto', 'zeto'], count: 3 }), { noto: n, zeto: fakeAdapter('zeto') });
+  const done = vi.fn();
+  run.on('done', done);
+  const snap = await finish(run);
+  expect(snap.models.noto).toMatchObject({ status: 'skipped', reason: 'port-forward putus' });
+  expect(snap.models.zeto?.summary.ok).toBe(3);
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
 const cap: Partial<Record<ModelId, number>> = { zeto: 100, noto: 500, stealth: 500 };
 
 test('rejects count above capacity', () => {
@@ -127,5 +151,7 @@ test('rejects count above capacity', () => {
 test('rejects empty model list, zero count and unavailable model', () => {
   expect(validateStress(cfg({ models: [] }), cap)).toEqual({ ok: false, reason: 'Pilih minimal satu model' });
   expect(validateStress(cfg({ count: 0 }), cap)).toEqual({ ok: false, reason: 'Jumlah transaksi minimal 1' });
+  expect(validateStress(cfg({ count: 2.5 }), cap)).toEqual({ ok: false, reason: 'Jumlah transaksi minimal 1' });
+  expect(validateStress(cfg({ count: Infinity }), cap)).toEqual({ ok: false, reason: 'Jumlah transaksi minimal 1' });
   expect(validateStress(cfg({ models: ['stealth'] }), { zeto: 100 })).toEqual({ ok: false, reason: 'Stealth belum tersedia' });
 });
