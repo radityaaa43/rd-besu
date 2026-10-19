@@ -307,6 +307,20 @@ test('5xx errors are generic Indonesian and do not leak the message; the lock is
   expect((await post(a, '/api/tx', req)).statusCode).toBe(202);
 });
 
+test('preflight-capacity returns ready capacity per available model', async () => {
+  const a = make({ zeto: fakeAdapter('zeto', { capacity: 200 }), noto: fakeAdapter('noto', { capacity: 50 }) });
+  const res = await a.inject('/api/preflight-capacity');
+  expect(res.statusCode).toBe(200);
+  expect(res.json()).toEqual({ zeto: 200, noto: 50 });
+});
+
+test('preflight-capacity omits a model whose capacity cannot be read', async () => {
+  const z = fakeAdapter('zeto');
+  z.loadCapacity = async () => { throw new Error('node mati'); };
+  const res = await make({ zeto: z, noto: fakeAdapter('noto', { capacity: 7 }) }).inject('/api/preflight-capacity');
+  expect(res.json()).toEqual({ noto: 7 });
+});
+
 test('unknown routes are 404 with an Indonesian reason', async () => {
   const res = await make().inject('/api/nope');
   expect(res.statusCode).toBe(404);

@@ -224,6 +224,16 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
     return reply;
   });
 
+  // ready transaction capacity per model; a model that is missing or cannot answer is left out
+  app.get('/api/preflight-capacity', async () => {
+    const entries = await Promise.all(MODELS.map(async (m): Promise<[ModelId, number][]> => {
+      const a = adapters[m];
+      if (!a) return [];
+      try { return [[m, await withDeadline(a.loadCapacity(), HEALTH_MS, 'Cek kapasitas')]]; } catch { return []; }
+    }));
+    return Object.fromEntries(entries.flat());
+  });
+
   // ---- stress ----
   app.post<{ Body: StressConfig }>('/api/stress', { schema: { body: stressBody } }, async (request, reply) => {
     const cfg = request.body;
