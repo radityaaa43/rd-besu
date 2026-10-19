@@ -15,6 +15,7 @@ import { readNotoTx, readStateHashes, readTxReceipt, tradeSpendTxIds, waitTxInde
 const DEADLINE = 120_000;
 const DVP_DEADLINE = 100_000; // inside the app's 120 s flow deadline
 const NODE_PROBE_MS = 2_000;
+const BALANCE_MS = 10_000;
 const LENS_WAIT_MS = 20_000;
 const INVESTOR: Record<BankId, string> = { A: 'investor1', B: 'investor2', C: 'investor3' };
 const FLOW_IDS = Object.keys(FLOWS) as FlowId[];
@@ -23,17 +24,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ponytail: in-process per-sender promise chain (same idea as zeto's `exclusive`); a multi-process server needs a shared lock.
 // Noto picks input coins on the sender's node, so two concurrent transfers from one sender may select the same coin.
 const chains = new Map<string, Promise<unknown>>();
-async function exclusive<T>(senders: PartyId[], fn: () => Promise<T>): Promise<T> {
+// `hold(p)` lets fn keep the lock until p settles even after fn itself returned or threw (a timed-out DvP keeps running).
+export async function exclusive<T>(senders: PartyId[], fn: (hold: (p: Promise<unknown>) => void) => Promise<T>): Promise<T> {
   const keys = [...new Set(senders)].sort(); // sorted: two-party locks cannot deadlock
   const previous = keys.map((k) => chains.get(k) ?? Promise.resolve());
-  const current = Promise.allSettled(previous).then(fn);
-  const settled = current.catch(() => undefined);
+  const held: Promise<unknown>[] = [];
+  const current = Promise.allSettled(previous).then(() => fn((p) => { held.push(p); }));
+  const settled: Promise<unknown> = current.catch(() => undefined).then(() => Promise.allSettled(held))
+    .then(() => { keys.forEach((k) => chains.get(k) === settled && chains.delete(k)); });
   keys.forEach((k) => chains.set(k, settled));
-  try {
-    return await current;
-  } finally {
-    keys.forEach((k) => chains.get(k) === settled && chains.delete(k));
-  }
+  return current;
 }
 
 interface NotoContext { txIds: string[] } // plain flows: [tx]; dvp: [bond-leg spend tx, cash-leg spend tx]
@@ -50,10 +50,10 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
     const token = asset === 'RD' ? p.notoCash : p.notoBond;
     if (party === 'BI') {
       const v = asset === 'RD' ? p.node1.getVerifiers(p.data.participants.cashIssuer)[0] : p.bondCustodian;
-      return BigInt((await token.balanceOf(v, { account: v.lookup })).totalBalance);
+      return BigInt((await withDeadline(token.balanceOf(v, { account: v.lookup }), BALANCE_MS, `Saldo ${asset} BI`)).totalBalance);
     }
     const b = bank(p, party);
-    return BigInt((await token.using(b.client).balanceOf(b.verifier, { account: b.verifier.lookup })).totalBalance);
+    return BigInt((await withDeadline(token.using(b.client).balanceOf(b.verifier, { account: b.verifier.lookup }), BALANCE_MS, `Saldo ${asset} ${party}`)).totalBalance);
   }
 
   async function untilBalance(party: PartyId, asset: 'RD' | 'DFABI', expected: bigint): Promise<void> {
@@ -79,7 +79,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
     return m;
   })().catch((e) => { keys = undefined; throw e; }));
 
-  async function runUnlocked(req: FlowRequest, amount: bigint, onStep: (s: StepEvent) => void): Promise<FlowResult> {
+  async function runUnlocked(req: FlowRequest, amount: bigint, onStep: (s: StepEvent) => void, hold: (p: Promise<unknown>) => void): Promise<FlowResult> {
     const p = await plat();
     const flow = FLOWS[req.flow];
     const asset = flow.asset;
@@ -113,6 +113,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       // The record is written from the raw promise, so it survives the deadline below (executeOutright keeps running after it).
       const raw = executeOutright(p, { seller: seller.name, buyer: buyer.name, units: amount.toString(), price: PRICE_PER_UNIT.toString(), tradeId }, log)
         .then((t) => { appendTrade(p.dataDir, t); return t; });
+      hold(raw); // ponytail: the parties stay locked until executeOutright really settles, not when our deadline fires
       const trade = await withDeadline(raw, DVP_DEADLINE, 'DvP Noto').catch((e) => {
         if (e instanceof DeadlineError) throw new Error(`Status DvP belum diketahui; cek ulang (trade ${tradeId} di trades.jsonl, periksa saldo dan lock)`);
         throw e;
@@ -120,6 +121,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       if (trade.status !== 'SETTLED') throw new Error(`DvP Noto gagal di langkah ${trade.failedStep ?? '?'} (${trade.status}): ${trade.error ?? ''}`);
       const executed = executedAt ?? Date.now();
       const legs = await tradeSpendTxIds(p, tradeId, seller, buyer);
+      await waitTxIndexed(p.node1, legs.bond, 20_000, 'Node BI belum mengindeks transaksi DvP');
       const { txHash, block } = await readTxReceipt(p.node1, legs.bond);
       emit(3, executed, Date.now()); // executeOutright returns once all four balances moved
       return { txHash, block, steps, context: { txIds: [legs.bond, legs.cash] } satisfies NotoContext };
@@ -169,7 +171,7 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
 
     balanceOf,
 
-    run: (req, amount, onStep) => exclusive(FLOWS[req.flow].dvp ? [req.from, req.to] : [req.from], () => runUnlocked(req, amount, onStep)),
+    run: (req, amount, onStep) => exclusive(FLOWS[req.flow].dvp ? [req.from, req.to] : [req.from], (hold) => runUnlocked(req, amount, onStep, hold)),
 
     async lens(req: FlowRequest, result: FlowResult, party: PartyId): Promise<LensView> {
       const p = await plat();

@@ -17,7 +17,7 @@ export async function bootstrap(): Promise<void> {
   const dataDir = join(STATE_DIR, 'noto');
   execFileSync('npx', ['ts-node', 'src/index.ts', '--cache', dataDir,
     '--cash-per-investor', '10000000000000', '--supply', '1000000', '--units-per-investor', '1000'],
-  { cwd: BOND_DIR, stdio: 'inherit' });
+  { cwd: BOND_DIR, stdio: 'inherit', timeout: 15 * 60_000 });
   writeState('noto', { dataDir });
   console.log(`state/noto.json ditulis: ${dataDir}`);
 }
