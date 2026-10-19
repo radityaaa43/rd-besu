@@ -1,7 +1,7 @@
 import type { LensView } from '../../../server/src/adapter.ts';
 import { PRICE_PER_UNIT, type PartyId } from '../../../server/src/domain.ts';
 import type { Meta } from '../api.ts';
-import { formatRupiah, formatUnits, shortHash } from '../format.ts';
+import { formatRupiah, formatUnits, shortHash, splitCode } from '../format.ts';
 import { counterpartyLine } from './counterparty.ts';
 import { MODEL_COPY, VERDICT, nodeLabel, roleLabel } from './copy.ts';
 import type { DemoAction, DemoState } from './demoState.ts';
@@ -103,7 +103,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
       </div>
       {open && (
         <div className="card detail" style={{ marginTop: 12 }}>
-          <div><h4>Cara {nm(open.party)} membaca transaksi ini</h4><p>{open.method}</p></div>
+          <div><h4>Cara {nm(open.party)} membaca transaksi ini</h4><p>{splitCode(open.method).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : p.text))}</p></div>
           <div>
             <h4>Yang tercatat di chain</h4>
             <ul>

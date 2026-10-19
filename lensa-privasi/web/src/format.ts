@@ -22,3 +22,7 @@ export function parseAmountInput(s: string): bigint | null {
   const digits = s.replace(/\D/g, '');
   return digits === '' ? null : BigInt(digits);
 }
+
+// "teks `fungsi` teks" -> segments; backtick spans become code elements, so no HTML is ever injected
+export const splitCode = (s: string): { text: string; code: boolean }[] =>
+  s.split('`').map((text, i) => ({ text, code: i % 2 === 1 })).filter((p) => p.text !== '');

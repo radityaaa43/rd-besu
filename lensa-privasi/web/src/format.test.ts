@@ -1,5 +1,17 @@
 import { expect, test } from 'vitest';
-import { amountWords, formatDecimal, formatRupiah, formatSeconds, formatUnits, parseAmountInput, shortHash } from './format.ts';
+import { amountWords, formatDecimal, formatRupiah, formatSeconds, formatUnits, parseAmountInput, shortHash, splitCode } from './format.ts';
+
+test('splitCode turns backtick spans into code segments', () => {
+  expect(splitCode('Baca (`ptx.getStateReceipt`, `scanChain`).')).toEqual([
+    { text: 'Baca (', code: false }, { text: 'ptx.getStateReceipt', code: true }, { text: ', ', code: false },
+    { text: 'scanChain', code: true }, { text: ').', code: false },
+  ]);
+  expect(splitCode('polos')).toEqual([{ text: 'polos', code: false }]);
+  expect(splitCode('')).toEqual([]);
+});
+test('splitCode never interprets HTML', () => {
+  expect(splitCode('<b>x</b>')).toEqual([{ text: '<b>x</b>', code: false }]);
+});
 
 test('formatRupiah groups with dots', () => {
   expect(formatRupiah(1_000_000_000n)).toBe('Rp 1.000.000.000');
