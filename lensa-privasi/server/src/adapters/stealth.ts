@@ -20,6 +20,7 @@ export interface PoolEntry { stealthAddress: string; privateKey: string; used: b
 export interface StealthState {
   chainId: bigint;
   deployerKey: string; // the deployer plays BI: issuer, custodian, certificate signer
+  rpcUrl?: string; // Besu endpoint the stack was deployed on; load() reconnects to it
   deployed: Deployed;
   banks: Record<BankId, BankKeys>;
   pool: Record<string, PoolEntry[]>; // 'A>B': funded stealth addresses of A reserved for the stress test
@@ -38,7 +39,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 interface Ctx { kind: 'rd' | 'bond'; stealthAddress: string; ephemeralPubKey: string; memo: string; amount: bigint } // what the sender built
 type Holding = Found & { balance: bigint };
 
-export function createStealthAdapter(state: StealthState, rpcUrl = 'http://127.0.0.1:8545'): ModelAdapter {
+// 'partial' only if the outsider's own reads really came back empty; anything else is a privacy break, never papered over.
+export function outsiderVerdict(hits: number, opened: unknown): 'partial' {
+  if (hits === 0 && opened === null) return 'partial';
+  throw new Error('Pihak luar ternyata bisa membaca transaksi');
+}
+
+export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl ?? 'http://127.0.0.1:8545'): ModelAdapter {
   const provider = new JsonRpcProvider(rpcUrl, undefined, { cacheTimeout: -1 });
   const { deployed: d, chainId, banks } = state;
   const bi = new Wallet(state.deployerKey, provider);
@@ -65,7 +72,7 @@ export function createStealthAdapter(state: StealthState, rpcUrl = 'http://127.0
         return r;
       }
       if (Date.now() > limit) throw new DeadlineError('Transaksi', TX_MS);
-      await sleep(200);
+      await sleep(500);
     }
   }
 
@@ -101,9 +108,13 @@ export function createStealthAdapter(state: StealthState, rpcUrl = 'http://127.0
   const busy = new Set<string>();
   async function claim(bank: BankId, asset: 'RD' | 'DFABI', need: bigint): Promise<Holding> {
     const ok = (await holdings(bank, asset)).filter((h) => h.balance >= need && !busy.has(lc(h.stealthAddress))).sort((x, y) => (x.balance < y.balance ? -1 : x.balance > y.balance ? 1 : 0));
-    if (!ok.length) throw new Error(NO_BALANCE);
-    busy.add(lc(ok[0].stealthAddress));
-    return ok[0];
+    for (const h of ok) {
+      busy.add(lc(h.stealthAddress));
+      // Another run may have spent from it between the listing and the claim: re-read the balance now that it is ours.
+      if ((await balance(asset, h.stealthAddress)) >= need) return h;
+      busy.delete(lc(h.stealthAddress));
+    }
+    throw new Error(NO_BALANCE);
   }
 
   const parse = (kind: 'rd' | 'bond', md: string) => (kind === 'rd' ? parseTokenMetadata(md) : parseBondMetadata(md));
@@ -238,7 +249,7 @@ export function createStealthAdapter(state: StealthState, rpcUrl = 'http://127.0
     const k = banks[party as BankId];
     const hits = scanView(anns, { id: party, viewKey: k.viewKey, metaAddress: k.metaAddress }).length;
     const opened = openMemo(md.memo, k.viewKey, { chainId, token: md.token, stealthAddress: ann.stealthAddress, amount: md.amount, ephemeralPubKey: ann.ephemeralPubKey, partition: (md as { partition?: string }).partition });
-    return view('partial', md.amount, null, `scanView (${hits} hasil) + openMemo (${opened ? 'terbuka' : 'null'})`);
+    return view(outsiderVerdict(hits, opened), md.amount, null, `scanView (${hits} hasil) + openMemo (${opened ? 'terbuka' : 'null'})`);
   }
 
   // Funds `count` fresh stealth addresses of `bank` with exactly LOAD_AMOUNT RD each (BI mints) and records their keys.
@@ -298,11 +309,19 @@ export function createStealthAdapter(state: StealthState, rpcUrl = 'http://127.0
       if (!entry) throw new Error('Alamat stealth beban habis, jalankan prepareLoad');
       entry.used = true;
       writeState('stealth', state);
-      const gp = await gasPrice();
-      const submittedAt = Date.now();
-      const p = pay(chainId, banks[to].metaAddress, banks[from].identityKey, d.rd, amount);
-      const w = new Wallet(entry.privateKey, provider);
-      const tx = await contracts(d, w).rd.sendStealth(p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo, { gasPrice: gp });
+      let submittedAt = 0;
+      let tx;
+      try {
+        const gp = await gasPrice();
+        submittedAt = Date.now();
+        const p = pay(chainId, banks[to].metaAddress, banks[from].identityKey, d.rd, amount);
+        const w = new Wallet(entry.privateKey, provider);
+        tx = await contracts(d, w).rd.sendStealth(p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo, { gasPrice: gp });
+      } catch (e) {
+        entry.used = false; // nothing was submitted: the pooled address is still funded
+        writeState('stealth', state);
+        throw e;
+      }
       await confirm(tx);
       return { submittedAt, confirmedAt: Date.now() };
     },

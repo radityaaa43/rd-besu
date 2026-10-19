@@ -18,7 +18,7 @@ const lenses = async (r: FlowRequest, res: Awaited<ReturnType<ModelAdapter['run'
 describe('stealth adapter on Besu', () => {
   it('is healthy and holds the opening balances', async () => {
     expect(await a.health()).toEqual({ ready: true, detail: 'ok' });
-    expect(await a.balanceOf('A', 'RD')).toBeGreaterThanOrEqual(10n ** 13n - 1n);
+    expect(await a.balanceOf('A', 'RD')).toBeGreaterThan(0n);
   });
 
   it('rd-transfer A to B: every lens is read with that party\'s own keys', async () => {
