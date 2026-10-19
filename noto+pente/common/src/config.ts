@@ -1,3 +1,4 @@
+/// <reference path="./minimist.d.ts" />
 import { PaladinConfig } from "@lfdecentralizedtrust/paladin-sdk";
 import https from "https";
 import fs from "fs";

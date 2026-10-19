@@ -86,7 +86,7 @@ export class AtomFactory {
         atomFactoryJson.abi,
         ""
       );
-      const deployedEvent = events.find((ev) =>
+      const deployedEvent = events.find((ev: any) =>
         ev.soliditySignature.startsWith("event AtomDeployed")
       );
       const atomAddress = deployedEvent?.data.addr;
