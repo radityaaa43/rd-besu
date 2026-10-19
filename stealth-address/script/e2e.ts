@@ -6,11 +6,12 @@
 // Output per case: ID | feature | happy/negative | expected | actual | PASS/FAIL | tx hash. Exit code 1 if any FAIL.
 import { readFileSync, writeFileSync } from 'node:fs';
 import {
-  Contract, ContractFactory, Interface, JsonRpcProvider, type ContractRunner, type Signer, TypedDataEncoder, Wallet, ZeroAddress, ZeroHash, concat, encodeBytes32String,
+  Contract, Interface, JsonRpcProvider, type ContractRunner, type Signer, TypedDataEncoder, Wallet, ZeroAddress, ZeroHash, concat, encodeBytes32String,
   getBytes, hexlify, keccak256, randomBytes, toUtf8Bytes,
 } from 'ethers';
 import { CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signCertificate } from '../ts/bond.ts';
 import { canonicalJson, loadProfile, recordHash, registrationArgs, validateRecord } from '../ts/instrument.ts';
+import { artifact, announcements as chainAnnouncements, biRows as chainBiRows, cert as chainCert, chainNow, contracts, deploy as chainDeploy, deployAll, pay as chainPay, read as chainRead, TRANCHE_A } from '../ts/chain.ts';
 import { buildMemo, encryptMemo, memoDigest, openMemo, type MemoContext } from '../ts/memo.ts';
 import { deriveStealth, generateMetaAddress, scan, scanAll, scanView, type Announcement, type ViewKeyHolder } from '../ts/stealth.ts';
 import { buildTokenMetadata, parseTokenMetadata } from '../ts/token.ts';
@@ -25,7 +26,6 @@ const provider = new JsonRpcProvider(RPC_URL, undefined, { cacheTimeout: -1 });
 // The deployer plays BI (RD issuer), the custodian (bond minter, controller, certificate signer, escrow creator),
 // the registry owner and the registrar. Every other actor is a fresh random wallet (gas price 0: no funds needed).
 const custodian = new Wallet(DEPLOYER_KEY, provider);
-const TRANCHE_A = encodeBytes32String('TRANCHE-A');
 const BOND = 1000n;
 const PRICE = 5_000_000n;
 const WINDOW = 600n;
@@ -86,17 +86,14 @@ async function thrown(fn: () => unknown): Promise<string> {
 }
 
 // ---------- chain helpers ----------
-const artifact = (name: string, file = name) => JSON.parse(readFileSync(`out/${file}.sol/${name}.json`, 'utf8'));
 async function deploy(name: string, args: unknown[] = [], file = name): Promise<Contract> {
-  const { abi, bytecode } = artifact(name, file);
-  const c = await new ContractFactory(abi, bytecode.object, custodian).deploy(...args);
-  await c.waitForDeployment();
+  const c = await chainDeploy(custodian, name, args, file);
   ifaces.push(c.interface);
-  return c as unknown as Contract;
+  return c;
 }
 const sendTx = async (p: Promise<any>): Promise<string> => (await (await p).wait()).hash;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const now = async () => BigInt((await provider.getBlock('latest'))!.timestamp);
+const now = () => chainNow(provider);
 async function waitUntil(ts: bigint) {
   while ((await now()) < ts) {
     await (await custodian.sendTransaction({ to: custodian.address, value: 0 })).wait(); // keep blocks coming
@@ -113,64 +110,23 @@ console.log('chainId', net.chainId.toString(), '| gasPrice', gasPrice.toString()
 if ((await provider.getCode('0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24')) === '0x') throw new Error('ERC1820 registry is not deployed (node script/deploy-erc1820.ts)');
 
 // ---------- deploy ----------
-const fromBlock = await provider.getBlockNumber(); // Besu caps the eth_getLogs range: read from just before the deploy
-const announcer = await deploy('ERC5564Announcer');
-const registry = await deploy('ERC6538Registry');
-const validator = await deploy('ERC1400TokensValidator');
-const bond = await deploy('DfabiBond', ['DFABI Series 1', 'DFB1', [custodian.address], [TRANCHE_A], await announcer.getAddress()]);
-const rd = await deploy('RupiahDigital', [custodian.address, await announcer.getAddress()]);
-const factory = await deploy('DvPFactory', [custodian.address]);
-const instruments = await deploy('InstrumentRegistry');
+const d = await deployAll(custodian);
+const { announcer, registry, validator, bond, rd, factory, instruments } = contracts(d, custodian);
+for (const c of [announcer, registry, validator, bond, rd, factory, instruments]) ifaces.push(c.interface);
 ifaces.push(new Interface(artifact('DvPEscrow').abi));
-const [announcerAddr, registryAddr, bondAddr, rdAddr, factoryAddr, instrumentsAddr] = await Promise.all(
-  [announcer, registry, bond, rd, factory, instruments].map((c) => c.getAddress()),
-);
+const { announcer: announcerAddr, registry: registryAddr, bond: bondAddr, rd: rdAddr, dvpFactory: factoryAddr, instrumentRegistry: instrumentsAddr } = d;
 console.log('announcer', announcerAddr, '| registry', registryAddr, '| bond', bondAddr, '| rd', rdAddr, '| factory', factoryAddr, '| instruments', instrumentsAddr);
-for (const send of [
-  () => bond.setTokenExtension(validator.target, 'ERC1400TokensValidator', true, false, false),
-  () => validator.registerTokenSetup(bondAddr, 1, true, false, false, false, []),
-  () => validator.addCertificateSigner(bondAddr, custodian.address),
-  () => validator.addAllowlisted(bondAddr, custodian.address),
-  () => instruments.setRegistrar(custodian.address, true),
-]) await (await send()).wait();
-
 // The custodian signs the calldata of the exact call `msgSender` will make, minus the certificate argument.
-async function cert(fn: string, msgSender: string, args: readonly unknown[], o: { expiry?: bigint; key?: string; nonce?: bigint } = {}): Promise<string> {
-  const placeholder = bond.interface.encodeFunctionData(fn, [...args, new Uint8Array(CERTIFICATE_LENGTH)]);
-  return signCertificate(o.key ?? DEPLOYER_KEY!, {
-    domainSeparator: await bond.generateDomainSeparator(),
-    msgSender,
-    token: bondAddr,
-    payload: payloadWithoutCertificate(placeholder),
-    expiry: o.expiry ?? (await now()) + 600n,
-    nonce: o.nonce ?? (await validator.usedCertificateNonce(bondAddr, msgSender)),
-  });
-}
-
-async function announcements(token: string | null): Promise<Announcement[]> {
-  const logs = await announcer.queryFilter(announcer.filters.Announcement(null, null, token), fromBlock);
-  return logs.map((l: any) => ({ schemeId: l.args.schemeId, stealthAddress: l.args.stealthAddress, ephemeralPubKey: l.args.ephemeralPubKey, metadata: l.args.metadata }));
-}
-
+const cert = (fn: string, msgSender: string, args: readonly unknown[], o: { expiry?: bigint; key?: string; nonce?: bigint } = {}) =>
+  chainCert(provider, d, DEPLOYER_KEY!, fn, msgSender, args, o);
+const announcements = (token: string | null) => chainAnnouncements(provider, d, d.fromBlock, token);
 // A payment to `meta` with its memo, signed by `senderKey`.
-function pay(meta: string, senderKey: string, token: string, amount: bigint, partition?: string) {
-  const ephemeralKey = hexlify(randomBytes(32));
-  const s = deriveStealth(meta, ephemeralKey);
-  const ctx: MemoContext = { chainId: net.chainId, token, stealthAddress: s.stealthAddress, amount, ephemeralPubKey: s.ephemeralPubKey, partition };
-  return { s, ctx, ephemeralKey, memo: buildMemo({ senderKey, ephemeralKey, receiverMetaAddress: meta, ctx }) };
-}
+const pay = (meta: string, senderKey: string, token: string, amount: bigint, partition?: string) => chainPay(net.chainId, meta, senderKey, token, amount, partition);
 // What a receiver (or BI, holding the receiver's view key) reads from an announcement: token, amount, partition and the authenticated sender.
-function read(ann: Announcement, viewKey: string, kind: 'rd' | 'bond') {
-  const m: any = kind === 'rd' ? parseTokenMetadata(ann.metadata) : parseBondMetadata(ann.metadata);
-  const ctx: MemoContext = { chainId: net.chainId, token: m.token, stealthAddress: ann.stealthAddress, amount: m.amount, ephemeralPubKey: ann.ephemeralPubKey, partition: m.partition };
-  return { token: m.token as string, amount: m.amount as bigint, partition: m.partition as string | undefined, memo: m.memo as string, ctx, sender: openMemo(m.memo, viewKey, ctx)?.sender ?? null };
-}
+const read = (ann: Announcement, viewKey: string, kind: 'rd' | 'bond') => chainRead(net.chainId, ann, viewKey, kind);
 // BI's view: every announcement resolved to a bank, with amount and authenticated sender.
 const biRows = (anns: Announcement[], holders: ViewKeyHolder[], kind: 'rd' | 'bond') =>
-  scanAll(anns, holders).map((r) => {
-    const p = read(r.announcement, holders.find((h) => h.id === r.bank)!.viewKey, kind);
-    return `${r.bank}:${p.amount}:${p.sender}`;
-  }).sort().join(' | ');
+  chainBiRows(net.chainId, anns, holders, kind).map((r) => `${r.bank}:${r.amount}:${r.sender}`).sort().join(' | ');
 
 // Banks. A and B are the main pair; C takes no part in anything and must see nothing.
 const bankA = generateMetaAddress();
