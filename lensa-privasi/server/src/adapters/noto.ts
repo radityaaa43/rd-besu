@@ -24,6 +24,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ponytail: in-process per-sender promise chain (same idea as zeto's `exclusive`); a multi-process server needs a shared lock.
 // Noto picks input coins on the sender's node, so two concurrent transfers from one sender may select the same coin.
 const chains = new Map<string, Promise<unknown>>();
+// ponytail: if an underlying Paladin call never settles, that party stays locked until server restart; restart is the recovery
+// (no auto-release, because releasing risks double-spend).
 // `hold(p)` lets fn keep the lock until p settles even after fn itself returned or threw (a timed-out DvP keeps running).
 export async function exclusive<T>(senders: PartyId[], fn: (hold: (p: Promise<unknown>) => void) => Promise<T>): Promise<T> {
   const keys = [...new Set(senders)].sort(); // sorted: two-party locks cannot deadlock
@@ -138,7 +140,9 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
     };
     let receipt: Awaited<ReturnType<typeof send>>;
     try {
-      receipt = await withDeadline(send(), DEADLINE, 'Receipt Noto');
+      const rawSend = send();
+      hold(rawSend); // the sender stays locked until the send really settles, not when our deadline fires
+      receipt = await withDeadline(rawSend, DEADLINE, 'Receipt Noto');
     } finally {
       stop();
     }
@@ -249,9 +253,11 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
 
     async transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample> {
       const p = await plat();
-      return exclusive([from], async () => {
+      return exclusive([from], async (hold) => {
         const submittedAt = Date.now(); // after the lock: queue time is not transfer latency
-        await withDeadline(transferNoto(p, 'cash', bank(p, from), bank(p, to).verifier.lookup, amount), DEADLINE, 'Transfer RD Noto');
+        const rawSend = transferNoto(p, 'cash', bank(p, from), bank(p, to).verifier.lookup, amount);
+        hold(rawSend);
+        await withDeadline(rawSend, DEADLINE, 'Transfer RD Noto');
         return { submittedAt, confirmedAt: Date.now() };
       });
     },

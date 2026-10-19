@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exclusive } from '../src/adapters/noto.ts';
+import { withDeadline } from '../src/deadline.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,6 +17,20 @@ describe('noto exclusive', () => {
     release();
     await second;
     expect(order).toEqual(['slow done', 'second']);
+  });
+
+  it('a plain send that outlives its deadline keeps the sender locked', async () => {
+    let finish!: () => void;
+    const rawSend = new Promise<void>((r) => { finish = r; });
+    const order: string[] = [];
+    const first = exclusive(['A'], async (hold) => { hold(rawSend); await withDeadline(rawSend, 20, 'send'); });
+    await expect(first).rejects.toThrow(/tidak selesai/);
+    const second = exclusive(['A'], async () => { order.push('second'); });
+    await sleep(50);
+    expect(order).toEqual([]);
+    finish();
+    await second;
+    expect(order).toEqual(['second']);
   });
 
   it('serialises same-sender work and lets different senders overlap', async () => {
