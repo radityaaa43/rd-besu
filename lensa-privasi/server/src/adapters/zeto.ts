@@ -1,4 +1,4 @@
-import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent } from '../adapter.ts';
+import type { Capability, Counterparty, FlowResult, LensView, ModelAdapter, StepEvent } from '../adapter.ts';
 import {
   BANKS, FLOWS, PARTIES, PRICE_PER_UNIT, roleOf,
   type BankId, type FlowId, type FlowRequest, type PartyId,
@@ -30,6 +30,24 @@ interface Ctx { io: Io[] }
 
 export const LOOKUP: Record<PartyId, string> = { BI: 'bi@node1', A: 'bankA@node2', B: 'bankB@node3', C: 'bankC@node4' };
 const PARTY_IDS = Object.keys(LOOKUP) as PartyId[];
+const PARTY_OF = new Map(PARTY_IDS.map((id): [string, PartyId] => [LOOKUP[id], id]));
+
+// Who paid whom, read from BI's verified ledger: the reporter of the outputs is the sender (the issuer is BI, the
+// bank that reports a mint is its receiver), the owner of the outputs that are not the sender's is the receiver.
+// A side the ledger does not pin to exactly one known identity is null.
+export function ledgerParties(
+  ledger: { verified: Map<string, { output: { owner: string }; reporters: Set<string> }>; ownerOf(key: string): string },
+  outputs: string[], issuer: boolean,
+): Counterparty | null {
+  const seen = outputs.flatMap((o) => ledger.verified.get(o) ?? []);
+  if (!seen.length) return null;
+  const reporters = new Set(seen.flatMap((v) => [...v.reporters]));
+  const fromId = issuer ? LOOKUP.BI : reporters.size === 1 ? [...reporters][0] : undefined;
+  const owners = new Set(seen.map((v) => ledger.ownerOf(v.output.owner)).filter((o) => o !== fromId));
+  const from = fromId === undefined ? null : PARTY_OF.get(fromId) ?? null;
+  const to = owners.size === 1 ? PARTY_OF.get([...owners][0]!) ?? null : null;
+  return from === null && to === null ? null : { from, to };
+}
 const DEADLINE_MS = 120_000;
 const MAX_ZETO_TX = 2; // a Paladin node has crashed under concurrent ZK proving
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -204,14 +222,16 @@ export function createZetoAdapter(state: ZetoState) {
         ...i.inputs.map((n) => ({ label: `Input terpakai ${i.token}`, value: hex32(n) })),
       ]),
     ];
-    const view = (verdict: LensView['verdict'], amount: bigint | null, counterparty: string | null, method: string): LensView =>
+    // counterparty comes from BI's ledger (already verified by run()), never from the request
+    const assetParties = () => ledgerParties(ledger, io.filter((i) => i.token === asset).flatMap((i) => i.outputs), FLOWS[req.flow].issuer);
+    const view = (verdict: LensView['verdict'], amount: bigint | null, counterparty: Counterparty | null, method: string): LensView =>
       ({ party: id, role, verdict, amount: amount === null ? null : amount.toString(), counterparty, onChain, method });
 
     if (id === 'BI') {
       await untilVerified(io.flatMap((i) => i.outputs));
       const seen = io.flatMap((i) => i.outputs.map((o) => ({ token: i.token, ...ledger.verified.get(o)!.output }))).map((o) => ({ token: o.token, amount: BigInt(o.amount), owner: lower(o.owner) }));
-      return view(role === 'issuer' ? 'clear' : 'reported', sum(seen), `${PARTIES[req.from].name} → ${PARTIES[req.to].name}`,
-        'Membaca laporan bank di privacy group, lalu mencocokkan ulang ke commitment on-chain (<code>BiLedger.pollReports</code>, <code>scanChain</code>).');
+      return view(role === 'issuer' ? 'clear' : 'reported', sum(seen), assetParties(),
+        'Membaca laporan bank di privacy group, lalu mencocokkan ulang ke commitment on-chain (`BiLedger.pollReports`, `scanChain`).');
     }
     await indexedOn(id, result.txHash, io);
     const mine = await held(id, result.txHash, io);
@@ -220,8 +240,8 @@ export function createZetoAdapter(state: ZetoState) {
         'Node bank ini tidak menerima state maupun laporan: 0 state, saldo 0.');
     }
     if (!mine.length) throw new Error(`Node ${PARTIES[id].name} tidak memiliki state transaksi ini`);
-    return view('clear', sum(mine), PARTIES[id === req.to ? req.from : req.to].name,
-      id === req.from ? 'Query state privat di node sendiri (<code>pstate.queryContractStates</code>).' : 'Node penerima menerima state terenkripsi dan membukanya.');
+    return view('clear', sum(mine), assetParties(),
+      id === req.from ? 'Query state privat di node sendiri (`pstate.queryContractStates`).' : 'Node penerima menerima state terenkripsi dan membukanya.');
   }
 
   // Unspent, unlocked RD UTXOs of exactly LOAD_AMOUNT a bank owns on its own node.

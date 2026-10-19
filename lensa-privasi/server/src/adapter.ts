@@ -4,8 +4,10 @@ import type { Sample } from './stats.ts';
 export interface StepEvent { index: number; label: string; ms: number }
 export interface FlowResult { txHash: string; block: number; steps: StepEvent[]; context: unknown } // context: adapter-private data lens() needs
 export type Verdict = 'clear' | 'reported' | 'notarised' | 'viewkey' | 'partial' | 'sealed';
+// Who paid whom as this party's own read shows it. A side that read cannot show is null; the whole value is null when neither is readable.
+export interface Counterparty { from: PartyId | null; to: PartyId | null }
 export interface LensView {
-  party: PartyId; role: Role; verdict: Verdict; amount: string | null; counterparty: string | null;
+  party: PartyId; role: Role; verdict: Verdict; amount: string | null; counterparty: Counterparty | null;
   onChain: { label: string; value: string }[]; method: string; // amount null => redacted
 }
 export type Capability = { enabled: true } | { enabled: false; reason: string };

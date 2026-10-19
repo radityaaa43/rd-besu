@@ -56,9 +56,9 @@ describe('noto adapter (live)', () => {
     expect([lenses.A.verdict, lenses.B.verdict, lenses.BI.verdict, lenses.C.verdict]).toEqual(['clear', 'clear', 'notarised', 'sealed']);
     expect([lenses.A.role, lenses.B.role, lenses.BI.role, lenses.C.role]).toEqual(['sender', 'receiver', 'regulator', 'outsider']);
     for (const p of ['A', 'B', 'BI'] as const) expect(lenses[p].amount).toBe('1000');
-    expect(lenses.BI.counterparty).toBe('A → B'); // owners decoded from BI's own notary copy of the states
-    expect(lenses.A.counterparty).toBe('B');
-    expect(lenses.B.counterparty).toBe('A');
+    expect(lenses.BI.counterparty).toEqual({ from: 'A', to: 'B' }); // owners decoded from BI's own notary copy of the states
+    expect(lenses.A.counterparty).toEqual({ from: 'A', to: 'B' });
+    expect(lenses.B.counterparty).toEqual({ from: 'A', to: 'B' });
     expect(lenses.C.amount).toBeNull();
     expect(lenses.C.counterparty).toBeNull();
     for (const p of PARTIES) expectOnChain(lenses[p], result.txHash);
@@ -83,7 +83,7 @@ describe('noto adapter (live)', () => {
     const { result, events, lenses } = await runFlow(req('dfabi-transfer', 'B', 'C', '2'));
     expectSteps(events, result);
     expect([lenses.B.verdict, lenses.C.verdict, lenses.BI.verdict, lenses.A.verdict]).toEqual(['clear', 'clear', 'notarised', 'sealed']);
-    expect(lenses.BI.counterparty).toBe('B → C');
+    expect(lenses.BI.counterparty).toEqual({ from: 'B', to: 'C' });
     expect(lenses.A.amount).toBeNull();
     expect(lenses.C.amount).toBe('2');
   });
@@ -118,7 +118,7 @@ describe('noto adapter (live)', () => {
     expect(await adapter.balanceOf('A', 'RD')).toBe(aR0 + PRICE_PER_UNIT);
     expect(await adapter.balanceOf('B', 'RD')).toBe(bR0 - PRICE_PER_UNIT);
     expect([lenses.A.verdict, lenses.B.verdict, lenses.BI.verdict, lenses.C.verdict]).toEqual(['clear', 'clear', 'notarised', 'sealed']);
-    expect(lenses.BI.counterparty).toBe('A → B');
+    expect(lenses.BI.counterparty).toEqual({ from: 'A', to: 'B' });
     expect(lenses.A.amount).toBe('1');
     expect(lenses.C.amount).toBeNull();
     expectOnChain(lenses.BI, result.txHash);

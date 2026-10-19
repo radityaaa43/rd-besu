@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent, Verdict } from '../adapter.ts';
+import type { Capability, Counterparty, FlowResult, LensView, ModelAdapter, StepEvent, Verdict } from '../adapter.ts';
 import { CANCELLED, LOAD_AMOUNT } from '../adapter.ts';
 import { DeadlineError, withDeadline } from '../deadline.ts';
 import { BANKS, FLOWS, PARTIES, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type FlowRequest, type PartyId } from '../domain.ts';
@@ -207,27 +207,28 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
         ...hashes.outputs.map((value) => ({ label: 'Output state', value })),
       ];
       const note = req.flow === 'dfabi-issue' ? ' Penerbitan DFABI di Noto = transfer dari kustodian BI (unit belum terjual), karena BondTracker hanya mencetak ke kustodian.' : '';
-      const view = (verdict: Verdict, amount: bigint | undefined, counterparty: string | null, method: string): LensView =>
+      const view = (verdict: Verdict, amount: bigint | undefined, counterparty: Counterparty | null, method: string): LensView =>
         ({ party, role, verdict, amount: amount === undefined ? null : amount.toString(), counterparty, onChain, method: method + note });
 
       if (!visible) {
         return view('sealed', undefined, null,
-          'Node bank ini hanya melihat id state (hash) tanpa isinya: domain receipt ditolak karena tidak ada data privat di node ini (<code>ptx.getStateReceipt</code>, <code>ptx.getDomainReceipt</code>).');
+          'Node bank ini hanya melihat id state (hash) tanpa isinya: domain receipt ditolak karena tidak ada data privat di node ini (`ptx.getStateReceipt`, `ptx.getDomainReceipt`).');
       }
       const amount = reads[0].amount; // dvp: the bond leg, i.e. DFABI units
       const known = await partyKeys();
       if (role === 'regulator') {
         // Owners decoded from the states BI's own node (the notary copy) holds: spenders of the inputs -> owners of the outputs.
         const [from, to] = [reads[0].spenders, reads[0].receivers].map((os) => [...new Set(os.map((o) => known.get(o)))]);
-        const parties = from.length === 1 && to.length === 1 && from[0] && to[0] ? `${from[0]} → ${to[0]}` : null;
+        const parties = from.length === 1 && to.length === 1 && from[0] && to[0] ? { from: from[0], to: to[0] } : null;
         return view('notarised', amount, parties,
-          'Membaca salinan notary di node BI: pemilik input dan output transaksi (<code>ptx.getStateReceipt</code>, <code>ptx.getDomainReceipt</code>).');
+          'Membaca salinan notary di node BI: pemilik input dan output transaksi (`ptx.getStateReceipt`, `ptx.getDomainReceipt`).');
       }
       const seen = reads.flatMap((r) => r.parties).map((k) => known.get(k)).filter((x): x is PartyId => !!x && x !== party && (x !== 'BI' || FLOWS[req.flow].issuer));
-      return view('clear', amount, seen[0] ?? null,
+      const other = seen[0] ?? null;
+      return view('clear', amount, role === 'receiver' ? { from: other, to: party } : { from: party, to: other },
         role === 'receiver'
-          ? 'Node penerima menerima state privat dari notary dan membukanya (<code>ptx.getDomainReceipt</code>).'
-          : 'Query state privat di node sendiri (<code>ptx.getDomainReceipt</code>).');
+          ? 'Node penerima menerima state privat dari notary dan membukanya (`ptx.getDomainReceipt`).'
+          : 'Query state privat di node sendiri (`ptx.getDomainReceipt`).');
     },
 
     async loadCapacity() {

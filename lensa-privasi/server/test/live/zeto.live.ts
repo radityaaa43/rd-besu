@@ -27,6 +27,8 @@ describe('zeto live', () => {
     expect(bi!.amount).toBe('1000');
     expect(outsider!.amount).toBeNull();
     expect(outsider!.counterparty).toBeNull();
+    // read back from BI's ledger, not echoed from the request
+    for (const l of [sender!, receiver!, bi!]) expect(l.counterparty).toEqual({ from: 'A', to: 'B' });
     expect(outsider!.onChain.length).toBeGreaterThan(1); // tx hash + commitments are public
   });
 

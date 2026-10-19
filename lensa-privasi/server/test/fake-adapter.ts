@@ -31,7 +31,7 @@ export function fakeAdapter(
       return {
         party, role, verdict: sealed ? 'sealed' : 'clear',
         amount: sealed ? null : req.amount,
-        counterparty: sealed ? null : party === req.from ? req.to : req.from,
+        counterparty: sealed ? null : { from: req.from, to: req.to },
         onChain: [{ label: 'tx', value: '0x' + 'ab'.repeat(32) }],
         method: `fake:${id}`,
       };

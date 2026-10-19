@@ -28,10 +28,10 @@ describe('stealth adapter on Besu', () => {
     expect(steps).toEqual([0, 1, 2, 3]);
     expect(res.steps.map((s) => s.label)).toEqual(a.stepLabels);
     const l = await lenses(r, res);
-    expect(l.A).toMatchObject({ role: 'sender', verdict: 'clear', amount: '1000', counterparty: 'B' });
-    expect(l.B).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '1000', counterparty: 'A', method: 'scan + openMemo' });
-    expect(PARTIES[l.B.counterparty as PartyId].name).toBe('Bank Mandala');
-    expect(l.BI).toMatchObject({ role: 'regulator', verdict: 'viewkey', amount: '1000', counterparty: 'A', method: 'scanAll + openMemo' });
+    expect(l.A).toMatchObject({ role: 'sender', verdict: 'clear', amount: '1000', counterparty: { from: 'A', to: 'B' } });
+    expect(l.B).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '1000', counterparty: { from: 'A', to: 'B' }, method: 'scan + openMemo' });
+    expect(PARTIES[l.B.counterparty!.from!].name).toBe('Bank Mandala');
+    expect(l.BI).toMatchObject({ role: 'regulator', verdict: 'viewkey', amount: '1000', counterparty: { from: 'A', to: 'B' }, method: 'scanAll + openMemo' });
     expect(l.C).toMatchObject({ role: 'outsider', verdict: 'partial', amount: '1000', counterparty: null, method: 'scanView (0 hasil) + openMemo (null)' });
     expect(l.C.onChain.map((o) => o.label)).toEqual(['Tx hash', 'Alamat sekali pakai', 'Memo terenkripsi', 'Nominal (publik)']);
   });
@@ -44,7 +44,7 @@ describe('stealth adapter on Besu', () => {
     const r = req('rd-issue', 'BI', 'C', 500n);
     const l = await lenses(r, await a.run(r, 500n, () => {}));
     expect(l.BI).toMatchObject({ role: 'issuer', verdict: 'clear' });
-    expect(l.C).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '500', counterparty: 'BI' });
+    expect(l.C).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '500', counterparty: { from: 'BI', to: 'C' } });
     expect(l.A).toMatchObject({ verdict: 'partial', counterparty: null });
   });
 
@@ -52,15 +52,15 @@ describe('stealth adapter on Besu', () => {
     await a.run(req('dfabi-issue', 'BI', 'A', 20n), 20n, () => {});
     const r = req('dfabi-transfer', 'A', 'C', 5n);
     const l = await lenses(r, await a.run(r, 5n, () => {}));
-    expect(l.C).toMatchObject({ verdict: 'clear', amount: '5', counterparty: 'A' });
-    expect(l.BI).toMatchObject({ verdict: 'viewkey', amount: '5', counterparty: 'A' });
+    expect(l.C).toMatchObject({ verdict: 'clear', amount: '5', counterparty: { from: 'A', to: 'C' } });
+    expect(l.BI).toMatchObject({ verdict: 'viewkey', amount: '5', counterparty: { from: 'A', to: 'C' } });
     expect(l.B).toMatchObject({ verdict: 'partial', amount: '5', counterparty: null });
   });
 
   it('dvp: seller delivers DFABI, buyer pays DFABI x price in RD, settled at once', async () => {
     const r = req('dvp', 'A', 'B', 3n);
     const l = await lenses(r, await a.run(r, 3n, () => {}));
-    expect(l.B).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '3', counterparty: 'A' });
+    expect(l.B).toMatchObject({ role: 'receiver', verdict: 'clear', amount: '3', counterparty: { from: 'A', to: 'B' } });
     expect(l.A).toMatchObject({ role: 'sender', verdict: 'clear', amount: '3' });
     expect(l.BI).toMatchObject({ verdict: 'viewkey', amount: '3' });
     expect(l.C).toMatchObject({ verdict: 'partial', counterparty: null });

@@ -2,6 +2,7 @@ import type { LensView } from '../../../server/src/adapter.ts';
 import { PRICE_PER_UNIT, type PartyId } from '../../../server/src/domain.ts';
 import type { Meta } from '../api.ts';
 import { formatRupiah, formatUnits, shortHash } from '../format.ts';
+import { counterpartyLine } from './counterparty.ts';
 import { MODEL_COPY, VERDICT, nodeLabel, roleLabel } from './copy.ts';
 import type { DemoAction, DemoState } from './demoState.ts';
 
@@ -41,18 +42,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
   const inside = lenses.filter((l) => l.role !== 'outsider').sort((a, b) => INSIDE_ORDER.indexOf(a.role) - INSIDE_ORDER.indexOf(b.role));
   const outside = lenses.filter((l) => l.role === 'outsider');
 
-  const cp = (v: string) => (Object.hasOwn(meta.parties, v) ? nm(v as PartyId) : shortHash(v));
-  const line = (l: LensView) => {
-    if (l.counterparty === null) return 'Pihak tidak terbaca';
-    const c = cp(l.counterparty);
-    switch (l.role) {
-      case 'issuer': return `diterbitkan untuk ${c}`;
-      case 'sender': return `${f.dvp ? 'jual ke' : 'ke'} ${c}`;
-      case 'receiver': return `${f.dvp ? 'beli dari' : 'dari'} ${c}`;
-      case 'regulator': return c; // what the party's own read returned, never rebuilt from the request
-      default: return `ke ${c}`;
-    }
-  };
+  const line = (l: LensView) => counterpartyLine(l, f.dvp, nm);
   const value = (l: LensView) => {
     if (l.amount === null) return <span className="redact">Rp 000.000.000</span>;
     try {

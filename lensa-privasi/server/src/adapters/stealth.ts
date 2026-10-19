@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent } from '../adapter.ts';
+import type { Capability, Counterparty, FlowResult, LensView, ModelAdapter, StepEvent } from '../adapter.ts';
 import { CANCELLED, LOAD_AMOUNT } from '../adapter.ts';
 import { BANKS, FLOWS, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type PartyId } from '../domain.ts';
 import { DeadlineError, withDeadline } from '../deadline.ts';
@@ -53,7 +53,7 @@ export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl 
   const asBi = contracts(d, bi);
   const holders: ViewKeyHolder[] = BANKS.map((b) => ({ id: b, viewKey: banks[b].viewKey, metaAddress: banks[b].metaAddress }));
   const identity = new Map<string, PartyId>([[lc(bi.address), 'BI'], ...BANKS.map((b): [string, PartyId] => [lc(new Wallet(banks[b].identityKey).address), b])]);
-  const partyOf = (addr: string | null) => (addr === null ? null : identity.get(lc(addr)) ?? addr);
+  const partyOf = (addr: string | null): PartyId | null => (addr === null ? null : identity.get(lc(addr)) ?? null);
 
   let gasPriceP: Promise<bigint> | undefined;
   const gasPrice = () => (gasPriceP ??= provider.getFeeData().then((f) => f.gasPrice ?? 0n, (e) => { gasPriceP = undefined; throw e; }));
@@ -222,7 +222,7 @@ export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl 
     const ctx = result.context as Ctx;
     if (role === 'sender' || role === 'issuer') {
       return {
-        party, role, verdict: 'clear', amount: ctx.amount.toString(), counterparty: req.to,
+        party, role, verdict: 'clear', amount: ctx.amount.toString(), counterparty: { from: party, to: req.to },
         onChain: onChain(result.txHash, ctx.stealthAddress, ctx.memo, ctx.amount),
         method: 'deriveStealth + buildMemo (data yang dibangun pengirim)',
       };
@@ -231,19 +231,19 @@ export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl 
     if (!anns.length) throw new Error('Pengumuman transaksi tidak ditemukan di block');
     const ann = anns[0];
     const md = parse(ctx.kind, ann.metadata)!;
-    const view = (verdict: LensView['verdict'], amount: bigint, counterparty: string | null, method: string): LensView =>
+    const view = (verdict: LensView['verdict'], amount: bigint, counterparty: Counterparty | null, method: string): LensView =>
       ({ party, role, verdict, amount: amount.toString(), counterparty, onChain: onChain(result.txHash, ann.stealthAddress, md.memo, amount), method });
 
     if (role === 'receiver') {
       const k = banks[party as BankId];
       if (!scan(anns, k.viewKey, k.spendKey).length) throw new Error(`${party} tidak menemukan pembayaran ini dengan view key`);
       const r = read(chainId, ann, k.viewKey, ctx.kind);
-      return view('clear', r.amount, partyOf(r.sender), 'scan + openMemo');
+      return view('clear', r.amount, { from: partyOf(r.sender), to: party as BankId }, 'scan + openMemo');
     }
     if (role === 'regulator') {
       const row = biRows(chainId, anns, holders, ctx.kind).find((r) => r.bank === req.to);
       if (!row) throw new Error('BI tidak menemukan transaksi ini dengan view key');
-      return view('viewkey', row.amount, partyOf(row.sender), 'scanAll + openMemo');
+      return view('viewkey', row.amount, { from: partyOf(row.sender), to: row.bank as BankId }, 'scanAll + openMemo');
     }
     // Outsider: its own view key matches nothing and cannot open the memo; amount and token are read from the raw log.
     const k = banks[party as BankId];
