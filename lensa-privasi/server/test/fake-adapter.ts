@@ -21,7 +21,7 @@ export function fakeAdapter(
     balanceOf: async () => 10n ** 18n,
     async run(_req, _amount, onStep) {
       const steps = labels.map((label, index) => ({ index, label, ms: 100 * (index + 1) }));
-      steps.forEach(onStep);
+      steps.forEach((s) => onStep(s));
       return { txHash: '0x' + 'ab'.repeat(32), block: 42, steps, context: null };
     },
     async lens(req, _result, party): Promise<LensView> {
