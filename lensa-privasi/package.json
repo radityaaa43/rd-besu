@@ -1,0 +1,12 @@
+{
+  "name": "lensa-privasi",
+  "private": true,
+  "workspaces": ["server"],
+  "scripts": {
+    "dev": "npm run dev -w server",
+    "start": "npm start -w server",
+    "test": "npm test -ws",
+    "bootstrap": "npm run bootstrap -w server --",
+    "preflight": "npm run preflight -w server --"
+  }
+}
