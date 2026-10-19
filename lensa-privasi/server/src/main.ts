@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { loadAdapters } from './adapters/index.ts';
 import { buildApp } from './app.ts';
 
-const PORT = 8787;
+const PORT = Number(process.env.PORT ?? 8790);
 const dist = fileURLToPath(new URL('../../web/dist', import.meta.url));
 const app = buildApp(await loadAdapters(), { webDist: existsSync(dist) ? dist : undefined });
 await app.listen({ host: '127.0.0.1', port: PORT });

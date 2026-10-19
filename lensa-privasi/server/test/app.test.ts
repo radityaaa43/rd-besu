@@ -1,10 +1,12 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { afterEach, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { ModelAdapter } from '../src/adapter.ts';
-import { buildApp } from '../src/app.ts';
+import { buildApp, rpcUp } from '../src/app.ts';
 import type { FlowRequest, ModelId } from '../src/domain.ts';
 import { fakeAdapter } from './fake-adapter.ts';
 
@@ -276,4 +278,37 @@ test('serves the web build only when webDist is given', async () => {
   expect((await make({}, { webDist: dir }).inject('/')).body).toBe('<h1>Lensa</h1>');
   await app!.close();
   expect((await make({}).inject('/')).statusCode).toBe(404);
+});
+
+test('rpcUp is false for a non-JSON body, an error status and a dead port; true for a JSON-RPC result', async () => {
+  const srv = createServer((req, res) => {
+    if (req.url === '/ok') res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x1' }));
+    else if (req.url === '/err') res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -1, message: 'x' } }));
+    else res.end('<html>not json</html>');
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+  try {
+    expect(await rpcUp(`${base}/ok`, 'eth_blockNumber')).toBe(true);
+    expect(await rpcUp(`${base}/err`, 'eth_blockNumber')).toBe(false);
+    expect(await rpcUp(`${base}/html`, 'eth_blockNumber')).toBe(false);
+    expect(await rpcUp('http://127.0.0.1:1', 'eth_blockNumber')).toBe(false);
+  } finally { srv.closeAllConnections(); srv.close(); }
+});
+
+test('5xx errors are generic Indonesian and do not leak the message; the lock is released', async () => {
+  const z = fakeAdapter('zeto');
+  z.capabilities = () => { throw new Error('boom internal'); };
+  const a = make({ zeto: z });
+  const res = await post(a, '/api/tx', req);
+  expect(res.statusCode).toBe(500);
+  expect(res.json()).toEqual({ reason: 'Terjadi kesalahan server' });
+  z.capabilities = fakeAdapter('zeto').capabilities;
+  expect((await post(a, '/api/tx', req)).statusCode).toBe(202);
+});
+
+test('unknown routes are 404 with an Indonesian reason', async () => {
+  const res = await make().inject('/api/nope');
+  expect(res.statusCode).toBe(404);
+  expect(res.json()).toEqual({ reason: 'Tidak ditemukan' });
 });

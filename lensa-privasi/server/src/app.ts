@@ -43,12 +43,13 @@ const stressBody = {
   },
 } as const;
 
-const rpcUp = (url: string, method: string): Promise<boolean> =>
+// any failure (refused, timeout, non-JSON body, JSON-RPC error) means "down" for that node only
+export const rpcUp = (url: string, method: string): Promise<boolean> =>
   fetch(url, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: [] }),
     signal: AbortSignal.timeout(2000),
-  }).then(async (r) => { const j = await r.json() as { result?: unknown }; return j.result !== undefined; }, () => false);
+  }).then(async (r) => { const j = await r.json() as { result?: unknown } | null; return j?.result !== undefined; }).catch(() => false);
 
 const realProbe: Probe = async () => {
   const [besu, ...paladin] = await Promise.all([
@@ -65,6 +66,7 @@ interface Sse { send(event: string, data: unknown): void; end(): void }
 
 export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: Probe } = {}): FastifyInstance {
   const app = Fastify({
+    logger: { level: process.env.VITEST ? 'silent' : 'error' }, // real errors reach the console; tests stay quiet
     forceCloseConnections: true, // shutdown must not wait on keep-alive / SSE sockets
     // strict bodies: no coercion (amount must be a string, count an integer) and no silent stripping of unknown keys
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
@@ -77,7 +79,9 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
   const streams = new Set<ServerResponse>();
   app.addHook('onClose', async () => { for (const r of streams) r.end(); });
 
-  app.setErrorHandler((err: FastifyError, _req, reply) => {
+  app.setNotFoundHandler((_req, reply) => reply.code(404).send({ reason: 'Tidak ditemukan' }));
+
+  app.setErrorHandler((err: FastifyError, req, reply) => {
     if (err.validation) {
       const v = err.validation[0];
       const p = v.params as { missingProperty?: string; additionalProperty?: string };
@@ -85,7 +89,8 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
       return reply.code(400).send({ reason: `Permintaan tidak valid: ${field}` });
     }
     const code = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
-    reply.code(code).send({ reason: code < 500 ? 'Permintaan tidak valid' : err.message });
+    if (code >= 500) req.log.error(err);
+    reply.code(code).send({ reason: code < 500 ? 'Permintaan tidak valid' : 'Terjadi kesalahan server' });
   });
 
   function openSse(req: FastifyRequest, reply: FastifyReply, onClose: () => void): Sse {
@@ -96,7 +101,11 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
     write(':ok\n\n');
     streams.add(raw);
     const beat = setInterval(() => write(':ok\n\n'), 15_000);
-    req.raw.on('close', () => { clearInterval(beat); streams.delete(raw); onClose(); });
+    let cleaned = false;
+    const cleanup = () => { if (cleaned) return; cleaned = true; clearInterval(beat); streams.delete(raw); onClose(); };
+    req.raw.on('close', cleanup);
+    raw.on('close', cleanup);
+    raw.on('error', () => { /* write to a gone client; close handler cleans up */ });
     return {
       send: (event, data) => write(`event: ${event}\ndata: ${json(data)}\n\n`),
       end: () => { clearInterval(beat); try { raw.end(); } catch { /* already closed */ } },
