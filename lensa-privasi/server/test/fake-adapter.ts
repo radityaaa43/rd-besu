@@ -1,4 +1,4 @@
-import type { Capability, LensView, ModelAdapter } from '../src/adapter.ts';
+import { CANCELLED, type Capability, type LensView, type ModelAdapter } from '../src/adapter.ts';
 import { roleOf, type FlowId, type ModelId } from '../src/domain.ts';
 
 const FLOW_IDS: FlowId[] = ['rd-issue', 'rd-transfer', 'dfabi-issue', 'dfabi-transfer', 'dvp'];
@@ -6,9 +6,10 @@ const FLOW_IDS: FlowId[] = ['rd-issue', 'rd-transfer', 'dfabi-issue', 'dfabi-tra
 // Deterministic adapter for tests: no chain access, fixed results.
 export function fakeAdapter(
   id: ModelId,
-  opts: { ready?: boolean; capacity?: number; tps?: number; failEvery?: number; disabled?: Partial<Record<FlowId, string>> } = {},
+  opts: { ready?: boolean; capacity?: number; tps?: number; failEvery?: number; serial?: boolean; onSubmit?: () => void; disabled?: Partial<Record<FlowId, string>> } = {},
 ): ModelAdapter {
   let calls = 0;
+  let lockTail: Promise<unknown> = Promise.resolve(); // opts.serial: one transfer at a time, like a per-sender lock
   const labels: [string, string, string, string] = ['Siapkan', 'Kirim', 'Konfirmasi', 'Selesai'];
   return {
     id,
@@ -37,12 +38,20 @@ export function fakeAdapter(
     },
     loadCapacity: async () => opts.capacity ?? 1000,
     prepareLoad: async () => {},
-    async transferForLoad() {
-      const n = ++calls;
-      const submittedAt = Date.now();
-      await new Promise((r) => setTimeout(r, 1000 / (opts.tps ?? 10)));
-      if (opts.failEvery && n % opts.failEvery === 0) throw new Error('gagal simulasi');
-      return { submittedAt, confirmedAt: Date.now() };
+    async transferForLoad(_from, _to, _amount, signal) {
+      const work = async () => {
+        if (signal?.aborted) throw new Error(CANCELLED); // checked once the lock is held, before submitting
+        opts.onSubmit?.();
+        const n = ++calls;
+        const submittedAt = Date.now();
+        await new Promise((r) => setTimeout(r, 1000 / (opts.tps ?? 10)));
+        if (opts.failEvery && n % opts.failEvery === 0) throw new Error('gagal simulasi');
+        return { submittedAt, confirmedAt: Date.now() };
+      };
+      if (!opts.serial) return work();
+      const r = lockTail.then(work);
+      lockTail = r.catch(() => {});
+      return r;
     },
   };
 }

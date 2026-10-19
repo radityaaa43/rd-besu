@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent } from '../adapter.ts';
-import { LOAD_AMOUNT } from '../adapter.ts';
+import { CANCELLED, LOAD_AMOUNT } from '../adapter.ts';
 import { BANKS, FLOWS, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type PartyId } from '../domain.ts';
 import { DeadlineError, withDeadline } from '../deadline.ts';
 import type { Sample } from '../stats.ts';
@@ -303,16 +303,19 @@ export function createStealthAdapter(state: StealthState, rpcUrl = state.rpcUrl 
         if (missing > 0) await fund(a, b, missing);
       }
     },
-    async transferForLoad(from, to, amount): Promise<Sample> {
+    // No lock queue here: the pooled address is the slot, and the 120 s deadline (confirm) starts at submit.
+    async transferForLoad(from, to, amount, signal): Promise<Sample> {
       if (amount > LOAD_AMOUNT) throw new Error('Nominal beban melebihi isi alamat stealth');
       const entry = unused(from, to)[0];
       if (!entry) throw new Error('Alamat stealth beban habis, jalankan prepareLoad');
+      if (signal?.aborted) throw new Error(CANCELLED); // slot taken, nothing submitted
       entry.used = true;
       writeState('stealth', state);
       let submittedAt = 0;
       let tx;
       try {
         const gp = await gasPrice();
+        if (signal?.aborted) throw new Error(CANCELLED); // released below: nothing was submitted
         submittedAt = Date.now();
         const p = pay(chainId, banks[to].metaAddress, banks[from].identityKey, d.rd, amount);
         const w = new Wallet(entry.privateKey, provider);

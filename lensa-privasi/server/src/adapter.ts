@@ -20,7 +20,9 @@ export interface ModelAdapter {
   lens(req: FlowRequest, result: FlowResult, party: PartyId): Promise<LensView>;
   loadCapacity(): Promise<number>;
   prepareLoad(n: number): Promise<void>;
-  transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample>;
+  // signal.aborted is checked after the adapter's own lock/slot is acquired and before anything is submitted: then it throws CANCELLED.
+  transferForLoad(from: BankId, to: BankId, amount: bigint, signal?: { aborted: boolean }): Promise<Sample>;
 }
 
 export const LOAD_AMOUNT = 1000n;
+export const CANCELLED = 'Dibatalkan';

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Capability, FlowResult, LensView, ModelAdapter, StepEvent, Verdict } from '../adapter.ts';
-import { LOAD_AMOUNT } from '../adapter.ts';
+import { CANCELLED, LOAD_AMOUNT } from '../adapter.ts';
 import { DeadlineError, withDeadline } from '../deadline.ts';
 import { BANKS, FLOWS, PARTIES, PRICE_PER_UNIT, roleOf, type BankId, type FlowId, type FlowRequest, type PartyId } from '../domain.ts';
 import { readState } from '../state.ts';
@@ -251,9 +251,10 @@ export function createNotoAdapter(dataDir: string): ModelAdapter {
       }
     },
 
-    async transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample> {
+    async transferForLoad(from: BankId, to: BankId, amount: bigint, signal?: { aborted: boolean }): Promise<Sample> {
       const p = await plat();
       return exclusive([from], async (hold) => {
+        if (signal?.aborted) throw new Error(CANCELLED); // the lock is held; nothing submitted yet
         const submittedAt = Date.now(); // after the lock: queue time is not transfer latency
         const rawSend = transferNoto(p, 'cash', bank(p, from), bank(p, to).verifier.lookup, amount);
         hold(rawSend);

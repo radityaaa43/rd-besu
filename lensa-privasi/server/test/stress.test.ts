@@ -18,10 +18,10 @@ function spy(a: ModelAdapter) {
   const samples: Sample[] = [];
   const st = { inflight: 0, maxInflight: 0 };
   const orig = a.transferForLoad.bind(a);
-  a.transferForLoad = async (from, to, amount) => {
+  a.transferForLoad = async (from, to, amount, signal) => {
     calls.push({ from, to, at: Date.now() });
     st.maxInflight = Math.max(st.maxInflight, ++st.inflight);
-    try { const s = await orig(from, to, amount); samples.push(s); return s; } finally { st.inflight--; }
+    try { const s = await orig(from, to, amount, signal); samples.push(s); return s; } finally { st.inflight--; }
   };
   return { calls, samples, st };
 }
@@ -49,8 +49,9 @@ test('respects count and concurrency', async () => {
 test('rotates pairs', async () => {
   const z = fakeAdapter('zeto');
   const s = spy(z);
-  await finish(new StressRun(cfg({ count: 3, concurrency: 1 }), { zeto: z }));
-  expect(s.calls.map((c) => `${c.from}${c.to}`)).toEqual(['AB', 'BC', 'CA']);
+  await finish(new StressRun(cfg({ count: 6, concurrency: 2 }), { zeto: z }));
+  // the pair follows the claimed slot number, not the worker: the first 3 slots are A→B, B→C, C→A even with 2 workers
+  expect(s.calls.map((c) => `${c.from}${c.to}`)).toEqual(['AB', 'BC', 'CA', 'AB', 'BC', 'CA']);
 });
 
 test('counts failures and keeps first error', async () => {
@@ -154,4 +155,46 @@ test('rejects empty model list, zero count and unavailable model', () => {
   expect(validateStress(cfg({ count: 2.5 }), cap)).toEqual({ ok: false, reason: 'Jumlah transaksi minimal 1' });
   expect(validateStress(cfg({ count: Infinity }), cap)).toEqual({ ok: false, reason: 'Jumlah transaksi minimal 1' });
   expect(validateStress(cfg({ models: ['stealth'] }), { zeto: 100 })).toEqual({ ok: false, reason: 'Stealth belum tersedia' });
+});
+
+test('after stop() queued calls never submit, and are not failures', async () => {
+  let submitted = 0;
+  const z = fakeAdapter('zeto', { tps: 1, serial: true, onSubmit: () => { submitted++; } });
+  const run = new StressRun(cfg({ count: 100, concurrency: 4 }), { zeto: z });
+  const p = run.start();
+  await vi.advanceTimersByTimeAsync(500); // 1 in flight, 3 queued behind the lock
+  run.stop();
+  await vi.runAllTimersAsync();
+  const m = (await p).models.zeto!;
+  expect(submitted).toBe(1);
+  expect(m.summary.ok).toBe(1);
+  expect(m.summary.failed).toBe(0);
+  expect(m.firstError).toBeUndefined();
+});
+
+test('at the time limit queued calls never submit and are not failures', async () => {
+  let submitted = 0;
+  const z = fakeAdapter('zeto', { tps: 1, serial: true, onSubmit: () => { submitted++; } });
+  const snap = await finish(new StressRun(cfg({ count: 1000, concurrency: 4, limitS: 120 }), { zeto: z }));
+  const m = snap.models.zeto!;
+  expect(m.status).toBe('timeout');
+  expect(m.summary.failed).toBe(0);
+  expect(m.firstError).toBeUndefined();
+  expect(submitted).toBe(m.summary.ok); // every submitted call was counted, nothing was submitted and dropped
+});
+
+test('a call slower than 120 s (lock wait) is not failed by the orchestrator, only the 600 s guard applies', async () => {
+  const z = fakeAdapter('zeto');
+  z.transferForLoad = () => new Promise((r) => setTimeout(() => r({ submittedAt: Date.now(), confirmedAt: Date.now() }), 130_000));
+  const snap = await finish(new StressRun(cfg({ count: 1, limitS: 600 }), { zeto: z }));
+  expect(snap.models.zeto?.summary.ok).toBe(1);
+  expect(snap.models.zeto?.summary.failed).toBe(0);
+});
+
+test('a lost call is failed by the 600 s outer guard', async () => {
+  const z = fakeAdapter('zeto');
+  z.transferForLoad = () => new Promise(() => {});
+  const snap = await finish(new StressRun(cfg({ count: 1, limitS: 600 }), { zeto: z }));
+  expect(snap.models.zeto?.summary.failed).toBe(1);
+  expect(snap.models.zeto?.firstError).toMatch(/600 detik/);
 });

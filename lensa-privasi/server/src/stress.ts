@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { LOAD_AMOUNT, type ModelAdapter } from './adapter.ts';
+import { CANCELLED, LOAD_AMOUNT, type ModelAdapter } from './adapter.ts';
 import { MODEL_NAMES, type BankId, type ModelId } from './domain.ts';
 import { withDeadline } from './deadline.ts';
 import { summarize, type Sample, type Summary } from './stats.ts';
@@ -13,7 +13,8 @@ export interface StressSnapshot {
 }
 
 const PAIRS: [BankId, BankId][] = [['A', 'B'], ['B', 'C'], ['C', 'A']];
-const CALL_DEADLINE_MS = 120_000;
+// Each adapter applies the real per-transaction deadline (120 s) from lock acquisition; this only stops a lost promise from hanging the run.
+const OUTER_GUARD_MS = 600_000;
 const DRAIN_MS = 30_000;
 export const HEALTH_MS = 10_000;
 
@@ -37,6 +38,7 @@ export class StressRun extends EventEmitter {
   private states: Partial<Record<ModelId, ModelState>> = {};
   private state: StressSnapshot['state'] = 'running';
   private stopped = false;
+  private signal?: { aborted: boolean }; // the running model's abort flag
   private stopSignal!: () => void;
   private stopP = new Promise<void>((r) => { this.stopSignal = r; });
   private lastTick = -Infinity;
@@ -50,7 +52,7 @@ export class StressRun extends EventEmitter {
     for (const m of cfg.models) this.states[m] = { status: 'waiting', samples: [], failed: 0 };
   }
 
-  stop(): void { this.stopped = true; this.stopSignal(); }
+  stop(): void { this.stopped = true; if (this.signal) this.signal.aborted = true; this.stopSignal(); }
 
   snapshot(): StressSnapshot {
     const models: StressSnapshot['models'] = {};
@@ -101,29 +103,33 @@ export class StressRun extends EventEmitter {
     st.startedAt = this.clock.now();
     const { count, concurrency, limitS } = this.cfg;
     let started = 0, inflight = 0, timedOut = false, closed = false;
+    // Set on stop, on the time limit and when the run closes: calls still queued behind an adapter lock then never submit.
+    const signal = this.signal = { aborted: this.stopped };
 
-    const worker = async (w: number) => {
-      for (let k = 0; ; k++) {
+    const worker = async () => {
+      for (;;) {
         if (this.stopped || started >= count) return;
-        if (this.clock.now() - st.startedAt! >= limitS * 1000) { timedOut = true; return; }
-        started++; inflight++;
-        const [from, to] = PAIRS[(w + k) % 3];
+        if (this.clock.now() - st.startedAt! >= limitS * 1000) { timedOut = true; signal.aborted = true; return; }
+        inflight++;
+        const [from, to] = PAIRS[started++ % 3]; // by claimed slot, so the pairs stay balanced for any worker count
         try {
-          const sample = await withDeadline(adapter.transferForLoad(from, to, LOAD_AMOUNT), CALL_DEADLINE_MS, 'Transaksi');
+          const sample = await withDeadline(adapter.transferForLoad(from, to, LOAD_AMOUNT, signal), OUTER_GUARD_MS, 'Transaksi');
           if (!closed) st.samples.push(sample);
         } catch (e) {
-          if (!closed) { st.failed++; st.firstError ??= e instanceof Error ? e.message : String(e); }
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!closed && msg !== CANCELLED) { st.failed++; st.firstError ??= msg; }
         } finally { inflight--; }
         if (!closed) this.tick();
       }
     };
 
-    const all = Promise.all(Array.from({ length: concurrency }, (_, w) => worker(w)));
+    const all = Promise.all(Array.from({ length: concurrency }, () => worker()));
     // after stop(), wait for in-flight calls at most DRAIN_MS
     const drain = this.stopP.then(() => withDeadline(all, DRAIN_MS, 'Penghentian')).then(() => {}, () => { /* gave up waiting */ });
     await Promise.race([all, drain]);
 
     closed = true;
+    signal.aborted = true;
     if (inflight > 0) { st.failed += inflight; st.firstError ??= 'Dihentikan sebelum selesai'; }
     st.endedAt = this.clock.now();
     st.status = this.stopped ? 'stopped' : timedOut ? 'timeout' : 'done';

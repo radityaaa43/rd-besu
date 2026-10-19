@@ -3,7 +3,8 @@ import {
   BANKS, FLOWS, PARTIES, PRICE_PER_UNIT, roleOf,
   type BankId, type FlowId, type FlowRequest, type PartyId,
 } from '../domain.ts';
-import { LOAD_AMOUNT } from '../adapter.ts';
+import { CANCELLED, LOAD_AMOUNT } from '../adapter.ts';
+import { afterLock } from '../deadline.ts';
 import { readState } from '../state.ts';
 import type { Sample } from '../stats.ts';
 import { buildReport } from '../../../../zeto/src/bi-report.ts';
@@ -250,13 +251,16 @@ export function createZetoAdapter(state: ZetoState) {
         if (short > 0) await fund(bank, 'RD', short, LOAD_AMOUNT);
       }
     },
-    async transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample> {
-      return exclusive([from], async () => {
+    // The 120 s deadline starts once the sender lock and a Zeto slot are held (queue wait is not latency); a hung call keeps both.
+    async transferForLoad(from: BankId, to: BankId, amount: bigint, signal?: { aborted: boolean }): Promise<Sample> {
+      return afterLock(DEADLINE_MS, 'Transaksi Zeto', (armed) => exclusive([from], async () => {
+        armed();
+        if (signal?.aborted) throw new Error(CANCELLED);
         const submittedAt = Date.now();
         const tx = await transfer(P[from], zeto('RD', P[from]), P[to], Number(amount));
         await report(from, 'RD', tx);
         return { submittedAt, confirmedAt: Date.now() }; // confirmed = receipt + BI report accepted (spec 7a.2)
-      });
+      }));
     },
     fund,
   };
