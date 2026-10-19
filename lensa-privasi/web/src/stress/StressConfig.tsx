@@ -65,7 +65,7 @@ export function StressConfig(p: ConfigProps) {
         <p className="small">Model berhenti saat jumlah transaksi tercapai atau batas waktu habis, mana yang lebih dulu.</p>
       </div>
       {showZetoWarning(form.models, form.concurrency) && (
-        <div className="warn">{WARN}<span>Zeto membangun bukti ZK di CPU node. Lebih dari 2 pengirim paralel pernah membuat node Paladin restart. Disarankan maksimal 2.</span></div>
+        <div className="warn">{WARN}<span>Zeto membangun bukti ZK di CPU node. Lebih dari 2 pengirim paralel pernah membuat node Paladin restart, jadi Zeto dibatasi 2 transaksi paralel.</span></div>
       )}
       <div>
         <button className={running ? 'btn2 stop' : 'btn2'} disabled={!running && (p.starting || form.models.length === 0 || p.cap === 0)} onClick={p.onGo}>

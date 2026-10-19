@@ -14,8 +14,7 @@ export const FLOW_NAME: Record<FlowId, string> = {
   dvp: 'DvP DFABI ↔ RD',
 };
 export const groupName = (flow: FlowId) => GROUPS.find((g) => g[2].includes(flow))![1];
-export const flowName = (model: ModelId, flow: FlowId) =>
-  model === 'noto' && flow === 'dfabi-transfer' ? 'Outright trade DFABI' : FLOW_NAME[flow];
+export const flowName = (_model: ModelId, flow: FlowId) => FLOW_NAME[flow];
 
 export const MODEL_COPY: Record<ModelId, { tag: string; story: string }> = {
   zeto: {

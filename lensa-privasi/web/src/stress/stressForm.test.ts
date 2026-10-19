@@ -3,17 +3,17 @@ import type { ModelId } from '../../../server/src/domain.ts';
 import type { Summary } from '../../../server/src/stats.ts';
 import { clampCount, conclusion, minCapacity, showZetoWarning } from './stressForm.ts';
 
-const s = (avgTps: number): Summary => ({ ok: 10, failed: 0, avgTps, peakTps: avgTps, p50Ms: 1000, p95Ms: 2000, durationS: 5, series: [] });
-const row = (model: ModelId, avg: number) => ({ model, s: s(avg) });
+const s = (avgTps: number, ok = 10, p50Ms = 1000): Summary => ({ ok, failed: 0, avgTps, peakTps: avgTps, p50Ms, p95Ms: 2000, durationS: 5, series: [] });
+const row = (model: ModelId, avg: number, ok = 10, p50Ms = 1000) => ({ model, s: s(avg, ok, p50Ms) });
 
 describe('conclusion', () => {
   test('one model', () => {
     expect(conclusion([row('zeto', 1.5)])).toBe('Zeto: 1,5 TPS rata-rata.');
   });
 
-  test('three models with Zeto the slowest', () => {
-    expect(conclusion([row('zeto', 1.5), row('noto', 3), row('stealth', 8)])).toBe(
-      'Stealth paling cepat dengan 8,0 TPS rata-rata, sekitar 5× Zeto. Zeto lebih lambat karena setiap transaksi harus membangun bukti ZK (~2 detik).',
+  test('Zeto the slowest adds only its measured p50', () => {
+    expect(conclusion([row('zeto', 1.5, 10, 2340), row('noto', 3), row('stealth', 8)])).toBe(
+      'Stealth paling cepat dengan 8,0 TPS rata-rata, sekitar 5× Zeto. p50 Zeto 2,3 s.',
     );
   });
 
@@ -21,8 +21,12 @@ describe('conclusion', () => {
     expect(conclusion([row('noto', 3), row('stealth', 9)])).toBe('Stealth paling cepat dengan 9,0 TPS rata-rata, sekitar 3× Noto.');
   });
 
-  test('a zero-TPS worst model does not divide by zero', () => {
-    expect(conclusion([row('stealth', 4), row('noto', 0)])).toMatch(/^Stealth paling cepat dengan 4,0 TPS rata-rata, sekitar \d+× Noto\.$/);
+  test('a zero-TPS worst model gets no ratio', () => {
+    expect(conclusion([row('stealth', 4), row('noto', 0)])).toBe('Stealth paling cepat dengan 4,0 TPS rata-rata.');
+  });
+
+  test('a worst model with no successes gets no ratio and no p50', () => {
+    expect(conclusion([row('stealth', 4), row('zeto', 0.4, 0, 0)])).toBe('Stealth paling cepat dengan 4,0 TPS rata-rata.');
   });
 });
 

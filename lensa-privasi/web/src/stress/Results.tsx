@@ -53,7 +53,7 @@ export function Results({ meta, snap }: { meta: Meta; snap: StressSnapshot }) {
         </table>
       </div>
       <div className="footnote">
-        TPS = transaksi yang sudah punya receipt dibagi waktu dari transaksi pertama dikirim sampai receipt terakhir. Diukur di cluster demo (4 validator Besu, 4 node Paladin) dengan {snap.config.concurrency} pengirim paralel, bukan kapasitas produksi.
+        TPS = transaksi yang sudah punya receipt dibagi waktu dari transaksi pertama dikirim sampai receipt terakhir. Diukur di cluster demo (4 validator Besu, 4 node Paladin) dengan {snap.config.concurrency} pengirim paralel, bukan kapasitas produksi. Paralelisme efektif berbeda: Zeto dibatasi 2 transaksi sekaligus, Noto 1 per bank pengirim, Stealth penuh sebanyak pengirim. Konfirmasi Zeto sudah termasuk laporan BI yang diterima. Noto membelanjakan dari satu koin besar per pengirim.
       </div>
     </section>
   );

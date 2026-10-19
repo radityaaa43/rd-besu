@@ -20,7 +20,9 @@ export function conclusion(rows: { model: ModelId; s: Summary }[]): string {
   const best = sorted[0], worst = sorted[sorted.length - 1];
   const avg = formatDecimal(best.s.avgTps);
   if (sorted.length === 1) return `${MODEL_NAMES[best.model]}: ${avg} TPS rata-rata.`;
-  const k = Math.round(best.s.avgTps / Math.max(worst.s.avgTps, 0.01));
-  const text = `${MODEL_NAMES[best.model]} paling cepat dengan ${avg} TPS rata-rata, sekitar ${k}× ${MODEL_NAMES[worst.model]}.`;
-  return worst.model === 'zeto' ? `${text} Zeto lebih lambat karena setiap transaksi harus membangun bukti ZK (~2 detik).` : text;
+  const name = MODEL_NAMES[best.model];
+  // no ratio against a model that measured nothing
+  if (worst.s.ok === 0 || worst.s.avgTps === 0) return `${name} paling cepat dengan ${avg} TPS rata-rata.`;
+  const text = `${name} paling cepat dengan ${avg} TPS rata-rata, sekitar ${Math.round(best.s.avgTps / worst.s.avgTps)}× ${MODEL_NAMES[worst.model]}.`;
+  return worst.model === 'zeto' ? `${text} p50 Zeto ${formatDecimal(worst.s.p50Ms / 1000)} s.` : text;
 }
