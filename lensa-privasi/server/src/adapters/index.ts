@@ -2,11 +2,12 @@ import type { ModelAdapter } from '../adapter.ts';
 import type { ModelId } from '../domain.ts';
 
 // Each adapter module (stealth.ts, noto.ts, zeto.ts) exports load(); null when its state file is missing.
-export async function loadAdapters(): Promise<Partial<Record<ModelId, ModelAdapter>>> {
+// `only` restricts which models are loaded (tests); `stateDir` is handed to each load().
+export async function loadAdapters(opts: { only?: ModelId[]; stateDir?: string } = {}): Promise<Partial<Record<ModelId, ModelAdapter>>> {
   const out: Partial<Record<ModelId, ModelAdapter>> = {};
-  for (const m of ['stealth', 'noto', 'zeto'] as const) {
+  for (const m of opts.only ?? (['stealth', 'noto', 'zeto'] as const)) {
     try {
-      const a = await ((await import(`./${m}.ts`)) as { load(): Promise<ModelAdapter | null> }).load();
+      const a = await ((await import(`./${m}.ts`)) as { load(stateDir?: string): Promise<ModelAdapter | null> }).load(opts.stateDir);
       if (a) out[m] = a;
     } catch (e) {
       if (!isMissing(e, `${m}.ts`)) throw e;

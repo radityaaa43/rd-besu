@@ -6,6 +6,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "bootstrap": "tsx src/cli/bootstrap.ts",
+    "preflight": "tsx src/cli/preflight.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts"

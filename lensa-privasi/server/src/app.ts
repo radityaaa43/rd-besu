@@ -8,11 +8,11 @@ import {
   FLOWS, MODEL_NAMES, PARTIES, PRICE_PER_UNIT, validateRequest,
   type FlowId, type FlowRequest, type ModelId, type PartyId,
 } from './domain.ts';
+import { probeNodes, type Probe } from './health.ts';
 import { HEALTH_MS, StressRun, validateStress, type StressConfig } from './stress.ts';
 import { toCsv } from './stats.ts';
 
 type Adapters = Partial<Record<ModelId, ModelAdapter>>;
-type Probe = () => Promise<{ besu: boolean; paladin: boolean[] }>;
 
 const MODELS = Object.keys(MODEL_NAMES) as ModelId[];
 const PARTY_IDS = Object.keys(PARTIES) as PartyId[];
@@ -44,22 +44,6 @@ const stressBody = {
   },
 } as const;
 
-// any failure (refused, timeout, non-JSON body, JSON-RPC error) means "down" for that node only
-export const rpcUp = (url: string, method: string): Promise<boolean> =>
-  fetch(url, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: [] }),
-    signal: AbortSignal.timeout(2000),
-  }).then(async (r) => { const j = await r.json() as { result?: unknown } | null; return j?.result !== undefined; }).catch(() => false);
-
-const realProbe: Probe = async () => {
-  const [besu, ...paladin] = await Promise.all([
-    rpcUp('http://127.0.0.1:8545', 'eth_blockNumber'),
-    ...[31548, 31648, 31748, 31848].map((p) => rpcUp(`http://127.0.0.1:${p}`, 'transport_nodeName')),
-  ]);
-  return { besu, paladin };
-};
-
 const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x));
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -72,7 +56,7 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
     // strict bodies: no coercion (amount must be a string, count an integer) and no silent stripping of unknown keys
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
-  const probe = opts.probe ?? realProbe;
+  const probe = opts.probe ?? probeNodes;
 
   // ponytail: one process-wide lock; only one tx or stress run at a time by design
   let busy: 'tx' | 'stress' | null = null;

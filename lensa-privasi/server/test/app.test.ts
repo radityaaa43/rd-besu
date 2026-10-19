@@ -6,7 +6,8 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { ModelAdapter } from '../src/adapter.ts';
-import { buildApp, rpcUp } from '../src/app.ts';
+import { buildApp } from '../src/app.ts';
+import { rpcUp } from '../src/health.ts';
 import type { FlowRequest, ModelId } from '../src/domain.ts';
 import { fakeAdapter } from './fake-adapter.ts';
 
