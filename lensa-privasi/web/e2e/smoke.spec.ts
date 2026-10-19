@@ -12,7 +12,7 @@ test('zeto transfer: 4 steps, 4 lenses, exactly 1 sealed', async ({ page }) => {
 
 test('stealth: exactly 1 partial lens', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Stealth' }).click();
+  await page.getByRole('button', { name: 'Stealth', exact: true }).click();
   await page.getByRole('button', { name: 'Transfer RD', exact: true }).click();
   await page.getByRole('button', { name: 'Kirim', exact: true }).click();
   await expect(page.locator('button.lens')).toHaveCount(4);

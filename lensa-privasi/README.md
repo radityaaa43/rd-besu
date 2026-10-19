@@ -6,8 +6,13 @@ Server di port 8790 (`PORT` mengganti). Port 8791 dipakai server mock untuk Play
 
 ## Prasyarat
 
-- Port-forward Paladin aktif: node1..4 di `127.0.0.1:31548`, `:31648`, `:31748`, `:31848`. Skripnya `besu/noto+pente/scripts/port-forward-start.sh` (watchdog: `alibaba-kube/Paladin/scripts/port-forward-start.sh` di host demo).
-- Tunnel Besu RPC ke `127.0.0.1:8545`.
+- Port-forward Paladin aktif: node1..4 di `127.0.0.1:31548`, `:31648`, `:31748`, `:31848`. Skripnya `besu/noto+pente/scripts/port-forward-start.sh` (atau `alibaba-kube/Paladin/scripts/port-forward-start.sh` di host demo).
+- Tunnel Besu RPC ke `127.0.0.1:8545`:
+
+  ```bash
+  KUBECONFIG=/home/ecs-user/alibaba-kube/alibaba.yaml kubectl port-forward svc/besu-node-validator-1 8545:8545 -n besu
+  ```
+
 - Stealth butuh `besu/stealth-address/.env.smoke`.
 
 ## Instalasi
@@ -16,8 +21,11 @@ Server di port 8790 (`PORT` mengganti). Port 8791 dipakai server mock untuk Play
 cd besu/lensa-privasi && npm install
 cd ../stealth-address && npm install
 cd ../zeto && npm install
-cd ../noto+pente/common && npm install
+cd ../noto+pente/common && npm ci
+cd ../bond && npm ci
 ```
+
+Adapter Noto mengimpor `noto+pente/bond/src/lib`, jadi `bond` butuh `node_modules` sendiri.
 
 ## Bootstrap (sekali, urutan ini)
 
@@ -67,7 +75,7 @@ flock /tmp/lensa-paladin.lock npm run test:live -w server -- test/live/zeto.live
 
 ## Node Paladin restart
 
-Kalau node Paladin crash-loop atau restart (exit 137 saat proving, atau panic `IsNil`), penyebabnya biasanya transaksi tanpa receipt. Cara membersihkannya ada di `besu/zeto/README.md`, bagian "Poison-pill bug". Jangan hapus apa pun otomatis. Minta persetujuan pengguna dulu.
+Kalau node Paladin crash-loop atau restart (exit 137 saat proving, atau panic `IsNil`), penyebabnya biasanya transaksi tanpa receipt. Cara membersihkannya ada di `besu/zeto/README.md`, bagian "Poison-pill bug". Jangan hapus apa pun otomatis, jangan restart pod atau hapus transaksi tanpa persetujuan. Minta persetujuan pengguna dulu.
 
 ## Batasan yang diketahui
 
