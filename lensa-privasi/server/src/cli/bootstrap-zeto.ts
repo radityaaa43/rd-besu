@@ -2,7 +2,7 @@ import { BANKS, type PartyId } from '../domain.ts';
 import { writeState } from '../state.ts';
 import { LOOKUP, createZetoAdapter, type ZetoState } from '../adapters/zeto.ts';
 import {
-  IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, PaladinClient, algorithmZetoSnarkBJJ, deployToken, newAtomFactory, newGroup, nodeConnections, party,
+  IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, PaladinClient, algorithmZetoSnarkBJJ, deployToken, newAtomFactory, newGroup, nodeConnections, party, within,
 } from '../../../../zeto/src/flows.ts';
 
 // Fresh deployment owned by this app: bi@node1 deploys RD and DFABI (Zeto_Anon, never setERC20),
@@ -16,8 +16,10 @@ export async function bootstrap(): Promise<void> {
   const rd = (await deployToken(P.BI)).address;
   const dfabi = (await deployToken(P.BI)).address;
   console.log(`RD ${rd}\nDFABI ${dfabi}`);
-  const atomFactory = (await newAtomFactory(P.BI.c, P.BI.v))?.address;
+  const atomFactory = (await within(newAtomFactory(P.BI.c, P.BI.v), 120_000, 'Deploy AtomFactory'))?.address;
   if (!atomFactory) throw new Error('AtomFactory gagal dibuat');
+  // Saved as soon as the contracts exist, so a failed run does not orphan them (funded:false => load() ignores it).
+  writeState('zeto', { rd, dfabi, atomFactory, fromBlock, privateMint: true, funded: false });
 
   const groups = {} as ZetoState['groups'];
   for (const b of BANKS) {
@@ -32,13 +34,14 @@ export async function bootstrap(): Promise<void> {
     addresses[id] = await P.BI.c.ptx.resolveVerifier(LOOKUP[id], 'ecdsa:secp256k1', 'eth_address');
   }
 
-  const state: ZetoState = { rd, dfabi, atomFactory, groups, owners, addresses, fromBlock, privateMint: true };
+  const state: ZetoState = { rd, dfabi, atomFactory, groups, owners, addresses, fromBlock, privateMint: true, funded: false };
+  writeState('zeto', state);
   const adapter = createZetoAdapter(state);
   for (const b of BANKS) { // sequential: one Zeto tx at a time
     await adapter.fund(b, 'RD', 5, 10n ** 9n);
     await adapter.fund(b, 'DFABI', 5, 1000n);
     console.log(`saldo awal ${b}: RD ${await adapter.balanceOf(b, 'RD')}, DFABI ${await adapter.balanceOf(b, 'DFABI')}`);
   }
-  writeState('zeto', state);
+  writeState('zeto', { ...state, funded: true });
   console.log('state/zeto.json ditulis');
 }

@@ -18,10 +18,9 @@ import { AtomFactory } from "./atom";
 import { REPORT_TOPIC, Report, buildReport } from "./bi-report";
 import { LONG_POLL_TIMEOUT, nodeConnections } from "./common";
 
-export { PaladinClient, PenteFactory, ZetoInstance, AtomFactory, nodeConnections, IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, algorithmZetoSnarkBJJ };
+export { PaladinClient, ZetoInstance, AtomFactory, nodeConnections, IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, algorithmZetoSnarkBJJ };
 export { newAtomFactory } from "./atom";
 export { BiLedger, chainIO } from "./bi-report";
-export type { Report };
 
 export type Party = { lookup: string; c: PaladinClient; v: PaladinVerifier };
 export type Settled = { receipt: ITransactionReceipt; publicAt: number; receiptAt: number; startedAt: number };
@@ -49,16 +48,18 @@ export function party(clients: PaladinClient[], lookup: string): Party {
 // after assembly, proof and endorsement. If the receipt shows up first, publicAt = receiptAt.
 export async function settle(c: PaladinClient, fut: { id: string | Promise<string> }, what = "tx", ms = LONG_POLL_TIMEOUT): Promise<Settled> {
   const startedAt = Date.now();
+  const end = startedAt + ms;
+  const left = () => Math.max(1, end - Date.now());
   const id = await within(Promise.resolve(fut.id), ms, `${what}: kirim`);
   let publicAt = 0;
-  while (Date.now() - startedAt < ms) {
-    const receipt = await c.ptx.getTransactionReceipt(id);
+  while (Date.now() < end) {
+    const receipt = await within(c.ptx.getTransactionReceipt(id), left(), `${what}: cek receipt`);
     if (receipt != null) {
       const receiptAt = Date.now();
       if (receipt.success !== true) throw new Error(`${what} gagal: ${receipt.failureMessage ?? "tanpa pesan"}`);
       return { receipt, publicAt: publicAt || receiptAt, receiptAt, startedAt };
     }
-    if (!publicAt && ((await c.ptx.getTransactionFull(id))?.public?.length ?? 0) > 0) publicAt = Date.now();
+    if (!publicAt && ((await within(c.ptx.getTransactionFull(id), left(), `${what}: cek tx`))?.public?.length ?? 0) > 0) publicAt = Date.now();
     await sleep(250);
   }
   throw new Error(`${what}: tidak ada receipt dalam ${ms / 1000} detik (tx ${id})`);
@@ -66,7 +67,7 @@ export async function settle(c: PaladinClient, fut: { id: string | Promise<strin
 
 // Fresh Zeto_Anon owned by `issuer`. Private from the start: no ERC20, no setERC20.
 export async function deployToken(issuer: Party): Promise<ZetoInstance> {
-  const zeto = await new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { tokenName: "Zeto_Anon" }).waitForDeploy(LONG_POLL_TIMEOUT);
+  const zeto = await within(new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { tokenName: "Zeto_Anon" }).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy Zeto");
   return must(zeto, "Zeto deploy");
 }
 
@@ -85,23 +86,28 @@ export const transfer = (from: Party, zeto: ZetoInstance, to: Party, amount: num
 
 // Bank reports the outputs it holds plaintext for to BI over its privacy group; resolves once the
 // node has accepted the message. `known`: states in hand that the node does not index (prepared legs).
-export async function reportTo(group: string, from: Party, token: "RD" | "DFABI", zetoAddress: string, receipt: ITransactionReceipt, known: any[] = []): Promise<Report> {
-  const rep = await buildReport(from.c, from.lookup, token, zetoAddress, must(receipt.transactionHash, "txHash"), known);
-  await from.c.pgroup.sendMessage({ domain: "pente", group, topic: REPORT_TOPIC, data: rep });
-  return rep;
+export function reportTo(group: string, from: Party, token: "RD" | "DFABI", zetoAddress: string, receipt: ITransactionReceipt, known: any[] = []): Promise<Report> {
+  return within((async () => {
+    const rep = await buildReport(from.c, from.lookup, token, zetoAddress, must(receipt.transactionHash, "txHash"), known);
+    await from.c.pgroup.sendMessage({ domain: "pente", group, topic: REPORT_TOPIC, data: rep });
+    return rep;
+  })(), LONG_POLL_TIMEOUT, `Laporan ${from.lookup}`);
 }
 
 export async function newGroup(bank: Party, bi: Party, name: string): Promise<string> {
-  const g = await new PenteFactory(bank.c, "pente").newPrivacyGroup({ name, members: [bank.v, bi.v], evmVersion: "shanghai", externalCallsEnabled: true }).waitForDeploy(LONG_POLL_TIMEOUT);
+  const g = await within(new PenteFactory(bank.c, "pente").newPrivacyGroup({ name, members: [bank.v, bi.v], evmVersion: "shanghai", externalCallsEnabled: true }).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy privacy group");
   return must(g, "privacy group").group.id;
 }
 
 // ---- DvP: Zeto lock + prepare per leg, one Atom to execute both (examples/swap) ----
 
 async function lock(zeto: ZetoInstance, owner: Party, amount: bigint) {
-  const { receipt } = await settle(owner.c, zeto.using(owner.c).lock(owner.v, { amount: Number(amount), delegate: await owner.v.address() }), `lock ${owner.lookup}`);
+  const delegate = await within(owner.v.address(), LONG_POLL_TIMEOUT, "Alamat delegate");
+  const { receipt } = await settle(owner.c, zeto.using(owner.c).lock(owner.v, { amount: Number(amount), delegate }), `lock ${owner.lookup}`);
   let utxo: string | undefined;
-  for (const start = Date.now(); !utxo && Date.now() - start < LONG_POLL_TIMEOUT; await sleep(1000)) utxo = (await owner.c.ptx.getStateReceipt(receipt.id))?.confirmed?.find((s: any) => s.data["locked"])?.id;
+  for (const end = Date.now() + LONG_POLL_TIMEOUT; !utxo && Date.now() < end; await sleep(1000)) {
+    utxo = (await within(owner.c.ptx.getStateReceipt(receipt.id), Math.max(1, end - Date.now()), "Cek state lock"))?.confirmed?.find((s: any) => s.data["locked"])?.id;
+  }
   return { receipt, utxo: must(utxo, "locked state") };
 }
 
@@ -120,10 +126,10 @@ async function leg(zeto: ZetoInstance, owner: Party, to: Party, amount: bigint):
 export async function swap(f: AtomFactory, seller: Party, buyer: Party, bond: ZetoInstance, cash: ZetoInstance, units: number, price: number) {
   const bondLeg = await leg(bond, seller, buyer, BigInt(units));
   const cashLeg = await leg(cash, buyer, seller, BigInt(units) * BigInt(price));
-  const atom = must(await f.using(seller.c).create(seller.v, [
+  const atom = must(await within(f.using(seller.c).create(seller.v, [
     { contractAddress: bond.address, callData: bondLeg.call },
     { contractAddress: cash.address, callData: cashLeg.call },
-  ]), "Atom");
+  ]), LONG_POLL_TIMEOUT, "Atom create"), "Atom");
   for (const [z, p, l] of [[bond, seller, bondLeg], [cash, buyer, cashLeg]] as const) {
     await settle(p.c, z.using(p.c).delegateLock(p.v, { utxos: [l.utxo], delegate: atom.address }), `delegateLock ${p.lookup}`);
   }
@@ -133,12 +139,8 @@ export async function swap(f: AtomFactory, seller: Party, buyer: Party, bond: Ze
   return { atom, exec: { receipt, publicAt: execAt, receiptAt: Date.now(), startedAt: execAt } as Settled, bond: bondLeg, cash: cashLeg };
 }
 
-// Unlocked states a node holds for `account`, as {id, amount}; used by load capacity and lenses.
+// States a node holds on one Zeto contract (default: available ones); used for load capacity.
 export async function heldStates(c: PaladinClient, zetoAddress: string, status: "available" | "all" = "available", limit = 1000) {
   const schema = must((await c.pstate.listSchemas("zeto")).find((s: any) => /ZetoCoin/.test(s.signature ?? "")), "ZetoCoin schema");
   return (await c.pstate.queryContractStates("zeto", zetoAddress, schema.id, { limit } as any, status)) as { id: string; data: { amount: string; owner: string; locked?: boolean } }[];
-}
-
-export async function stateCount(c: PaladinClient, zetoAddress: string) {
-  return (await heldStates(c, zetoAddress, "all")).length;
 }

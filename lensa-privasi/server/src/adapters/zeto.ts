@@ -8,7 +8,7 @@ import { readState } from '../state.ts';
 import type { Sample } from '../stats.ts';
 import { buildReport } from '../../../../zeto/src/bi-report.ts';
 import {
-  AtomFactory, BiLedger, PaladinClient, ZetoInstance, chainIO, heldStates, mintUtxos, nodeConnections, party, reportTo, swap, transfer,
+  AtomFactory, BiLedger, PaladinClient, ZetoInstance, chainIO, heldStates, mintUtxos, nodeConnections, party, reportTo, swap, transfer, within,
   type Party, type Settled,
 } from '../../../../zeto/src/flows.ts';
 
@@ -20,6 +20,7 @@ export interface ZetoState {
   owners: Record<PartyId, string>; // BabyJubJub key per party (as resolved from BI's node)
   addresses: Record<PartyId, string>; // eth address per party
   fromBlock: number; privateMint: boolean;
+  funded?: boolean; // false while bootstrap is still running: load() ignores the state
 }
 
 type Token = 'RD' | 'DFABI';
@@ -34,14 +35,36 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const hex32 = (v: string) => '0x' + BigInt(v).toString(16).padStart(64, '0');
 const lower = (s: string) => s.toLowerCase();
 
+// Module level, so every adapter instance in the process shares them. At most MAX_ZETO_TX Zeto
+// operations in flight (a released slot is handed straight to the next waiter), and at most one per
+// sender: two concurrent spends by one bank can pick the same UTXO (the N6 duplicate-input bug).
+let active = 0;
+const waiters: (() => void)[] = [];
+const senderTails = new Map<string, Promise<void>>();
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+  if (active >= MAX_ZETO_TX) await new Promise<void>((r) => waiters.push(r)); else active++;
+  try { return await fn(); } finally { const next = waiters.shift(); if (next) next(); else active--; }
+}
+export async function exclusive<T>(senders: PartyId[], fn: () => Promise<T>): Promise<T> {
+  const releases: (() => void)[] = [];
+  try {
+    for (const key of [...new Set(senders)].sort()) { // sorted: no lock-order deadlock between two-party DvPs
+      const prev = senderTails.get(key);
+      let release!: () => void;
+      senderTails.set(key, new Promise<void>((r) => { release = r; }));
+      releases.push(release);
+      await prev;
+    }
+    return await slot(fn);
+  } finally { releases.forEach((r) => r()); }
+}
+
 export function createZetoAdapter(state: ZetoState) {
   const clients = nodeConnections.map((n) => new PaladinClient(n.clientOptions));
   const P = Object.fromEntries(PARTY_IDS.map((id) => [id, party(clients, LOOKUP[id])])) as Record<PartyId, Party>;
   const address: Record<Token, string> = { RD: state.rd, DFABI: state.dfabi };
   const zeto = (t: Token, p: Party) => new ZetoInstance(p.c, address[t]).using(p.c);
-  const tokenOf = (addr: string): Token => (lower(addr) === lower(state.rd) ? 'RD' : 'DFABI');
   const factory = new AtomFactory(P.BI.c, state.atomFactory);
-  const ownerParty = new Map(PARTY_IDS.map((id) => [lower(state.owners[id]), id]));
   const ledger = new BiLedger(
     P.BI.c,
     new Map([[lower(state.rd), 'RD'], [lower(state.dfabi), 'DFABI']]),
@@ -50,22 +73,17 @@ export function createZetoAdapter(state: ZetoState) {
     state.fromBlock,
   );
 
-  // At most MAX_ZETO_TX Zeto operations in flight; a released slot is handed straight to the next waiter.
-  let active = 0;
-  const waiters: (() => void)[] = [];
-  async function slot<T>(fn: () => Promise<T>): Promise<T> {
-    if (active >= MAX_ZETO_TX) await new Promise<void>((r) => waiters.push(r)); else active++;
-    try { return await fn(); } finally { const next = waiters.shift(); if (next) next(); else active--; }
-  }
-
   // BI's ledger is polled one call at a time: the cursor is shared.
   let polling: Promise<unknown> = Promise.resolve();
-  const poll = () => (polling = polling.catch(() => {}).then(async () => { while ((await ledger.pollReports()) >= 200); }));
+  const left = (end: number) => Math.max(1, end - Date.now());
+  const poll = (end: number) => (polling = polling.catch(() => {}).then(async () => {
+    do { if (Date.now() > end) return; } while ((await within(ledger.pollReports(), left(end), 'Cek laporan BI')) >= 200);
+  }));
   async function untilVerified(ids: string[]): Promise<void> {
     const end = Date.now() + DEADLINE_MS;
     while (ids.some((id) => !ledger.verified.has(id))) {
       if (Date.now() > end) throw new Error(`Laporan BI belum terverifikasi dalam ${DEADLINE_MS / 1000} detik`);
-      await poll();
+      await poll(end);
       await sleep(300);
     }
   }
@@ -74,14 +92,16 @@ export function createZetoAdapter(state: ZetoState) {
   // BI's node has indexed the block, so BI never judges a report against a chain it has not read yet.
   async function ioOf(token: Token, txHash: string): Promise<Io> {
     for (const end = Date.now() + DEADLINE_MS; Date.now() < end; await sleep(500)) {
-      const { outputs, inputs } = await chainIO(P.BI.c, txHash, address[token]);
+      const { outputs, inputs } = await within(chainIO(P.BI.c, txHash, address[token]), left(end), 'Baca tx di node BI');
       if (outputs.length) return { token, outputs: outputs.map(String), inputs: inputs.map(String) };
     }
     throw new Error(`Node BI belum mengindeks tx ${txHash}`);
   }
 
-  const balance = async (id: PartyId, t: Token): Promise<bigint> =>
-    id === 'BI' ? 0n : BigInt((await zeto(t, P[id]).balanceOf(P[id].v, { account: LOOKUP[id] })).totalBalance);
+  const balance = async (id: PartyId, t: Token): Promise<bigint> => {
+    if (id === 'BI') throw new Error('BI tidak memegang saldo transfer');
+    return BigInt((await zeto(t, P[id]).balanceOf(P[id].v, { account: LOOKUP[id] })).totalBalance);
+  };
   async function requireBalance(id: PartyId, t: Token, need: bigint) {
     if ((await balance(id, t)) < need) throw new Error(`Saldo ${PARTIES[id].name} tidak cukup`); // guards the N6 duplicate-input bug
   }
@@ -91,7 +111,7 @@ export function createZetoAdapter(state: ZetoState) {
 
   // `fund` privately mints `count` UTXOs of `amount` to a bank and reports them to BI.
   async function fund(bank: BankId, t: Token, count: number, amount: bigint) {
-    for (const s of await slot(() => mintUtxos(P.BI, zeto(t, P.BI), P[bank], count, amount))) await report(bank, t, s);
+    for (const s of await exclusive(['BI'], () => mintUtxos(P.BI, zeto(t, P.BI), P[bank], count, amount))) await report(bank, t, s);
   }
 
   async function run(req: FlowRequest, amount: bigint, onStep: (s: StepEvent) => void): Promise<FlowResult> {
@@ -101,35 +121,35 @@ export function createZetoAdapter(state: ZetoState) {
     const steps: StepEvent[] = [];
     const emit = (index: number, ms: number) => { const s = { index, label: adapter.stepLabels[index]!, ms }; steps.push(s); onStep(s); };
 
-    if (flow.dvp) {
-      await requireBalance(req.from, 'DFABI', amount);
-      await requireBalance(req.to, 'RD', amount * PRICE_PER_UNIT);
-    } else if (!flow.issuer) await requireBalance(req.from, token, amount);
-
-    let tx: Settled;
-    let tokens: Token[] = [token];
-    let after: () => Promise<void>; // reports to BI, run after the receipt
-    const t0 = Date.now();
-    if (flow.issuer) {
-      const bank = req.to as BankId;
-      tx = (await slot(() => mintUtxos(from, zeto(token, from), to, 1, amount)))[0]!;
-      after = async () => { await report(bank, token, tx); };
-    } else if (flow.dvp) {
-      const r = await slot(() => swap(factory, from, to, zeto('DFABI', from), zeto('RD', to), Number(amount), Number(PRICE_PER_UNIT)));
-      tx = r.exec;
-      tokens = ['DFABI', 'RD'];
-      const [seller, buyer] = [req.from as BankId, req.to as BankId];
-      after = async () => {
-        await report(seller, 'DFABI', { receipt: r.bond.lockRcpt });
-        await report(buyer, 'RD', { receipt: r.cash.lockRcpt });
-        await report(seller, 'RD', tx, r.cash.states);
-        await report(seller, 'DFABI', tx, r.bond.states);
-        await report(buyer, 'RD', tx, r.cash.states);
-      };
-    } else {
-      tx = await slot(() => transfer(from, zeto(token, from), to, Number(amount)));
-      after = async () => { await report(req.from as BankId, token, tx); };
-    }
+    // Balance checks and the send happen under the sender lock, so the check sees the previous tx's result.
+    const senders: PartyId[] = flow.dvp ? [req.from, req.to] : [req.from];
+    const { tx, tokens, after, t0 } = await exclusive(senders, async () => {
+      if (flow.dvp) {
+        await requireBalance(req.from, 'DFABI', amount);
+        await requireBalance(req.to, 'RD', amount * PRICE_PER_UNIT);
+      } else if (!flow.issuer) await requireBalance(req.from, token, amount);
+      const t0 = Date.now();
+      if (flow.issuer) {
+        const tx = (await mintUtxos(from, zeto(token, from), to, 1, amount))[0]!;
+        return { tx, t0, tokens: [token], after: async () => { await report(req.to as BankId, token, tx); } };
+      }
+      if (flow.dvp) {
+        const r = await swap(factory, from, to, zeto('DFABI', from), zeto('RD', to), Number(amount), Number(PRICE_PER_UNIT));
+        const [seller, buyer] = [req.from as BankId, req.to as BankId];
+        return {
+          tx: r.exec, t0, tokens: ['DFABI', 'RD'] as Token[],
+          after: async () => {
+            await report(seller, 'DFABI', { receipt: r.bond.lockRcpt });
+            await report(buyer, 'RD', { receipt: r.cash.lockRcpt });
+            await report(seller, 'RD', r.exec, r.cash.states);
+            await report(seller, 'DFABI', r.exec, r.bond.states);
+            await report(buyer, 'RD', r.exec, r.cash.states);
+          },
+        };
+      }
+      const tx = await transfer(from, zeto(token, from), to, Number(amount));
+      return { tx, t0, tokens: [token], after: async () => { await report(req.from as BankId, token, tx); } };
+    });
 
     // Proof and send are not separable through the SDK: both report the boundary at which the
     // base-ledger tx appeared (assembly, proof and endorsement done). Never a synthesised split.
@@ -143,6 +163,19 @@ export function createZetoAdapter(state: ZetoState) {
     await untilVerified(io.flatMap((i) => i.outputs));
     emit(3, Date.now() - tx.receiptAt);
     return { txHash, block: tx.receipt.blockNumber, steps, context: { io } satisfies Ctx };
+  }
+
+  // Proves a node has indexed the tx before its (empty) answer is read as "holds nothing".
+  async function indexedOn(id: PartyId, txHash: string, io: Io[]) {
+    const end = Date.now() + DEADLINE_MS;
+    for (const i of io) {
+      for (;;) {
+        const { outputs } = await within(chainIO(P[id].c, txHash, address[i.token]), left(end), `Baca tx di node ${PARTIES[id].name}`);
+        if (i.outputs.every((o) => outputs.map(String).includes(o))) break;
+        if (Date.now() > end) throw new Error(`Node ${PARTIES[id].name} belum mengindeks transaksi`);
+        await sleep(500);
+      }
+    }
   }
 
   // What a party's own node holds of this tx's outputs: [token, amount, owner] triples.
@@ -179,6 +212,7 @@ export function createZetoAdapter(state: ZetoState) {
       return view(role === 'issuer' ? 'clear' : 'reported', sum(seen), `${PARTIES[req.from].name} → ${PARTIES[req.to].name}`,
         'Membaca laporan bank di privacy group, lalu mencocokkan ulang ke commitment on-chain (<code>BiLedger.pollReports</code>, <code>scanChain</code>).');
     }
+    await indexedOn(id, result.txHash, io);
     const mine = await held(id, result.txHash, io);
     if (role === 'outsider') {
       return view(mine.length === 0 ? 'sealed' : 'partial', mine.length === 0 ? null : sum(mine), null,
@@ -217,7 +251,7 @@ export function createZetoAdapter(state: ZetoState) {
       }
     },
     async transferForLoad(from: BankId, to: BankId, amount: bigint): Promise<Sample> {
-      return slot(async () => {
+      return exclusive([from], async () => {
         const submittedAt = Date.now();
         const tx = await transfer(P[from], zeto('RD', P[from]), P[to], Number(amount));
         await report(from, 'RD', tx);
@@ -231,5 +265,5 @@ export function createZetoAdapter(state: ZetoState) {
 
 export async function load(): Promise<ModelAdapter | null> {
   const state = readState<ZetoState>('zeto');
-  return state ? createZetoAdapter(state) : null;
+  return state && state.funded !== false ? createZetoAdapter(state) : null;
 }
