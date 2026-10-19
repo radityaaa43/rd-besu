@@ -1,0 +1,997 @@
+<title>Fitur Noto + Pente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: one reading column; a numbered flow table is the spine, privacy grid and rules follow. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #17202b; --muted: #5a6573; --line: #d9dee5;
+  --accent: #0b5f8a; --accent-soft: #e3eff6; --yes: #1d7a46; --no: #a3332b; --yes-soft: #e4f3ea; --no-soft: #f8e6e4;
+  --f-display: "Source Serif 4", Georgia, serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--f-body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(26px, 4vw, 34px)/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+h2 { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.lead { font-size: 17px; max-width: 68ch; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+code, .mono { font-family: var(--f-mono); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.n { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; width: 28px; }
+.fn { font-family: var(--f-mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cols h3 { margin: 0 0 8px; font-size: 15px; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.grid td.y, .grid td.x { text-align: center; font-weight: 600; width: 110px; }
+.grid td.y { color: var(--yes); background: var(--yes-soft); }
+.grid td.x { color: var(--no); background: var(--no-soft); }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.rules td:first-child { white-space: nowrap; }
+.key { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; }
+</style>
+<style>
+/* Tambahan untuk halaman multi-fitur: navigasi, pemisah fitur, jangkar. */
+html { scroll-behavior: smooth; }
+nav.chips a.chip { text-decoration: none; color: var(--accent); border-color: var(--accent); }
+nav.chips a.chip:hover { background: var(--accent-soft); }
+section.feature { display: grid; gap: 20px; padding-top: 28px; border-top: 2px solid var(--line); scroll-margin-top: 12px; min-width: 0; }
+.feature > header h2 { font: 600 clamp(22px, 3.4vw, 28px)/1.25 var(--f-display); margin: 0; }
+.feature > header .lead { font-size: 16px; }
+.sub { display: grid; gap: 12px; min-width: 0; }
+.sub h3 { margin: 0; font-size: 16px; font-family: var(--f-display); }
+.panel h3 { margin: 0 0 8px; font-size: 15px; }
+td, th { overflow-wrap: anywhere; }
+td.fn code, .fn { white-space: normal; }
+</style>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Track Noto + Pente · 9 fitur</div>
+    <h1>Fitur Noto + Pente</h1>
+    <p class="lead">Pada track ini BI adalah notary seluruh token, sehingga jumlah dan saldo hanya terlihat oleh BI, pengirim, dan penerima, tetapi tidak ada transaksi yang berjalan saat node BI mati. Itu pengecualian R2 yang diterima, bukan kekurangan yang tersembunyi.</p>
+    <nav class="chips" aria-label="Daftar fitur">
+      <a class="chip" href="#rd">1. Penerbitan Rupiah Digital (RD)</a>
+      <a class="chip" href="#seri">2. Penerbitan seri DFABI</a>
+      <a class="chip" href="#perdana">3. Penjualan perdana (primary sale)</a>
+      <a class="chip" href="#outright">4. Perdagangan outright (pasar sekunder)</a>
+      <a class="chip" href="#swap">5. Swap aset dan kas</a>
+      <a class="chip" href="#lock">6. Lock, delegate, dan unlock</a>
+      <a class="chip" href="#batal">7. Pembatalan (hanya pihak terkait)</a>
+      <a class="chip" href="#selesai">8. Penyelesaian distribusi (status COMPLETE)</a>
+      <a class="chip" href="#rekon">9. Rekonsiliasi tracker dan Noto</a>
+      <a class="chip" href="#tidak-ada">Tidak ada di kode</a>
+    </nav>
+  </header>
+
+  <section class="feature" id="rd">
+    <header>
+      <div class="eyebrow">Fitur 1 dari 9</div>
+      <h2>Penerbitan Rupiah Digital (RD)</h2>
+      <p class="lead">BI (cashIssuer) mencetak RD lewat operasi <code>mint</code> pada token Noto kas. Jumlah dan penerima hanya diketahui notary dan penerima; base ledger hanya mencatat hash dari transisi itu.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: cashIssuer (BI, notary) · bank penerima</span>
+        <span class="chip">Kontrak: token Noto kas (notaryMode hooks), NotoTrackerERC20</span>
+        <span class="chip">Privacy group: group kas (anggota: cashIssuer)</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI (cashIssuer, notary)
+  participant NT as Token Noto kas (Besu)
+  participant G as Group kas (NotoTrackerERC20)
+  participant BANK as Bank penerima
+  BI->>G: newPrivacyGroup lalu deploy NotoTrackerERC20
+  BI->>NT: newNoto (notary cashIssuer, notaryMode hooks)
+  BI->>NT: mint(to, amount, data)
+  NT->>NT: Notary mengesahkan dan membuat state koin
+  NT-->>BANK: State koin (jumlah dan pemilik) hanya ke notary dan penerima
+  NT->>G: Hook onMint(sender, to, amount, data, prepared)
+  G->>G: Cek pengirim adalah notary lalu naikkan saldo privat penerima
+  G-->>NT: PenteExternalCall(prepared) menyelesaikan transaksi Noto
+  BANK->>NT: balanceOf(account)
+</pre>
+      <p class="note">Hook <code>onMint</code> berjalan atomik bersama pergerakan token. Jika cek notary gagal, pencetakan batal seluruhnya.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Membuat group kas</td><td class="fn"><code>newPrivacyGroup</code></td><td>Anggota: cashIssuer</td><td>Di dalam group: belum ada isi. Ke Besu: alamat group.</td></tr>
+          <tr><td class="n">2</td><td>Deploy tracker kas</td><td class="fn"><code>NotoTrackerERC20</code> (konstruktor name, symbol)</td><td>Nama dan simbol token</td><td>Di dalam group: contract tracker, <code>_notary</code> = pengirim deploy. Ke Besu: tidak ada isi.</td></tr>
+          <tr><td class="n">3</td><td>Deploy token Noto kas</td><td class="fn"><code>newNoto</code></td><td>Notary cashIssuer, notaryMode hooks, alamat group dan tracker</td><td>Ke Besu: alamat token Noto.</td></tr>
+          <tr><td class="n">4</td><td>BI memerintahkan cetak</td><td class="fn"><code>mint</code></td><td>Penerima, jumlah, data</td><td>Ke Besu: transisi Noto berisi hash state, bukan jumlah terbaca.</td></tr>
+          <tr><td class="n">5</td><td>Notary mengesahkan</td><td><span class="key">di sisi notary</span></td><td>Perintah mint</td><td>State koin dikirim hanya ke notary dan penerima. Tidak ada di Besu.</td></tr>
+          <tr><td class="n">6</td><td>Hook mencatat saldo</td><td class="fn"><code>onMint</code></td><td>Pengirim, penerima, jumlah, transaksi Noto yang sudah disiapkan</td><td>Di dalam group: saldo privat penerima naik. Ke Besu: hanya lewat <code>PenteExternalCall(prepared)</code>, yaitu transaksi Noto itu sendiri.</td></tr>
+          <tr><td class="n">7</td><td>Bank memastikan saldo</td><td class="fn"><code>balanceOf</code></td><td>Akun</td><td>Tidak ada (hanya membaca).</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Alamat token Noto kas dan alamat group kas</li>
+        <li>Fakta bahwa ada transisi Noto beserta hash state-nya</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah RD yang dicetak</li>
+        <li>Penerima RD</li>
+        <li>Saldo privat di tracker kas (hanya anggota group kas)</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah yang dicetak dan penerimanya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo RD bank penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo privat di tracker kas</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Alamat token dan hash transisi</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = BI sebagai penerbit. Lawan transaksi = bank penerima. Salinan jumlah dan pemilik dikirim hanya ke notary dan penerima.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Pemanggil hook bukan notary</td><td>Ditolak: <code>"Sender is not the notary"</code></td></tr>
+        </tbody></table></div>
+        <p class="note">Aturan lain pada operasi <code>mint</code> dijalankan oleh domain Noto, bukan oleh contract di repositori ini.</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Tidak ada kasus E2E khusus untuk <code>mint</code> RD. Pencetakan dibuktikan tidak langsung: tiap investor menerima kas awal dan saldo kas akhir cocok pada kasus I1 sampai I3 (mis. 99900 setelah membeli 100 unit pada harga 1).</li>
+          <li>Tracker kas tidak punya whitelist dan hanya mencerminkan saldo.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="seri">
+    <header>
+      <div class="eyebrow">Fitur 2 dari 9</div>
+      <h2>Penerbitan seri DFABI</h2>
+      <p class="lead">BI menerbitkan satu seri obligasi: tracker privat <code>BondTracker</code> menyimpan supply, harga, dan saldo di dalam group, sedangkan <code>BondTrackerPublic</code> di Besu hanya memuat status dan syarat instrumen.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: bondIssuer dan bondCustodian (BI)</span>
+        <span class="chip">Kontrak: token Noto obligasi, BondTracker, BondTrackerPublic, InvestorList, RestrictedAtomFactory</span>
+        <span class="chip">Privacy group: group issuer+custodian (anggota: bondIssuer, bondCustodian)</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI (bondIssuer dan bondCustodian)
+  participant G as Group issuer+custodian
+  participant PUB as BondTrackerPublic (Besu)
+  participant NT as Token Noto obligasi
+  BI->>G: newPrivacyGroup (externalCallsEnabled)
+  BI->>PUB: Deploy BondTrackerPublic (owner = alamat group, syarat instrumen)
+  BI->>G: Deploy BondTracker (custodian, alamat tracker publik)
+  BI->>NT: newNoto (notary bondCustodian, hooks ke BondTracker)
+  BI->>NT: mint ke bondCustodian
+  NT->>G: Hook onMint
+  G-->>PUB: PenteExternalCall onIssue (status ISSUED)
+  BI->>G: beginDistribution(discountPrice, minimumDenomination)
+  G-->>PUB: PenteExternalCall beginDistribution (status STARTED)
+  BI->>G: addInvestor (whitelist)
+</pre>
+      <p class="note">Harga, denominasi, dan unit tersedia tidak pernah dikirim ke tracker publik. Tracker publik hanya diberi tahu bahwa status berpindah.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Membuat group</td><td class="fn"><code>newPrivacyGroup</code></td><td>Anggota bondIssuer dan bondCustodian, <code>externalCallsEnabled</code></td><td>Ke Besu: alamat group.</td></tr>
+          <tr><td class="n">2</td><td>Deploy tracker publik</td><td class="fn">konstruktor <code>BondTrackerPublic</code></td><td>owner = alamat group, tanggal terbit, jatuh tempo, token mata uang, face value</td><td>Ke Besu: syarat instrumen (event <code>BondDetailsChanged</code>) dan status <code>INITIALIZED</code> (event <code>StatusChanged</code>).</td></tr>
+          <tr><td class="n">3</td><td>Deploy tracker privat</td><td class="fn">konstruktor <code>BondTracker</code></td><td>Nama, simbol, custodian, alamat tracker publik</td><td>Di dalam group: status <code>INITIALIZED</code>, <code>InvestorList</code> milik custodian. Ke Besu: tidak ada isi.</td></tr>
+          <tr><td class="n">4</td><td>Deploy token dan factory</td><td class="fn"><code>newNoto</code>, <code>RestrictedAtomFactory</code></td><td>Notary bondCustodian, hooks ke BondTracker</td><td>Ke Besu: alamat token dan alamat factory.</td></tr>
+          <tr><td class="n">5</td><td>Mint supply ke custodian</td><td class="fn"><code>onMint</code></td><td>Penerbit, penerima (harus custodian), jumlah</td><td>Di dalam group: saldo, <code>_pendingTrancheAmount</code>, status <code>ISSUED</code>. Ke Besu: panggilan <code>onIssue(to)</code>, yaitu status <code>ISSUED</code>, custodian, nomor tranche tanpa jumlah.</td></tr>
+          <tr><td class="n">6</td><td>Membuka distribusi</td><td class="fn"><code>beginDistribution</code></td><td>Harga (<code>discountPrice</code>), denominasi (<code>minimumDenomination</code>)</td><td>Di dalam group: harga, denominasi, unit tersedia. Ke Besu: panggilan <code>beginDistribution()</code>, yaitu status <code>DISTRIBUTION_STARTED</code> saja.</td></tr>
+          <tr><td class="n">7</td><td>Mendaftarkan investor</td><td class="fn"><code>addInvestor</code></td><td>Alamat investor</td><td>Di dalam group: daftar whitelist. Ke Besu: tidak ada.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Syarat instrumen: tanggal terbit, jatuh tempo, face value, token mata uang</li>
+        <li>Status siklus dan alamat custodian</li>
+        <li>Jumlah tranche (<code>trancheCount</code>), tanpa jumlah unit</li>
+        <li>Penanda <code>schema()</code> = <code>"status-only-v1"</code></li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Supply dan unit yang belum terjual</li>
+        <li>Harga dan denominasi minimum</li>
+        <li>Saldo semua pemegang</li>
+        <li>Daftar investor yang diizinkan</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Supply, unit tersisa, harga, denominasi</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Daftar investor (whitelist)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Status siklus distribusi</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Syarat instrumen (tanggal, face value, mata uang)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = BI (penerbit dan custodian). Lawan transaksi = investor, yang belum berperan pada tahap ini.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Jatuh tempo tidak setelah tanggal terbit</td><td>Ditolak: <code>"Maturity date must be after issue date"</code></td></tr>
+          <tr><td>Mint bukan oleh penerbit</td><td>Ditolak: <code>"Sender is not bond issuer"</code></td></tr>
+          <tr><td>Mint ke selain custodian</td><td>Ditolak: <code>"Bond must be issued to custodian"</code></td></tr>
+          <tr><td>Mint saat status bukan INITIALIZED atau ACTIVE</td><td>Ditolak: <code>"Bond must be either unissued or fully active to mint more supply"</code></td></tr>
+          <tr><td>Mint dengan jumlah 0</td><td>Ditolak: <code>"Mint amount must be greater than zero"</code></td></tr>
+          <tr><td>Membuka distribusi bukan oleh custodian</td><td>Ditolak: <code>"Sender is not bond custodian"</code></td></tr>
+          <tr><td>Membuka distribusi sebelum diterbitkan</td><td>Ditolak: <code>"Bond has not been issued"</code></td></tr>
+          <tr><td>Membuka putaran baru saat putaran lama belum selesai</td><td>Ditolak di tracker publik: <code>"Previous distribution round not finished"</code></td></tr>
+          <tr><td>Mengubah status tracker publik dari luar group</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+          <tr><td>Investor didaftarkan dua kali</td><td>Ditolak: <code>"Investor already added"</code></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus I1 sampai I4: tiga seri (S1, S2, S3) diterbitkan dan seluruh pembelian selesai.</li>
+          <li>Kasus P1 dan P2: BI membaca supply, unit tersisa, harga, dan denominasi lewat pembacaan privat group. Kasus P3 sampai P6: tracker publik hanya menjawab <code>schema()</code> dan <code>status()</code>, ABI tanpa fungsi bernuansa jumlah, dan <code>totalSupply()</code>, <code>availableUnits()</code>, <code>distribution()</code> tidak ada.</li>
+          <li>Kasus P7: node investor tidak dapat membuka group issuer+custodian.</li>
+          <li>Seri S1 diterbitkan sebelum tracker status-only dipakai contoh, sehingga hanya S2 dan S3 yang membuktikan sisi publik status-only.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="perdana">
+    <header>
+      <div class="eyebrow">Fitur 3 dari 9</div>
+      <h2>Penjualan perdana (primary sale)</h2>
+      <p class="lead">Investor membeli unit baru dari custodian BI. Kas dan obligasi dikunci lalu diserahkan ke satu <code>RestrictedAtom</code>, sehingga kedua leg berpindah bersamaan atau tidak sama sekali.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: investor · bondCustodian (BI)</span>
+        <span class="chip">Kontrak: RestrictedBondSubscription, RestrictedAtomFactory, RestrictedAtom, BondTracker, BondTrackerPublic</span>
+        <span class="chip">Privacy group: group investor+custodian (satu per investor) dan group issuer+custodian</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant INV as Investor
+  participant BI as BI (bondCustodian)
+  participant SUB as RestrictedBondSubscription (group investor+custodian)
+  participant F as RestrictedAtomFactory (Besu)
+  participant A as RestrictedAtom (Besu)
+  participant NT as Token Noto kas dan obligasi
+  INV->>NT: lock(kas) lalu prepareUnlock ke custodian
+  BI->>NT: lock(obligasi) lalu prepareUnlock ke investor
+  INV->>SUB: preparePayment(to, encodedCall, lockId, cancelCall)
+  BI->>SUB: prepareBond(to, encodedCall, lockId, cancelCall)
+  BI->>SUB: distribute()
+  SUB-->>F: PenteExternalCall create(operations, cancelOperations, parties, executor)
+  F-->>A: Clone dan emit AtomDeployed
+  INV->>NT: delegateLock(kas) ke atom
+  BI->>NT: delegateLock(obligasi) ke atom
+  BI->>A: execute()
+  A->>NT: unlock obligasi ke investor dan kas ke custodian
+  NT->>NT: Hook handleDelegateUnlock memperbarui BondTracker
+</pre>
+      <p class="note">Atom dibuat dengan <code>parties</code> = investor dan custodian, <code>executor</code> = custodian. Hanya custodian yang dapat menjalankan <code>execute()</code>.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Group investor+custodian dan subscription</td><td class="fn"><code>newPrivacyGroup</code>, konstruktor <code>RestrictedBondSubscription</code></td><td>Anggota investor dan custodian, alamat token, unit, custodian, alamat factory</td><td>Di dalam group: contract subscription (owner = investor). Ke Besu: alamat group.</td></tr>
+          <tr><td class="n">2</td><td>Investor mengunci kas</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code></td><td>Jumlah kas, penerima = custodian</td><td>Di dalam group kas: hook <code>onLock</code>, <code>onPrepareUnlock</code>. Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">3</td><td>Custodian mengunci obligasi</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code>, hook <code>onPrepareUnlock</code> di BondTracker</td><td>Jumlah unit, penerima = investor</td><td>Di dalam group: cek whitelist, cek kuota dan denominasi round, cap round pada lock. Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">4</td><td>Investor mendaftarkan leg kas</td><td class="fn"><code>preparePayment</code></td><td><code>to</code>, <code>encodedCall</code>, <code>lockId</code>, <code>cancelCall</code></td><td>Di dalam group subscription. Ke Besu: tidak ada.</td></tr>
+          <tr><td class="n">5</td><td>Custodian mendaftarkan leg obligasi</td><td class="fn"><code>prepareBond</code></td><td><code>to</code>, <code>encodedCall</code>, <code>lockId</code>, <code>cancelCall</code></td><td>Di dalam group subscription. Ke Besu: tidak ada.</td></tr>
+          <tr><td class="n">6</td><td>Custodian membuat atom</td><td class="fn"><code>distribute</code></td><td>Tidak ada argumen</td><td>Ke Besu: <code>create(operations, cancelOperations, parties, executor)</code> lewat <code>PenteExternalCall</code>, event <code>AtomDeployed</code>.</td></tr>
+          <tr><td class="n">7</td><td>Kedua pemilik mendelegasikan lock</td><td class="fn"><code>delegateLock</code></td><td><code>lockId</code>, alamat atom</td><td>Ke Besu: spender lock menjadi atom.</td></tr>
+          <tr><td class="n">8</td><td>Custodian menjalankan atom</td><td class="fn"><code>execute</code></td><td>Tidak ada argumen</td><td>Ke Besu: dua <code>unlock</code> atomik, event <code>AtomStatusChanged</code> = Executed.</td></tr>
+          <tr><td class="n">9</td><td>Tracker menyesuaikan saldo</td><td class="fn"><code>handleDelegateUnlock</code></td><td><code>lockId</code>, penerima</td><td>Di dalam group: saldo berpindah, unit tersedia berkurang. Ke Besu: hanya <code>onDistributionComplete()</code> bila unit habis.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Alamat atom, <code>parties</code>, <code>executor</code>, <code>lockId</code></li>
+        <li>Status atom: Pending lalu Executed</li>
+        <li>Status publik tracker, bila unit habis menjadi <code>DISTRIBUTION_COMPLETE</code></li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah unit dan jumlah kas</li>
+        <li>Isi contract subscription</li>
+        <li>Saldo di BondTracker</li>
+        <li>Unit yang masih tersedia</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah unit dan kas yang ditukar</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Isi contract subscription</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Alamat atom, parties, executor, lockId</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Status atom (Pending, Executed)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Berapa unit yang dibeli investor lain</td><td class="y">Ya</td><td class="x">Tidak</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = investor pembeli. Lawan transaksi = custodian BI. Investor lain tidak melihat pembelian ini.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Mendaftarkan leg kas bukan oleh investor</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+          <tr><td>Mendaftarkan leg obligasi atau <code>distribute</code> bukan oleh custodian</td><td>Ditolak: <code>"Sender is not custodian"</code></td></tr>
+          <tr><td>Leg obligasi belum didaftarkan</td><td>Ditolak: <code>"Bond transfer has not been prepared"</code></td></tr>
+          <tr><td>Leg kas belum didaftarkan</td><td>Ditolak: <code>"Payment transfer has not been prepared"</code></td></tr>
+          <tr><td>Catatan cancel obligasi atau lockId kosong</td><td>Ditolak: <code>"Bond cancel call has not been prepared"</code></td></tr>
+          <tr><td>Catatan cancel kas atau lockId kosong</td><td>Ditolak: <code>"Payment cancel call has not been prepared"</code></td></tr>
+          <tr><td>Pembeli tidak ada di whitelist</td><td>Ditolak: <code>"Investor is not registered"</code></td></tr>
+          <tr><td>Jumlah melebihi unit tersedia</td><td>Ditolak: <code>"Sale would exceed this round's available units"</code></td></tr>
+          <tr><td>Jumlah bukan kelipatan denominasi</td><td>Ditolak: <code>"Sale amount is not a valid denomination multiple"</code></td></tr>
+          <tr><td><code>execute</code> bukan oleh custodian</td><td>Ditolak: <code>NotExecutor</code></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus I1 sampai I4: tiga pembelian per seri selesai pada S1, S2, S3. Pada S2 dan S3 enam atom penjualan terbukti <code>parties</code> = [investor, custodian], <code>executor</code> = custodian, status Executed.</li>
+          <li>Kasus P4: pada S3 (supply 300, habis terjual) status publik berpindah ke COMPLETE.</li>
+          <li>Kasus KA1 dan KB1: atom penjualan perdana yang sengaja dibiarkan Pending, untuk uji pembatalan.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="outright">
+    <header>
+      <div class="eyebrow">Fitur 4 dari 9</div>
+      <h2>Perdagangan outright (pasar sekunder)</h2>
+      <p class="lead">Satu investor menjual obligasi ke investor lain dengan pembayaran kas. Kedua leg diserahkan ke <code>RestrictedAtom</code> yang dijalankan custodian BI, jadi serah terima dan pembayaran selesai bersamaan.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: investor penjual · investor pembeli · bondCustodian (BI)</span>
+        <span class="chip">Kontrak: token Noto obligasi dan kas, BondTracker, InvestorList, RestrictedAtomFactory, RestrictedAtom</span>
+        <span class="chip">Privacy group: group issuer+custodian (tracker obligasi) dan group kas</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant SEL as Penjual
+  participant BUY as Pembeli
+  participant BI as BI (bondCustodian)
+  participant F as RestrictedAtomFactory (Besu)
+  participant A as RestrictedAtom (Besu)
+  participant NT as Token Noto obligasi dan kas
+  SEL->>NT: lock(obligasi) lalu prepareUnlock ke pembeli
+  BUY->>NT: lock(kas) lalu prepareUnlock ke penjual
+  BI->>F: create(operations, cancelOperations, parties, executor)
+  F-->>A: AtomDeployed
+  SEL->>NT: delegateLock(obligasi) ke atom
+  BUY->>NT: delegateLock(kas) ke atom
+  BI->>A: execute()
+  A->>NT: unlock obligasi ke pembeli dan kas ke penjual
+  NT->>NT: Hook handleDelegateUnlock memindahkan saldo di BondTracker
+</pre>
+      <p class="note">Pemeriksaan awal (saldo cukup, pembeli ada di whitelist, nomor perdagangan unik) dilakukan di sisi pelaku sebelum ada transaksi. Atom dibuat dengan <code>parties</code> = penjual dan pembeli, <code>executor</code> = custodian.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Penjual mengunci obligasi</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code>, hook <code>onPrepareUnlock</code></td><td>Jumlah unit, penerima = pembeli</td><td>Di dalam group: cek pembeli terdaftar. Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">2</td><td>Pembeli mengunci kas</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code></td><td>Jumlah kas, penerima = penjual</td><td>Di dalam group kas: hook tracker kas. Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">3</td><td>Custodian membuat atom</td><td class="fn"><code>create</code></td><td>Dua <code>operations</code> unlock, dua <code>cancelOperations</code>, <code>parties</code>, <code>executor</code></td><td>Ke Besu: transaksi publik, event <code>AtomDeployed</code>, status Pending.</td></tr>
+          <tr><td class="n">4</td><td>Penjual dan pembeli mendelegasikan</td><td class="fn"><code>delegateLock</code></td><td><code>lockId</code>, alamat atom</td><td>Ke Besu: spender kedua lock = atom.</td></tr>
+          <tr><td class="n">5</td><td>Custodian menjalankan atom</td><td class="fn"><code>execute</code></td><td>Tidak ada argumen</td><td>Ke Besu: dua <code>unlock</code> atomik, <code>AtomStatusChanged</code> = Executed.</td></tr>
+          <tr><td class="n">6</td><td>Tracker memindahkan saldo</td><td class="fn"><code>handleDelegateUnlock</code></td><td><code>lockId</code>, penerima</td><td>Di dalam group: saldo penjual turun, pembeli naik. Penjual bukan custodian, jadi tidak dihitung sebagai penjualan round.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Alamat atom, <code>parties</code>, <code>executor</code>, <code>lockId</code></li>
+        <li>Status atom</li>
+        <li>Fakta bahwa dua alamat bertransaksi dengan custodian</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah unit dan harga</li>
+        <li>Saldo penjual dan pembeli sebelum dan sesudah</li>
+        <li>Isi tracker privat</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah unit dan harga</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo obligasi dan kas masing-masing</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Alamat atom, parties, executor, lockId</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Status atom</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = penjual. Lawan transaksi = pembeli. Frekuensi dan waktu interaksi dua alamat dapat disimpulkan dari data atom, nilainya tidak.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Pembeli tidak ada di whitelist</td><td>Ditolak saat <code>prepareUnlock</code>: <code>"Investor is not registered"</code></td></tr>
+          <tr><td>Pemanggil bukan pemilik lock</td><td>Ditolak: <code>"Sender is not the lock owner"</code></td></tr>
+          <tr><td><code>execute</code> bukan oleh custodian</td><td>Ditolak: <code>NotExecutor</code></td></tr>
+          <tr><td>Atom sudah tidak Pending</td><td>Ditolak: <code>AtomNotPending</code></td></tr>
+          <tr><td>Salah satu leg mengembalikan false</td><td>Seluruh <code>execute</code> dibatalkan: <code>OperationReturnedFalse</code></td></tr>
+        </tbody></table></div>
+        <p class="note">Kegagalan sebelum delegasi diselesaikan dengan melepas lock. Setelah leg didelegasikan, pelepasan lewat pembatalan atom (fitur pembatalan).</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus O1: penjualan 10 unit investor1 ke investor2 pada harga 2 selesai (SETTLED, 10 unit untuk 20 kas) pada S2. Kasus O2: perdagangan yang sama pada S1.</li>
+          <li>Kasus N1 sampai N6: atom perdagangan yang sengaja dihentikan setelah delegasi, dipakai untuk uji pembatalan.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="swap">
+    <header>
+      <div class="eyebrow">Fitur 5 dari 9</div>
+      <h2>Swap aset dan kas</h2>
+      <p class="lead">Dua investor menukar aset dan kas dalam satu atom. Kedua token Noto memakai BI sebagai notary, dan <code>RestrictedAtom</code> memastikan kedua leg berpindah bersamaan.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: investor1 (aset) · investor2 (kas) · assetIssuer dan cashIssuer (BI)</span>
+        <span class="chip">Kontrak: dua token Noto (aset dan kas), NotoTrackerERC20 ×2, RestrictedAtomFactory, RestrictedAtom</span>
+        <span class="chip">Privacy group: satu group per token (anggota: penerbit masing-masing)</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI (assetIssuer dan cashIssuer)
+  participant I1 as Investor1 (pemilik aset)
+  participant I2 as Investor2 (pemilik kas)
+  participant F as RestrictedAtomFactory (Besu)
+  participant A as RestrictedAtom (Besu)
+  participant NT as Token Noto aset dan kas
+  BI->>NT: mint aset ke investor1 dan mint kas ke investor2
+  I1->>NT: lock(aset) lalu prepareUnlock ke investor2
+  I2->>NT: lock(kas) lalu prepareUnlock ke investor1
+  BI->>F: create(operations, cancelOperations, parties, executor)
+  F-->>A: AtomDeployed
+  I1->>NT: delegateLock(aset) ke atom
+  I2->>NT: delegateLock(kas) ke atom
+  I2->>A: execute()
+  A->>NT: unlock aset ke investor2 dan kas ke investor1
+</pre>
+      <p class="note">Atom dibuat dengan <code>parties</code> = investor1 dan investor2, <code>executor</code> = investor2. Pihak ketiga, termasuk penerbit kas, ditolak <code>NotAParty</code> bila mencoba membatalkan.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Menyiapkan dua token</td><td class="fn"><code>newNoto</code>, <code>newPrivacyGroup</code>, <code>NotoTrackerERC20</code></td><td>Notary assetIssuer dan cashIssuer, notaryMode hooks</td><td>Di dalam group masing-masing: tracker ERC20. Ke Besu: alamat token dan group.</td></tr>
+          <tr><td class="n">2</td><td>Mencetak aset dan kas</td><td class="fn"><code>mint</code></td><td>Penerima, jumlah</td><td>Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">3</td><td>Investor1 mengunci aset</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code></td><td>Jumlah aset, penerima = investor2</td><td>Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">4</td><td>Investor2 mengunci kas</td><td class="fn"><code>lock</code>, <code>prepareUnlock</code></td><td>Jumlah kas, penerima = investor1</td><td>Ke Besu: transisi Noto berisi hash.</td></tr>
+          <tr><td class="n">5</td><td>Membuat atom</td><td class="fn"><code>create</code></td><td>Dua <code>operations</code>, dua <code>cancelOperations</code>, <code>parties</code>, <code>executor</code> = investor2</td><td>Ke Besu: event <code>AtomDeployed</code>, status Pending.</td></tr>
+          <tr><td class="n">6</td><td>Kedua pemilik mendelegasikan</td><td class="fn"><code>delegateLock</code></td><td><code>lockId</code>, alamat atom</td><td>Ke Besu: spender kedua lock = atom.</td></tr>
+          <tr><td class="n">7</td><td>Investor2 menjalankan atom</td><td class="fn"><code>execute</code></td><td>Tidak ada argumen</td><td>Ke Besu: dua <code>unlock</code> atomik, status Executed.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Alamat atom, <code>parties</code>, <code>executor</code>, <code>lockId</code></li>
+        <li>Status atom</li>
+        <li>Alamat token aset dan kas</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah aset dan kas yang ditukar</li>
+        <li>Saldo investor</li>
+        <li>Isi tracker ERC20 tiap token</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah aset dan kas yang ditukar</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo aset dan kas</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Alamat atom, parties, executor, lockId</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Status atom</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = investor1. Lawan transaksi = investor2. BI melihat sebagai notary kedua token.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td><code>execute</code> bukan oleh investor2</td><td>Ditolak: <code>NotExecutor</code></td></tr>
+          <tr><td>Pembatalan oleh pihak yang bukan investor1 atau investor2</td><td>Ditolak: <code>NotAParty</code></td></tr>
+          <tr><td>Atom sudah tidak Pending</td><td>Ditolak: <code>AtomNotPending</code></td></tr>
+          <tr><td>Pemanggil hook bukan notary saat mint</td><td>Ditolak: <code>"Sender is not the notary"</code></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus W1: aset investor1 900 dan investor2 100, kas investor1 10 dan investor2 9990 setelah swap; <code>getParties</code>, <code>executor</code>, dan status Executed terbaca benar di chain.</li>
+          <li>Kasus SA1 sampai SB6: dua atom swap yang sengaja dibiarkan Pending, untuk uji pembatalan.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="lock">
+    <header>
+      <div class="eyebrow">Fitur 6 dari 9</div>
+      <h2>Lock, delegate, dan unlock</h2>
+      <p class="lead">Mekanisme dasar semua pertukaran: pemilik mengunci koin, menyiapkan tujuan, lalu menyerahkan hak eksekusi ke satu alamat (atom). Hanya alamat itu yang dapat membelanjakan atau membatalkan lock.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: pemilik koin · atom (spender) · notary BI</span>
+        <span class="chip">Kontrak: token Noto, NotoTrackerERC20 / BondTracker (hook), NotoLocks, RestrictedAtom</span>
+        <span class="chip">Privacy group: group tracker token terkait (kas, obligasi, atau aset)</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant OWN as Pemilik koin
+  participant NT as Token Noto (Besu)
+  participant H as Hook tracker (dalam group)
+  participant A as RestrictedAtom
+  OWN->>NT: lock(amount, data)
+  NT->>H: onLock (catat pemilik dan jumlah terkunci)
+  OWN->>NT: prepareUnlock(lockId, recipients)
+  NT->>H: onPrepareUnlock (catat penerima, cek whitelist dan kuota)
+  OWN->>NT: delegateLock(lockId, delegate = atom)
+  NT->>H: onDelegateLock (hanya meneruskan transaksi Noto)
+  A->>NT: unlock (saat execute) atau cancelLock (saat cancel)
+  NT->>H: handleDelegateUnlock (setelah transaksi terkonfirmasi)
+</pre>
+      <p class="note">Hook <code>handleDelegateUnlock</code> dipanggil setelah transaksi Besu terkonfirmasi, berbeda dari hook lain yang berjalan atomik dengan pergerakan token.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pemilik mengunci koin</td><td class="fn"><code>lock</code> lalu hook <code>onLock</code></td><td>Jumlah, data</td><td>Di dalam group: <code>NotoLocks.onLock</code> mencatat pemilik dan jumlah, saldo terkunci naik. Ke Besu: event lock berisi commitment.</td></tr>
+          <tr><td class="n">2</td><td>Pemilik menyiapkan tujuan</td><td class="fn"><code>prepareUnlock</code> lalu hook <code>onPrepareUnlock</code></td><td><code>lockId</code>, penerima dan jumlah</td><td>Di dalam group: penerima dan saldo tertunda dicatat. Pada BondTracker juga dicek whitelist, kuota, denominasi. Ke Besu: transisi Noto berisi hash, hasil: <code>unlockCall</code> dan <code>cancelCall</code>.</td></tr>
+          <tr><td class="n">3</td><td>Pemilik menyerahkan hak</td><td class="fn"><code>delegateLock</code> lalu hook <code>onDelegateLock</code></td><td><code>lockId</code>, alamat atom</td><td>Ke Besu: spender lock = atom. Hook hanya meneruskan transaksi Noto.</td></tr>
+          <tr><td class="n">4</td><td>Atom membelanjakan lock</td><td class="fn"><code>unlock</code> lalu hook <code>handleDelegateUnlock</code></td><td>Penerima</td><td>Di dalam group: saldo berpindah. Ke Besu: event lock terpakai.</td></tr>
+          <tr><td class="n">5</td><td>Atom membatalkan lock</td><td class="fn"><code>cancelLock</code> lalu hook <code>handleDelegateUnlock</code></td><td>Koin kembali ke pemilik</td><td>Di dalam group: lock dilepas tanpa pemindahan saldo. Ke Besu: event lock dibatalkan.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li><code>lockId</code>, pemilik lock, spender (alamat atom), commitment lock</li>
+        <li>Fakta bahwa lock dibuat, didelegasikan, dibelanjakan, atau dibatalkan</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah yang dikunci</li>
+        <li>Penerima yang disiapkan</li>
+        <li>Saldo terkunci dan tertunda di tracker</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah yang dikunci</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Penerima yang disiapkan</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>lockId dan siapa spender-nya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Saldo terkunci di tracker</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = pemilik koin. Lawan transaksi = penerima yang disiapkan. Lock dapat dibaca publik lewat <code>getLock(lockId)</code>: pemilik, spender, dan dua commitment.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Hook <code>onPrepareUnlock</code> dan <code>onUnlock</code> dipanggil bukan oleh pemilik lock</td><td>Ditolak: <code>"Sender is not the lock owner"</code></td></tr>
+          <tr><td>Hook <code>onLock</code> dan <code>onTransfer</code> dipanggil bukan oleh pemilik koin</td><td>Ditolak: <code>"Sender is not the from address"</code></td></tr>
+          <tr><td><code>handleDelegateUnlock</code> dipanggil bukan oleh issuer atau custodian</td><td>Ditolak: <code>"Caller is not the deployer or the custodian"</code></td></tr>
+          <tr><td>Penerima unlock tidak sama dengan yang disiapkan dan bukan bentuk pembatalan</td><td>Ditolak: <code>"Recipients do not match the prepared unlock"</code></td></tr>
+          <tr><td>Penerima obligasi tidak terdaftar</td><td>Ditolak: <code>"Investor is not registered"</code></td></tr>
+          <tr><td>Lock obligasi mint-lock ke selain custodian</td><td>Ditolak: <code>"Bond must be issued to custodian"</code></td></tr>
+        </tbody></table></div>
+        <p class="note">Alur nyata hanya memakai <code>lock</code>, <code>prepareUnlock</code>, <code>delegateLock</code>, dan unlock oleh atom. Unlock langsung oleh pemilik (hook <code>onUnlock</code>), <code>createTransferLock</code>, dan mint-lock ada di contract tetapi tidak dipakai alur mana pun.</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus N2, KA3, KB3, SA4, SB4: setelah delegasi, spender kedua lock adalah atom, dan tetap atom setelah percobaan batal yang ditolak.</li>
+          <li>Mekanisme ini dipakai oleh seluruh kasus penjualan perdana, outright, dan swap (I1 sampai I4, O1, O2, W1).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="batal">
+    <header>
+      <div class="eyebrow">Fitur 7 dari 9</div>
+      <h2>Pembatalan (hanya pihak terkait)</h2>
+      <p class="lead">Hanya pihak dalam transaksi atau eksekutor yang dapat membatalkan atom. Pembatalan melepas lock kedua leg ke pemilik masing-masing, dan tracker privat tetap sinkron.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: pihak transaksi (investor atau custodian) · eksekutor</span>
+        <span class="chip">Kontrak: RestrictedAtom, token Noto, BondTracker</span>
+        <span class="chip">Privacy group: group issuer+custodian (hook tracker)</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant X as Pemanggil
+  participant A as RestrictedAtom (Besu)
+  participant NT as Token Noto (Besu)
+  participant H as BondTracker (dalam group)
+  X->>A: cancel()
+  alt Bukan pihak dan bukan eksekutor
+    A-->>X: Ditolak NotAParty
+  else Atom tidak Pending
+    A-->>X: Ditolak AtomNotPending
+  else Diizinkan
+    A->>A: Status menjadi Cancelled
+    A->>NT: getLock(lockId) per leg
+    A->>NT: cancelLock per leg yang atom adalah spender-nya
+    A->>A: emit LegReleased atau LegReleaseFailed per leg
+    NT->>H: handleDelegateUnlock (bentuk pembatalan)
+  end
+</pre>
+      <p class="note">Penolakan non-pihak terjadi saat estimasi gas (<code>PD012216</code>), sehingga tidak ada transaksi dan tidak ada hash di chain. Bukti penolakan berupa teks error.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pemanggil meminta batal</td><td class="fn"><code>cancel</code></td><td>Tidak ada argumen</td><td>Ke Besu: transaksi publik bila diizinkan. Bila ditolak: tidak ada transaksi.</td></tr>
+          <tr><td class="n">2</td><td>Cek hak dan status</td><td class="fn"><code>cancel</code></td><td>Pengirim, status atom</td><td>Ditolak bila bukan pihak atau eksekutor (<code>NotAParty</code>) atau atom tidak Pending (<code>AtomNotPending</code>).</td></tr>
+          <tr><td class="n">3</td><td>Status menjadi Cancelled</td><td class="fn"><code>cancel</code></td><td>-</td><td>Ke Besu: event <code>AtomStatusChanged</code>.</td></tr>
+          <tr><td class="n">4</td><td>Melepas tiap leg</td><td class="fn"><code>_attemptRelease</code> memanggil <code>getLock</code> lalu <code>cancelLock</code></td><td><code>lockId</code> dan <code>cancelCall</code> tiap leg</td><td>Leg dilewati bila lock tidak aktif atau spender bukan atom. Selain itu Noto mengembalikan koin ke pemilik. Ke Besu: event <code>LegReleased</code> atau <code>LegReleaseFailed</code>.</td></tr>
+          <tr><td class="n">5</td><td>Tracker menerima hasil batal</td><td class="fn"><code>handleDelegateUnlock</code></td><td>Satu penerima = pemilik lock, jumlah = seluruh jumlah lock</td><td>Di dalam group: lock dilepas tanpa pemindahan saldo dan tanpa dihitung sebagai penjualan.</td></tr>
+          <tr><td class="n">6</td><td>Mengulang pelepasan bila gagal</td><td class="fn"><code>retryRelease</code></td><td>Nomor leg</td><td>Hanya saat atom Cancelled, oleh pihak atau eksekutor.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Alamat pembatal (transaksi publik)</li>
+        <li>Status atom Cancelled dan event pelepasan per leg</li>
+        <li>Lock yang kembali bebas</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Jumlah yang dilepas</li>
+        <li>Saldo yang dipulihkan di tracker privat</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Siapa yang membatalkan</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Jumlah yang dilepas</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Percobaan batal yang ditolak</td><td class="x">Tidak</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Status atom dan event pelepasan</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = pihak yang membatalkan. Lawan transaksi = pihak lain dalam atom. Percobaan batal yang ditolak tidak meninggalkan jejak di chain.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Pembatal bukan pihak dan bukan eksekutor</td><td>Ditolak: <code>NotAParty</code></td></tr>
+          <tr><td>Atom sudah Executed atau Cancelled</td><td>Ditolak: <code>AtomNotPending</code></td></tr>
+          <tr><td><code>retryRelease</code> saat atom belum Cancelled</td><td>Ditolak: <code>AtomNotPending</code></td></tr>
+          <tr><td>Hasil batal bukan satu penerima = pemilik lock dengan jumlah penuh</td><td>Ditolak di tracker: <code>"Recipients do not match the prepared unlock"</code></td></tr>
+          <tr><td>Hook batal dipanggil bukan oleh issuer atau custodian</td><td>Ditolak: <code>"Caller is not the deployer or the custodian"</code></td></tr>
+        </tbody></table></div>
+        <p class="note">Kegagalan satu leg tidak menggagalkan leg lain dan tidak membatalkan status Cancelled.</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus N1 sampai N6 (perdagangan): pembatal non-pihak ditolak <code>NotAParty</code>, atom tetap Pending dan lock tetap di atom, <code>execute</code> oleh pihak yang bukan eksekutor ditolak <code>NotExecutor</code>, pembatalan oleh pihak berhasil dengan dua <code>LegReleased</code> dan saldo kembali. Hash pembatalan ada di laporan.</li>
+          <li>Kasus KA1 sampai KB5 (penjualan perdana): investor lalu custodian membatalkan atom Pending. Kas dan obligasi kembali, unit tersedia tetap 700, saldo terkunci di tracker kembali 0, status publik tidak berpindah ke COMPLETE.</li>
+          <li>Kasus SA1 sampai SB6 (swap): penerbit kas ditolak <code>NotAParty</code>, investor1 yang bukan eksekutor ditolak <code>NotExecutor</code>, investor1 atau investor2 membatalkan, saldo kembali ke 900 aset dan 9990 kas.</li>
+          <li>Catatan: tracker privat diperbarui hook beberapa detik setelah pembatalan terkonfirmasi, sehingga pembacaan langsung sesudahnya dapat masih menunjukkan saldo terkunci.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="selesai">
+    <header>
+      <div class="eyebrow">Fitur 8 dari 9</div>
+      <h2>Penyelesaian distribusi (status COMPLETE)</h2>
+      <p class="lead">Saat unit yang tersedia habis terjual, tracker privat memberi tahu tracker publik satu kali. Publik hanya melihat status berpindah ke COMPLETE, tanpa jumlah.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: sistem (dipicu hook) · bondCustodian (BI)</span>
+        <span class="chip">Kontrak: BondTracker, BondTrackerPublic</span>
+        <span class="chip">Privacy group: group issuer+custodian</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant NT as Token Noto obligasi
+  participant G as BondTracker (dalam group)
+  participant PUB as BondTrackerPublic (Besu)
+  participant PUBLIK as Pembaca publik
+  NT->>G: handleDelegateUnlock atau onUnlock atau onTransfer (penjualan oleh custodian)
+  G->>G: _recordSale kurangi unit tersedia (privat)
+  G->>G: Unit tersedia menjadi 0
+  G-->>PUB: PenteExternalCall onDistributionComplete()
+  PUB->>PUB: Status STARTED menjadi DISTRIBUTION_COMPLETE
+  PUBLIK->>PUB: status()
+</pre>
+      <p class="note">Pemberitahuan dikirim sekali, tepat saat penghitung privat mencapai nol. Jumlah terjual dan sisa tidak pernah dikirim.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Penjualan dicatat</td><td class="fn"><code>_recordSale</code></td><td>Jumlah yang dijual custodian ke non-custodian</td><td>Di dalam group: unit tersedia berkurang. Ke Besu: tidak ada.</td></tr>
+          <tr><td class="n">2</td><td>Unit habis</td><td class="fn"><code>_recordSale</code></td><td>Unit tersedia = 0</td><td>Ke Besu: panggilan <code>onDistributionComplete()</code> lewat <code>PenteExternalCall</code>.</td></tr>
+          <tr><td class="n">3</td><td>Status publik berpindah</td><td class="fn"><code>onDistributionComplete</code></td><td>Status saat ini harus STARTED</td><td>Ke Besu: event <code>StatusChanged</code> = <code>DISTRIBUTION_COMPLETE</code>.</td></tr>
+          <tr><td class="n">4</td><td>Pembaca memeriksa status</td><td class="fn"><code>status</code></td><td>-</td><td>Tidak ada (hanya membaca).</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Status siklus: INITIALIZED, ISSUED, DISTRIBUTION_STARTED, DISTRIBUTION_COMPLETE</li>
+        <li>Jumlah tranche, tanpa jumlah unit</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Supply, unit terjual, unit tersisa</li>
+        <li>Harga dan denominasi</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Status publik COMPLETE</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Unit terjual dan tersisa</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Supply dan harga</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = custodian BI. Lawan transaksi = investor pembeli. Status COMPLETE menandai saat unit habis, tanpa memberi tahu berapa.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td><code>onDistributionComplete</code> saat tidak ada putaran berjalan</td><td>Ditolak: <code>"No distribution round in progress"</code></td></tr>
+          <tr><td>Menutup distribusi sebelum COMPLETE</td><td>Ditolak: <code>"Distribution is not complete"</code></td></tr>
+          <tr><td>Mengaktifkan sebelum distribusi ditutup</td><td>Ditolak: <code>"Bond is not ready to be activated"</code></td></tr>
+          <tr><td>Mengubah status publik dari luar group</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+          <tr><td>Aktivasi bukan oleh penerbit</td><td>Ditolak: <code>"Sender is not bond issuer"</code></td></tr>
+        </tbody></table></div>
+        <p class="note"><code>forceCompleteDistribution</code>, <code>closeDistribution</code>, dan <code>setActive</code> tersedia di contract, tetapi tidak dijalankan oleh alur uji live. Perilakunya hanya diuji pada tingkat kontrak.</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus P3: pada S2 (700 unit belum terjual) status publik 2 = DISTRIBUTION_STARTED dengan <code>schema()</code> = <code>status-only-v1</code>.</li>
+          <li>Kasus P4: pada S3 (supply 300, habis terjual) status publik 3 = DISTRIBUTION_COMPLETE.</li>
+          <li>Kasus KA5 dan KB5: setelah atom Pending dibatalkan, status publik tetap 2 dan tidak berpindah ke COMPLETE.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="rekon">
+    <header>
+      <div class="eyebrow">Fitur 9 dari 9</div>
+      <h2>Rekonsiliasi tracker dan Noto</h2>
+      <p class="lead">Pemeriksaan hanya-baca yang membandingkan saldo Noto dengan saldo tracker privat tiap akun. Gunanya menemukan hook yang gagal, karena tracker diperbarui setelah transaksi Besu terkonfirmasi.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: BI (anggota group issuer+custodian)</span>
+        <span class="chip">Kontrak: token Noto obligasi (<code>balanceOf</code>), BondTracker (<code>balanceOf</code>, <code>lockedBalanceOf</code>)</span>
+        <span class="chip">Privacy group: group issuer+custodian</span>
+        <span class="chip">Butuh BI online: ya (notary)</span>
+      </div>
+    </header>
+    <div class="sub">
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant R as Pemeriksa BI (hanya baca)
+  participant NT as Token Noto obligasi
+  participant G as BondTracker (dalam group)
+  loop Custodian dan tiap investor
+    R->>NT: balanceOf(akun) saldo tidak terkunci
+    R->>G: balanceOf(akun) saldo terkunci dan tidak terkunci
+    R->>G: lockedBalanceOf(akun)
+    R->>R: expected = tracker dikurangi terkunci, delta = Noto dikurangi expected
+  end
+  R-->>R: OK bila delta 0, selain itu MISMATCH atau UNVERIFIABLE
+</pre>
+      <p class="note">Pemeriksaan tidak mengirim transaksi apa pun. Pembacaan tracker dilakukan lewat <code>pgroup_call</code>, hanya dari node anggota group.</p>
+    </div>
+    <div class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Membaca saldo Noto</td><td class="fn"><code>balanceOf</code> (token Noto)</td><td>Akun</td><td>Tidak ada (hanya membaca). Hanya koin tidak terkunci yang dihitung.</td></tr>
+          <tr><td class="n">2</td><td>Membaca saldo tracker</td><td class="fn"><code>balanceOf</code> (BondTracker) lewat <code>pgroup_call</code></td><td>Akun</td><td>Tidak ada. Mencakup koin terkunci dan tidak terkunci.</td></tr>
+          <tr><td class="n">3</td><td>Membaca saldo terkunci</td><td class="fn"><code>lockedBalanceOf</code></td><td>Akun</td><td>Tidak ada. Dibaca dari <code>NotoLocks.lockedBalance</code>.</td></tr>
+          <tr><td class="n">4</td><td>Menghitung selisih</td><td><span class="key">di sisi pemeriksa</span></td><td>Tiga angka di atas</td><td><code>expected</code> = tracker dikurangi terkunci, <code>delta</code> = Noto dikurangi <code>expected</code>.</td></tr>
+          <tr><td class="n">5</td><td>Memberi status</td><td><span class="key">di sisi pemeriksa</span></td><td><code>delta</code>, ada tidaknya <code>lockedBalanceOf</code></td><td>OK bila delta 0. MISMATCH bila selisih. UNVERIFIABLE bila tracker lama tanpa <code>lockedBalanceOf</code> dan tracker lebih besar dari Noto.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h3>Data publik di chain</h3><ul class="plain">
+        <li>Tidak ada: pemeriksaan tidak menulis ke chain</li>
+      </ul></div>
+      <div class="panel"><h3>Data rahasia, tidak pernah ke chain</h3><ul class="plain">
+        <li>Saldo tracker privat per akun</li>
+        <li>Saldo terkunci per akun</li>
+        <li>Hasil selisih</li>
+      </ul></div>
+    </div>
+    <div class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI / notary</th><th>Pelaku</th><th>Lawan transaksi</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Saldo tracker privat per akun</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo terkunci per akun</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Saldo Noto milik sendiri</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Hasil rekonsiliasi</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Pelaku = pemeriksa di sisi BI. Pada uji live, saldo Noto tiap investor dibaca lewat node investor itu sendiri. Tracker hanya dapat dibaca dari node anggota group.</p>
+    </div>
+    <div class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll"><table><tbody>
+          <tr><td>Selisih Noto dan tracker nol</td><td>Hasil <code>OK</code></td></tr>
+          <tr><td>Ada selisih</td><td>Hasil <code>MISMATCH</code>, pemeriksaan keluar dengan kode gagal</td></tr>
+          <tr><td>Tracker lama tanpa <code>lockedBalanceOf</code> dan tracker lebih besar dari Noto</td><td>Hasil <code>UNVERIFIABLE</code>, bukan <code>OK</code> palsu</td></tr>
+        </tbody></table></div>
+        <p class="note">Tidak ada aturan revert karena pemeriksaan tidak menulis ke chain.</p>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus R1 sampai R3: S2 dan S3 semua akun OK dengan delta 0. S1 (tracker lama) dibaca dengan <code>locked=n/a</code>, semua akun OK.</li>
+          <li>Kasus KR1: setelah dua pembatalan atom penjualan perdana, S2 tetap OK dengan saldo terkunci 0 dan delta 0 di semua akun (custodian 700, investor1 90, investor2 110, investor3 100).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="tidak-ada">
+    <header>
+      <div class="eyebrow">Batas cakupan</div>
+      <h2>Tidak ada di kode</h2>
+      <p class="lead">Daftar kemampuan yang mungkin diharapkan tetapi tidak diimplementasikan pada track ini, agar tidak ada salah paham tentang cakupan.</p>
+    </header>
+    <div class="panel">
+      <div class="scroll"><table class="rules">
+        <thead><tr><th>Kemampuan</th><th>Kondisi</th></tr></thead>
+        <tbody>
+          <tr><td>Kupon (pembayaran bunga)</td><td>Tidak ada. Tidak ada fungsi di contract maupun alur untuk membayarnya.</td></tr>
+          <tr><td>Pelunasan (redemption) saat jatuh tempo</td><td>Tidak ada alurnya. Hook <code>onBurn</code> ada di BondTracker, tetapi tidak ada logika jatuh tempo. <code>maturityDate</code> hanya data publik.</td></tr>
+          <tr><td>Transfer RD dan burn RD sebagai alur</td><td>Tidak ada alur. Hook <code>onTransfer</code> dan <code>onBurn</code> ada di tracker, tetapi tidak ada yang memanggilnya. Perpindahan RD terjadi lewat lock dan atom.</td></tr>
+          <tr><td>Amandemen syarat instrumen</td><td>Tidak ada. Syarat tetap sejak konstruktor <code>BondTrackerPublic</code>.</td></tr>
+          <tr><td>Penutupan seri, aktivasi, dan penerbitan tranche berikutnya sebagai alur</td><td>Fungsinya ada (<code>forceCompleteDistribution</code>, <code>closeDistribution</code>, <code>setActive</code>, <code>onMint</code> saat ACTIVE), tetapi tidak dijalankan di uji live.</td></tr>
+          <tr><td>Pencabutan whitelist investor</td><td>Fungsi <code>removeInvestor</code> ada di <code>InvestorList</code>, tidak dijalankan alur mana pun.</td></tr>
+          <tr><td>Lelang, order book, biaya</td><td>Tidak ada.</td></tr>
+          <tr><td>Registri metadata instrumen berprofil taksonomi (ISIN, kode seri, hash syarat)</td><td>Tidak ada. Hanya syarat inti pada <code>BondTrackerPublic</code>.</td></tr>
+          <tr><td>Alur tetap berjalan saat node BI mati (R2)</td><td>Tidak terpenuhi, by design: BI adalah notary. Perilaku pembatalan oleh pihak saat BI mati belum diuji live.</td></tr>
+          <tr><td>Penyembunyian alamat para pihak</td><td>Tidak ada. Alamat investor dan custodian terbaca di data atom pada chain publik.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+</div>

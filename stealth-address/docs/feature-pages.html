@@ -1,0 +1,1317 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fitur Stealth Address</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: one reading column; a numbered flow table is the spine, privacy grid and rules follow. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #17202b; --muted: #5a6573; --line: #d9dee5;
+  --accent: #0b5f8a; --accent-soft: #e3eff6; --yes: #1d7a46; --no: #a3332b; --yes-soft: #e4f3ea; --no-soft: #f8e6e4;
+  --f-display: "Source Serif 4", Georgia, serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--f-body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(26px, 4vw, 34px)/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+h2 { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.lead { font-size: 17px; max-width: 68ch; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+code, .mono { font-family: var(--f-mono); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.n { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; width: 28px; }
+.fn { font-family: var(--f-mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cols h3 { margin: 0 0 8px; font-size: 15px; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.grid td.y, .grid td.x { text-align: center; font-weight: 600; width: 110px; }
+.grid td.y { color: var(--yes); background: var(--yes-soft); }
+.grid td.x { color: var(--no); background: var(--no-soft); }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.rules td:first-child { white-space: nowrap; }
+.key { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; }
+</style>
+<style>
+/* Additions for the multi-feature page; the block above is the approved template, unchanged. */
+html { scroll-behavior: smooth; }
+nav.nav { display: flex; flex-wrap: wrap; gap: 8px; }
+nav.nav a.chip { text-decoration: none; color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+nav.nav a.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+article.feat { display: grid; gap: 22px; padding-top: 28px; border-top: 2px solid var(--line); min-width: 0; scroll-margin-top: 12px; }
+article.feat header { display: grid; gap: 10px; }
+h2.ft { font: 600 clamp(22px, 3.4vw, 28px)/1.25 var(--f-display); margin: 0; text-wrap: balance; }
+h3.sub { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.rules .scroll td:first-child { white-space: normal; }
+</style>
+
+<div class="wrap">
+  <header id="atas">
+    <div class="eyebrow">Track Stealth Address · Penjelasan per fitur · Untuk manajemen teknis BI</div>
+    <h1>Fitur Stealth Address</h1>
+    <p class="lead">Sebelas fitur yang sudah ada di kode jalur stealth address, masing-masing dengan alur, fungsi per langkah, siapa melihat apa, aturan kontrak, dan bukti uji di jaringan Besu live: jumlah boleh publik, tetapi hanya BI, pengirim, dan penerima yang melihat transaksi secara utuh.</p>
+    <div class="chips">
+      <span class="chip">Jaringan: Hyperledger Besu</span>
+      <span class="chip">Uji E2E: 152 kasus lulus (36 happy, 116 negative)</span>
+    </div>
+  </header>
+  <nav class="nav" aria-label="Daftar fitur">
+      <a class="chip" href="#f1">1. Registrasi meta-address</a>
+      <a class="chip" href="#f2">2. Penerbitan Rupiah Digital (RD)</a>
+      <a class="chip" href="#f3">3. Transfer RD antar bank</a>
+      <a class="chip" href="#f4">4. Burn RD</a>
+      <a class="chip" href="#f5">5. Penerbitan DFABI</a>
+      <a class="chip" href="#f6">6. Transfer DFABI dengan certificate</a>
+      <a class="chip" href="#f7">7. Redeem DFABI</a>
+      <a class="chip" href="#f8">8. DvP</a>
+      <a class="chip" href="#f9">9. Memo pengirim terenkripsi</a>
+      <a class="chip" href="#f10">10. Pemindaian BI dengan view key</a>
+      <a class="chip" href="#f11">11. Registrasi data instrumen</a>
+      <a class="chip" href="#tidak-ada">Tidak ada di kode</a>
+  </nav>
+
+  <article class="feat" id="f1">
+    <header>
+      <div class="eyebrow">Fitur 1 dari 11</div>
+      <h2 class="ft">Registrasi meta-address</h2>
+      <p class="lead">Bank mengumumkan satu alamat publik (meta-address) di registri supaya pengirim bisa membuat alamat sekali pakai untuk bank itu, tanpa mengungkap alamat mana yang nanti dipakai.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank · Relayer (opsional)</span>
+        <span class="chip">Kontrak: ERC6538Registry</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BANK as Bank
+  participant REL as Relayer
+  participant REG as Kontrak ERC6538Registry
+  BANK->>BANK: Buat spend key dan view key, susun meta-address 66 byte
+  alt Bank mendaftar sendiri
+    BANK->>REG: registerKeys(skema 1, meta-address)
+    REG->>REG: Cek panjang 66 byte
+    REG-->>BANK: Event StealthMetaAddressSet
+  else Lewat relayer
+    BANK->>BANK: Tanda tangan EIP-712 (skema, meta-address, nonce)
+    BANK->>REL: Serahkan tanda tangan
+    REL->>REG: registerKeysOnBehalf(bank, skema, tanda tangan, meta-address)
+    REG->>REG: Cek panjang, cek tanda tangan, nonce naik
+    REG-->>REL: Event StealthMetaAddressSet atas nama bank
+  end
+</pre>
+      <p class="note">Penyerahan view key ke BI terjadi di luar sistem; kontrak tidak menyimpannya. Tanda tangan yang sudah dibuat tetapi belum dikirim bisa dibatalkan dengan incrementNonce().</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Bank membuat pasangan spend key dan view key, lalu menyusun meta-address</td><td><span class="key">di sisi bank</span></td><td>Kunci acak</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Bank mendaftar sendiri</td><td class="fn">registerKeys()</td><td>Skema (1), meta-address 66 byte</td><td>Event <code>StealthMetaAddressSet</code> (alamat bank, skema, meta-address)</td></tr>
+          <tr><td class="n">3</td><td>Atau bank menandatangani izin pendaftaran</td><td><span class="key">di sisi bank</span></td><td>Skema, meta-address, nonce bank</td><td>Tidak ada</td></tr>
+          <tr><td class="n">4</td><td>Relayer mengirim atas nama bank</td><td class="fn">registerKeysOnBehalf()</td><td>Alamat bank, skema, tanda tangan, meta-address</td><td>Event <code>StealthMetaAddressSet</code>; nonce bank naik</td></tr>
+          <tr><td class="n">5</td><td>Bank membatalkan tanda tangan yang belum dikirim</td><td class="fn">incrementNonce()</td><td>Tidak ada</td><td>Event <code>NonceIncremented</code></td></tr>
+          <tr><td class="n">6</td><td>Pengirim membaca meta-address bank</td><td class="fn">stealthMetaAddressOf()</td><td>Alamat bank, skema</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Meta-address bank (kunci publik spend dan view)</li>
+          <li>Alamat bank yang mendaftar</li>
+          <li>Nonce pendaftaran</li>
+          <li>Alamat relayer bila dipakai</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Spend key privat bank</li>
+          <li>View key privat bank (salinan diserahkan ke BI di luar sistem)</li>
+          <li>Tanda tangan sebelum dikirim</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Meta-address bank</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat yang mendaftar</td><td class="y">Ya</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>View key privat bank</td><td class="y">Ya</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Spend key privat bank</td><td class="x">Tidak</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Pembayaran mana yang masuk ke meta-address itu</td><td class="y">Ya</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Meta-address publik, tetapi tidak menunjukkan alamat sekali pakai mana yang akan dibuat darinya. BI memiliki salinan view key, bukan spend key.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Meta-address skema 1 bukan 66 byte</td><td>Ditolak: <code>InvalidMetaAddressLength</code></td></tr>
+            <tr><td>Tanda tangan salah, dipakai ulang, nonce salah, atau meta-address/skema berbeda dari yang ditandatangani</td><td>Ditolak: <code>ERC6538Registry__InvalidSignature</code></td></tr>
+            <tr><td>Wallet kontrak (ERC-1271) menjawab salah</td><td>Ditolak: <code>ERC6538Registry__InvalidSignature</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E REG-01 sampai REG-19 di Besu: pendaftaran langsung, lewat relayer, dan wallet kontrak lulus.</li>
+          <li>REG-02, REG-03: panjang salah. REG-06 sampai REG-12, REG-16, REG-18, REG-19: semua bentuk tanda tangan tidak sah ditolak dengan nama error di samping.</li>
+          <li>REG-14: pemisah domain EIP-712 sama dengan yang dihitung penanda-tangan. REG-15: incrementNonce() membatalkan tanda tangan yang tertunda.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f2">
+    <header>
+      <div class="eyebrow">Fitur 2 dari 11</div>
+      <h2 class="ft">Penerbitan Rupiah Digital (RD)</h2>
+      <p class="lead">BI mencetak RD langsung ke alamat sekali pakai milik bank penerima. Jumlah terlihat publik, tetapi hanya BI dan bank penerima yang tahu bank mana pemilik alamat itu.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: BI (penerbit) · Bank penerima</span>
+        <span class="chip">Kontrak: RupiahDigital, ERC5564Announcer</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: ya (BI yang menerbitkan)</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI (penerbit)
+  participant RD as Kontrak RupiahDigital
+  participant ANN as Kontrak Announcer
+  participant BANK as Bank penerima
+  BI->>BI: Hitung alamat sekali pakai dari meta-address bank
+  BI->>BI: Susun memo terenkripsi (identitas BI, konteks)
+  BI->>RD: mintStealth(alamat, jumlah, kunci efemeral, view tag, memo)
+  RD->>RD: Cek penerbit, jumlah, kunci, panjang memo
+  RD->>RD: Cetak RD ke alamat sekali pakai
+  RD->>ANN: announce(alamat, kunci efemeral, metadata)
+  ANN-->>BANK: Event Announcement
+  BANK->>BANK: Scan dengan view key, temukan alamat miliknya
+  BANK->>RD: balanceOf(alamat) cocokkan jumlah
+</pre>
+      <p class="note">Pencetakan dan pengumuman terjadi dalam satu transaksi. Jika satu cek gagal, keduanya batal. Ada juga mint() yang mencetak tanpa pengumuman; penerimanya tidak diberi tahu.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>BI menurunkan alamat sekali pakai untuk bank</td><td><span class="key">di sisi BI</span></td><td>Meta-address bank (spend key publik + view key publik)</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>BI menyusun memo</td><td><span class="key">di sisi BI</span></td><td>Identitas BI, konteks pembayaran</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>BI mengirim perintah cetak</td><td class="fn">mintStealth()</td><td>Alamat sekali pakai, jumlah, kunci efemeral 33 byte, view tag, memo maks. 256 byte</td><td>Transaksi dari alamat BI</td></tr>
+          <tr><td class="n">4</td><td>Kontrak memeriksa aturan</td><td class="fn">mintStealth()</td><td>Pengirim, jumlah, panjang kunci, panjang memo</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+          <tr><td class="n">5</td><td>RD dicetak</td><td class="fn">_mint()</td><td>Alamat, jumlah</td><td>Event <code>Transfer</code> (dari 0 ke alamat, jumlah). Saldo alamat dan total supply naik.</td></tr>
+          <tr><td class="n">6</td><td>Pengumuman untuk penerima</td><td class="fn">announce()</td><td>Alamat, kunci efemeral, view tag, jumlah, memo</td><td>Event <code>Announcement</code> (alamat, kunci efemeral, metadata)</td></tr>
+          <tr><td class="n">7</td><td>Bank menemukan dananya</td><td><span class="key">di sisi bank</span></td><td>Event Announcement + view key privat bank</td><td>Tidak ada (hanya membaca)</td></tr>
+          <tr><td class="n">8</td><td>Bank memastikan saldo</td><td class="fn">balanceOf()</td><td>Alamat sekali pakai</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat sekali pakai penerima</li>
+          <li>Jumlah RD yang dicetak</li>
+          <li>Alamat BI sebagai penerbit</li>
+          <li>Kunci efemeral dan view tag</li>
+          <li>Memo dalam bentuk terenkripsi</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>View key privat bank (dipegang bank, salinan di BI)</li>
+          <li>Spend key privat bank</li>
+          <li>Kunci privat alamat sekali pakai (spend + h)</li>
+          <li>Isi memo dalam bentuk terbaca</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah yang dicetak</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat sekali pakai</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat itu</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Isi memo</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Ini sesuai sasaran privasi: jumlah dan pengirim boleh publik, tetapi penerima tidak bisa dikaitkan oleh bank lain.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Bukan BI</td><td>Ditolak: <code>OnlyIssuer</code></td></tr>
+            <tr><td>Jumlah 0</td><td>Ditolak: <code>ZeroAmount</code></td></tr>
+            <tr><td>Kunci efemeral bukan 33 byte</td><td>Ditolak: <code>InvalidEphemeralPubKey</code></td></tr>
+            <tr><td>Memo lebih dari 256 byte</td><td>Ditolak: <code>MemoTooLong</code></td></tr>
+            <tr><td>Alamat penerima kosong</td><td>Ditolak: <code>ERC20InvalidReceiver</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E RD-01 sampai RD-08 di Besu: penerbitan sah lulus; OnlyIssuer, InvalidEphemeralPubKey, ZeroAmount, dan MemoTooLong terbukti ditolak dengan nama error di samping.</li>
+          <li>RD-03, RD-04: mint() hanya untuk BI. RD-08: memo 256 byte dan memo kosong diterima.</li>
+          <li>RD-16: bank penerima menemukan 1 pembayaran dengan jumlah dan token yang benar.</li>
+          <li>Jumlah di pengumuman selalu sama dengan jumlah yang dicetak, karena keduanya diambil dari nilai yang sama dalam satu transaksi.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f3">
+    <header>
+      <div class="eyebrow">Fitur 3 dari 11</div>
+      <h2 class="ft">Transfer RD antar bank</h2>
+      <p class="lead">Bank mengirim RD dari alamat sekali pakai miliknya ke alamat sekali pakai baru milik bank penerima, dengan satu transaksi yang sekaligus mengumumkan penerima dan membawa memo terenkripsi.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank pengirim · Bank penerima</span>
+        <span class="chip">Kontrak: RupiahDigital, ERC5564Announcer</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Bank pengirim
+  participant RD as Kontrak RupiahDigital
+  participant ANN as Kontrak Announcer
+  participant B as Bank penerima
+  A->>A: Hitung alamat sekali pakai dari meta-address penerima
+  A->>A: Susun memo terenkripsi (identitas pengirim)
+  A->>RD: sendStealth(alamat, jumlah, kunci efemeral, view tag, memo)
+  RD->>RD: Pindahkan saldo dari alamat pengirim
+  RD->>RD: Cek jumlah, kunci, panjang memo
+  RD->>ANN: announce(alamat, kunci efemeral, metadata)
+  ANN-->>B: Event Announcement
+  B->>B: Scan dengan view key, buka memo
+  B->>RD: balanceOf(alamat) cocokkan jumlah
+</pre>
+      <p class="note">Pengirim membayar dari alamat sekali pakai miliknya, jadi tidak perlu saldo gas (gas price jaringan 0). Transfer ERC-20 biasa (transfer, transferFrom) tetap bisa dipakai tetapi tidak mengumumkan apa pun.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pengirim menurunkan alamat sekali pakai untuk penerima</td><td><span class="key">di sisi bank</span></td><td>Meta-address penerima</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Pengirim menyusun memo</td><td><span class="key">di sisi bank</span></td><td>Identitas pengirim, konteks pembayaran</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Pengirim mengirim perintah</td><td class="fn">sendStealth()</td><td>Alamat sekali pakai, jumlah, kunci efemeral 33 byte, view tag, memo maks. 256 byte</td><td>Transaksi dari alamat sekali pakai pengirim</td></tr>
+          <tr><td class="n">4</td><td>Saldo berpindah</td><td class="fn">_transfer()</td><td>Alamat pengirim, alamat penerima, jumlah</td><td>Event <code>Transfer</code>. Saldo pengirim turun, saldo penerima naik.</td></tr>
+          <tr><td class="n">5</td><td>Kontrak memeriksa aturan</td><td class="fn">sendStealth()</td><td>Jumlah, panjang kunci, panjang memo</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+          <tr><td class="n">6</td><td>Pengumuman untuk penerima</td><td class="fn">announce()</td><td>Alamat, kunci efemeral, view tag, jumlah, memo</td><td>Event <code>Announcement</code></td></tr>
+          <tr><td class="n">7</td><td>Penerima menemukan dananya dan membuka memo</td><td><span class="key">di sisi bank</span></td><td>Event Announcement + view key privat penerima</td><td>Tidak ada (hanya membaca)</td></tr>
+          <tr><td class="n">8</td><td>Penerima memastikan saldo</td><td class="fn">balanceOf()</td><td>Alamat sekali pakai</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat sekali pakai pengirim dan penerima</li>
+          <li>Jumlah dan token</li>
+          <li>Kunci efemeral dan view tag</li>
+          <li>Memo dalam bentuk terenkripsi (panjang terlihat)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana pemilik alamat penerima</li>
+          <li>Identitas bank pengirim di dalam memo</li>
+          <li>View key dan spend key privat</li>
+          <li>Kunci privat alamat sekali pakai</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah dan token</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat pengirim dan penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Identitas bank pengirim (memo)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Isi memo</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Bank lain dan publik hanya melihat dua alamat acak dan jumlahnya. Selama alamat sekali pakai tidak dipakai ulang, mereka tidak bisa menautkannya ke bank.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Saldo pengirim kurang</td><td>Ditolak: <code>ERC20InsufficientBalance</code></td></tr>
+            <tr><td>Alamat penerima kosong</td><td>Ditolak: <code>ERC20InvalidReceiver</code></td></tr>
+            <tr><td>Jumlah 0</td><td>Ditolak: <code>ZeroAmount</code></td></tr>
+            <tr><td>Kunci efemeral bukan 33 byte</td><td>Ditolak: <code>InvalidEphemeralPubKey</code></td></tr>
+            <tr><td>Memo lebih dari 256 byte</td><td>Ditolak: <code>MemoTooLong</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E RD-09 sampai RD-15 di Besu: transfer sah lulus (pengirim 600, penerima 400); lima penolakan di samping terbukti.</li>
+          <li>RD-16 sampai RD-20: penerima menemukan pembayarannya, membaca pengirim dari memo; bank ketiga tidak menemukan apa pun dan tidak bisa membuka memo.</li>
+          <li>RD-29: pengumuman palsu yang diposting langsung ke Announcer terlihat di scan tanpa filter, tidak di scan yang hanya memercayai pengumuman dari kontrak token; alamat palsu itu berisi 0.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f4">
+    <header>
+      <div class="eyebrow">Fitur 4 dari 11</div>
+      <h2 class="ft">Burn RD</h2>
+      <p class="lead">Pemegang RD dapat memusnahkan saldonya sendiri; jumlah dan alamatnya tercatat publik, dan tidak ada pengumuman kepada pihak lain.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Pemegang RD (bank)</span>
+        <span class="chip">Kontrak: RupiahDigital</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as Pemegang RD
+  participant RD as Kontrak RupiahDigital
+  alt Pemegang membakar saldonya
+    H->>RD: burn(jumlah)
+    RD->>RD: Kurangi saldo dan total supply
+    RD-->>H: Event Transfer (alamat ke 0)
+  else Pihak lain dengan izin (allowance)
+    H->>RD: burnFrom(alamat, jumlah)
+    RD->>RD: Kurangi allowance, saldo, dan total supply
+    RD-->>H: Event Transfer (alamat ke 0)
+  end
+</pre>
+      <p class="note">Ini satu-satunya jalur keluar RD di kode: pemegang membakar saldonya sendiri. Tidak ada fungsi bagi BI untuk menarik atau membakar saldo bank (lihat bagian "Tidak ada di kode").</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pemegang membakar saldo sendiri</td><td class="fn">burn()</td><td>Jumlah</td><td>Event <code>Transfer</code> (alamat ke 0, jumlah). Saldo dan total supply turun.</td></tr>
+          <tr><td class="n">2</td><td>Atau pihak lain membakar saldo pemegang</td><td class="fn">burnFrom()</td><td>Alamat pemegang, jumlah</td><td>Event <code>Transfer</code>; allowance turun sebesar jumlah (kecuali tak terbatas)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat yang membakar</li>
+          <li>Jumlah yang dibakar</li>
+          <li>Total supply yang turun</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana pemilik alamat pembakar (hanya terlihat oleh yang memegang view key)</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah dibakar</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat pembakar</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat pembakar</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Burn tidak mengumumkan apa pun. BI dapat mengenali bank pemilik alamat itu hanya bila alamat tersebut pernah menerima RD lewat pengumuman yang bisa dipindai.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Saldo kurang (burn)</td><td>Ditolak: <code>ERC20InsufficientBalance</code></td></tr>
+            <tr><td>Allowance kurang (burnFrom)</td><td>Ditolak: <code>ERC20InsufficientAllowance</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E RD-33 sampai RD-35 di Besu: burn sah lulus (saldo 0, total supply turun 400); saldo kurang dan allowance kurang ditolak dengan nama error di samping.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f5">
+    <header>
+      <div class="eyebrow">Fitur 5 dari 11</div>
+      <h2 class="ft">Penerbitan DFABI</h2>
+      <p class="lead">Custodian menerbitkan unit obligasi per tranche langsung ke alamat sekali pakai milik bank, dengan pengumuman yang sama seperti RD ditambah nama tranche.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Custodian (minter) · Bank penerima</span>
+        <span class="chip">Kontrak: DfabiBond, ERC1400TokensValidator, ERC5564Announcer</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak (custodian yang menerbitkan)</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Custodian
+  participant BOND as Kontrak DfabiBond
+  participant ANN as Kontrak Announcer
+  participant BANK as Bank penerima
+  C->>C: Hitung alamat sekali pakai dan susun memo
+  C->>BOND: issueByPartitionStealth(tranche, alamat, jumlah, kunci efemeral, view tag, memo)
+  BOND->>BOND: Cek minter, penerbitan terbuka, kunci, jumlah, memo
+  BOND->>BOND: Validator dipanggil, penerbit dikecualikan dari certificate
+  BOND->>BOND: Saldo tranche dan total supply naik
+  BOND->>ANN: announce(alamat, kunci efemeral, metadata dengan tranche)
+  ANN-->>BANK: Event Announcement
+  BANK->>BANK: Scan dengan view key
+  BANK->>BOND: balanceOfByPartition(tranche, alamat)
+</pre>
+      <p class="note">Satu kontrak DfabiBond per seri; tranche adalah partition ERC-1400. issueByPartition() biasa juga ada tetapi menerbitkan tanpa pengumuman.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Custodian menurunkan alamat sekali pakai dan menyusun memo</td><td><span class="key">di sisi custodian</span></td><td>Meta-address bank (khusus obligasi), identitas custodian</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Custodian mengirim perintah terbit</td><td class="fn">issueByPartitionStealth()</td><td>Tranche, alamat sekali pakai, jumlah, kunci efemeral 33 byte, view tag, memo maks. 256 byte</td><td>Transaksi dari alamat custodian</td></tr>
+          <tr><td class="n">3</td><td>Kontrak memeriksa aturan</td><td class="fn">issueByPartitionStealth()</td><td>Pengirim (harus minter), status penerbitan, kunci, jumlah, memo</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+          <tr><td class="n">4</td><td>Unit diterbitkan</td><td class="fn">_issueByPartition()</td><td>Tranche, alamat, jumlah</td><td>Event <code>Issued</code>, <code>Transfer</code>, <code>IssuedByPartition</code>. Saldo tranche dan total supply naik.</td></tr>
+          <tr><td class="n">5</td><td>Pengumuman untuk penerima</td><td class="fn">announce()</td><td>Alamat, kunci efemeral, view tag, jumlah, tranche, memo</td><td>Event <code>Announcement</code></td></tr>
+          <tr><td class="n">6</td><td>Bank menemukan dan memastikan saldonya</td><td class="fn">balanceOfByPartition()</td><td>Tranche, alamat sekali pakai</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat sekali pakai penerima</li>
+          <li>Jumlah unit dan nama tranche</li>
+          <li>Alamat custodian sebagai penerbit</li>
+          <li>Kunci efemeral, view tag, memo terenkripsi</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana pemilik alamat penerima</li>
+          <li>View key dan spend key privat bank</li>
+          <li>Isi memo dalam bentuk terbaca</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah dan tranche</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat sekali pakai</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat itu</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Isi memo</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kolom BI: custodian memegang view key bank untuk obligasi; BI hanya bila ia juga memegang view key itu. Pelaku di sini adalah custodian. Bank lain dan publik tidak melihat penerima.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Bukan minter</td><td>Ditolak: revert tanpa pesan (require polos pada onlyMinter)</td></tr>
+            <tr><td>Penerbitan sudah ditutup</td><td>Ditolak: revert <code>"55"</code></td></tr>
+            <tr><td>Jumlah 0</td><td>Ditolak: <code>ZeroAmount</code></td></tr>
+            <tr><td>Kunci efemeral bukan 33 byte</td><td>Ditolak: <code>InvalidEphemeralPubKey</code></td></tr>
+            <tr><td>Memo lebih dari 256 byte</td><td>Ditolak: <code>MemoTooLong</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E BOND-01 sampai BOND-05 di Besu: penerbitan sah lulus (bank menerima 1000 unit tranche A); penolakan bukan minter, InvalidEphemeralPubKey, ZeroAmount, dan MemoTooLong terbukti.</li>
+          <li>BOND-25: pemindaian BI memetakan penerbitan ke bank penerima dengan custodian sebagai pengirim terautentikasi.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f6">
+    <header>
+      <div class="eyebrow">Fitur 6 dari 11</div>
+      <h2 class="ft">Transfer DFABI dengan certificate</h2>
+      <p class="lead">Setiap transfer obligasi harus disertai certificate bertanda tangan custodian untuk panggilan yang persis sama; tanpa itu, kontrak menolak.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank pengirim · Custodian · Bank penerima</span>
+        <span class="chip">Kontrak: DfabiBond, ERC1400TokensValidator, ERC5564Announcer</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak (custodian harus online)</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Bank pengirim
+  participant C as Custodian
+  participant BOND as Kontrak DfabiBond
+  participant VAL as Validator
+  participant ANN as Kontrak Announcer
+  participant B as Bank penerima
+  A->>A: Hitung alamat sekali pakai dan susun memo
+  A->>C: Minta certificate untuk panggilan ini
+  C->>C: Periksa penerima, jumlah, memo, lalu tanda tangan
+  C-->>A: Certificate 97 byte (masa berlaku pendek, nonce)
+  A->>BOND: transferByPartitionStealth(tranche, alamat, jumlah, kunci efemeral, view tag, memo, certificate)
+  BOND->>VAL: Verifikasi certificate dan allowlist
+  VAL-->>BOND: Sah, nonce pengirim naik
+  BOND->>BOND: Pindahkan saldo tranche
+  BOND->>ANN: announce(alamat, kunci efemeral, metadata dengan tranche)
+  ANN-->>B: Event Announcement
+  B->>B: Scan dengan view key, buka memo
+</pre>
+      <p class="note">Certificate mengikat pengirim, token, seluruh isi panggilan termasuk memo, masa berlaku, dan nonce, sehingga tidak bisa dipakai untuk panggilan lain atau diulang. Jalur ERC-20 (transfer, transferFrom) ditutup oleh allowlist validator.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pengirim menurunkan alamat sekali pakai dan menyusun memo</td><td><span class="key">di sisi bank</span></td><td>Meta-address penerima, identitas pengirim</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Pengirim meminta certificate</td><td><span class="key">di luar chain</span></td><td>Pengirim, tranche, alamat, jumlah, kunci efemeral, view tag, memo</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Custodian memeriksa dan menandatangani</td><td><span class="key">di sisi custodian</span></td><td>Isi panggilan, masa berlaku, nonce pengirim</td><td>Tidak ada</td></tr>
+          <tr><td class="n">4</td><td>Pengirim mengirim transfer</td><td class="fn">transferByPartitionStealth()</td><td>Tranche, alamat, jumlah, kunci efemeral, view tag, memo, certificate (argumen terakhir)</td><td>Transaksi dari alamat sekali pakai pengirim</td></tr>
+          <tr><td class="n">5</td><td>Validator memeriksa certificate dan allowlist</td><td class="fn">tokensToValidate()</td><td>Certificate 97 byte, isi panggilan</td><td>Nonce pengirim di validator naik satu</td></tr>
+          <tr><td class="n">6</td><td>Saldo berpindah</td><td class="fn">_transferByPartition()</td><td>Tranche, pengirim, penerima, jumlah</td><td>Event <code>Transfer</code>, <code>TransferByPartition</code>. Saldo tranche pengirim turun, penerima naik.</td></tr>
+          <tr><td class="n">7</td><td>Pengumuman untuk penerima</td><td class="fn">announce()</td><td>Alamat, kunci efemeral, view tag, jumlah, tranche, memo</td><td>Event <code>Announcement</code></td></tr>
+          <tr><td class="n">8</td><td>Penerima menemukan dananya dan membuka memo</td><td><span class="key">di sisi bank</span></td><td>Event Announcement + view key privat</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat sekali pakai pengirim dan penerima</li>
+          <li>Jumlah dan tranche</li>
+          <li>Kunci efemeral dan view tag</li>
+          <li>Memo terenkripsi, certificate (bagian dari data panggilan)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana pemilik alamat penerima</li>
+          <li>Identitas bank pengirim di dalam memo</li>
+          <li>View key dan spend key privat</li>
+          <li>Kunci tanda tangan custodian</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah dan tranche</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat pengirim dan penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat penerima</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Identitas bank pengirim (memo)</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kolom BI: bergantung pada apakah BI memegang view key obligasi bank. Custodian memegang view key itu dan juga melihat isi permintaan certificate sebelum menandatangani; ia bukan salah satu kolom di sini.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Tanpa certificate</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Certificate kedaluwarsa</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Ditandatangani pihak yang bukan signer</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Pengirim, jumlah, atau memo berbeda dari yang ditandatangani</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Nonce salah atau certificate dipakai ulang</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Lewat jalur ERC-20 (transfer)</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Saldo tranche kurang</td><td>Ditolak: revert <code>"52"</code></td></tr>
+            <tr><td>Jumlah 0</td><td>Ditolak: <code>ZeroAmount</code></td></tr>
+            <tr><td>Kunci efemeral bukan 33 byte</td><td>Ditolak: <code>InvalidEphemeralPubKey</code></td></tr>
+            <tr><td>Memo lebih dari 256 byte</td><td>Ditolak: <code>MemoTooLong</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E BOND-06 sampai BOND-19 di Besu: transfer sah lulus (pengirim 600, penerima 400); semua penolakan di samping terbukti dengan kode persis.</li>
+          <li>BOND-20 sampai BOND-24: penerima menemukan pembayaran dan membaca pengirim dari memo; bank ketiga tidak menemukan apa pun; memo yang diubah atau dipindah ke tranche lain tidak terbaca; pengumuman palsu diabaikan.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f7">
+    <header>
+      <div class="eyebrow">Fitur 7 dari 11</div>
+      <h2 class="ft">Redeem DFABI</h2>
+      <p class="lead">Pemegang obligasi memusnahkan unitnya dengan certificate custodian; unit lenyap dari tranche, tetapi kontrak tidak membayar RD.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Pemegang (bank) · Custodian</span>
+        <span class="chip">Kontrak: DfabiBond, ERC1400TokensValidator</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak (custodian harus online)</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as Pemegang
+  participant C as Custodian
+  participant BOND as Kontrak DfabiBond
+  participant VAL as Validator
+  H->>C: Minta certificate untuk redeemByPartition
+  C->>C: Periksa jumlah dan tranche, lalu tanda tangan
+  C-->>H: Certificate 97 byte
+  H->>BOND: redeemByPartition(tranche, jumlah, certificate)
+  BOND->>BOND: Cek saldo tranche cukup
+  BOND->>VAL: Verifikasi certificate
+  VAL-->>BOND: Sah, nonce naik
+  BOND->>BOND: Kurangi saldo tranche dan total supply
+  BOND-->>H: Event Redeemed, RedeemedByPartition
+</pre>
+      <p class="note">Redeem tidak mengumumkan penerima dan tidak ada pembayaran RD otomatis. Custodian sebagai controller juga memiliki operatorRedeemByPartition() yang dapat membakar saldo pemegang tanpa certificate.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pemegang meminta certificate</td><td><span class="key">di luar chain</span></td><td>Pemegang, tranche, jumlah</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Custodian memeriksa dan menandatangani</td><td><span class="key">di sisi custodian</span></td><td>Isi panggilan, masa berlaku, nonce</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Pemegang mengirim redeem</td><td class="fn">redeemByPartition()</td><td>Tranche, jumlah, certificate</td><td>Transaksi dari alamat pemegang</td></tr>
+          <tr><td class="n">4</td><td>Kontrak memeriksa saldo</td><td class="fn">_redeemByPartition()</td><td>Saldo tranche pemegang</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+          <tr><td class="n">5</td><td>Validator memeriksa certificate</td><td class="fn">tokensToValidate()</td><td>Certificate, isi panggilan</td><td>Nonce pemegang naik satu</td></tr>
+          <tr><td class="n">6</td><td>Unit dimusnahkan</td><td class="fn">_redeem()</td><td>Pemegang, jumlah</td><td>Event <code>Redeemed</code>, <code>Transfer</code> (ke 0), <code>RedeemedByPartition</code>. Saldo tranche dan total supply turun.</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Alamat pemegang</li>
+          <li>Jumlah dan tranche yang dimusnahkan</li>
+          <li>Total supply tranche yang turun</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana pemilik alamat pemegang</li>
+          <li>Kunci tanda tangan custodian</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Jumlah dan tranche yang dimusnahkan</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Alamat pemegang</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat pemegang</td><td style="text-align:center;font-weight:600;color:var(--muted)">Bersyarat</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Tidak ada pengumuman untuk redeem. Kolom BI: sama seperti transfer, bergantung pada view key obligasi.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Tanpa certificate</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Certificate untuk jumlah lain</td><td>Ditolak: revert <code>"54"</code></td></tr>
+            <tr><td>Saldo tranche kurang</td><td>Ditolak: revert <code>"52"</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E BOND-27 sampai BOND-30 di Besu: redeem sah lulus (saldo dua pemegang 0, total supply tranche 0); tiga penolakan di samping terbukti dengan kode persis.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f8">
+    <header>
+      <div class="eyebrow">Fitur 8 dari 11</div>
+      <h2 class="ft">DvP: bond lawan RD dalam satu transaksi</h2>
+      <p class="lead">Penjual bond dan pembeli RD menaruh masing-masing leg di escrow satu-trade; settle() menukar keduanya sekaligus atau tidak sama sekali, dan setelah batas waktu siapa pun dapat mengembalikan tiap leg ke pemiliknya.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Custodian · Penjual · Pembeli · Siapa saja (settle atau cancel)</span>
+        <span class="chip">Kontrak: DvPFactory, DvPEscrow, DfabiBond, RupiahDigital</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Custodian
+  participant F as DvPFactory
+  participant E as DvPEscrow
+  participant S as Penjual
+  participant P as Pembeli
+  participant X as Siapa saja
+  C->>F: predict(terms) lalu tanda tangan dua certificate untuk alamat itu
+  C->>F: create(terms, settleCert, refundCert)
+  F->>E: Buat escrow di alamat CREATE2, pasang certificate
+  S->>E: Danai leg bond: transferByPartition(tranche, escrow, jumlah, certificate)
+  P->>E: Danai leg RD: transfer(escrow, jumlah)
+  alt Sebelum expiry, kedua leg terisi
+    X->>E: settle()
+    E->>S: Bond ke alamat sekali pakai pembeli (transferByPartitionStealth)
+    E->>P: RD ke alamat sekali pakai penjual (sendStealth)
+    E-->>X: Event Settled
+  else Sejak expiry, belum settle
+    X->>E: cancel()
+    E->>S: Bond kembali ke penjual (certificate refund)
+    E->>P: RD kembali ke pembeli
+    E-->>X: Event Cancelled
+  end
+</pre>
+      <p class="note">settle() dan cancel() tidak menerima argumen, jadi pemanggil hanya memicu apa yang sudah tertulis di terms; tujuan tidak bisa dialihkan. Revert di salah satu leg membatalkan dua-duanya.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Custodian menghitung alamat escrow sebelum ada</td><td class="fn">predict()</td><td>Terms (tradeId, token, jumlah, penjual, pembeli, expiry, refundWindow, dua leg)</td><td>Tidak ada (hanya membaca)</td></tr>
+          <tr><td class="n">2</td><td>Custodian menandatangani certificate settle dan refund untuk alamat itu</td><td><span class="key">di sisi custodian</span></td><td>Alamat escrow, isi panggilan, masa berlaku</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Custodian membuat escrow</td><td class="fn">create()</td><td>Terms, settleCert, refundCert</td><td>Event <code>EscrowCreated</code> (tradeId, alamat escrow)</td></tr>
+          <tr><td class="n">4</td><td>Certificate dipasang oleh factory</td><td class="fn">setCertificates()</td><td>Dua certificate 97 byte</td><td>certificatesSet menjadi benar</td></tr>
+          <tr><td class="n">5</td><td>Penjual mendanai leg bond</td><td class="fn">transferByPartition()</td><td>Tranche, alamat escrow, jumlah bond, certificate penjual</td><td>Event <code>TransferByPartition</code></td></tr>
+          <tr><td class="n">6</td><td>Pembeli mendanai leg RD</td><td class="fn">transfer()</td><td>Alamat escrow, jumlah RD</td><td>Event <code>Transfer</code></td></tr>
+          <tr><td class="n">7</td><td>Siapa saja menjalankan settle sebelum expiry</td><td class="fn">settle()</td><td>Tidak ada argumen</td><td>settled menjadi benar</td></tr>
+          <tr><td class="n">8</td><td>Bond ke penerima, RD ke penerima</td><td class="fn">transferByPartitionStealth(), sendStealth()</td><td>Dua leg dari terms</td><td>Event <code>Settled</code>; dua <code>Announcement</code> (dari bond dan RD). Kelebihan RD kembali ke pembeli.</td></tr>
+          <tr><td class="n">9</td><td>Sejak expiry tanpa settle, siapa saja menjalankan cancel</td><td class="fn">cancel()</td><td>Tidak ada argumen</td><td>Event <code>Cancelled</code> (apakah bond dikembalikan, jumlah RD yang dikembalikan). Bond dikembalikan dengan certificate refund.</td></tr>
+          <tr><td class="n">10</td><td>Jika refund bond gagal (certificate habis)</td><td class="fn">cancel()</td><td>Tidak ada argumen</td><td>Event <code>BondRefundFailed</code>; RD tetap kembali; cancel() bisa diulang</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Seluruh terms: tradeId, jumlah bond dan RD, token, expiry, dua alamat penerima</li>
+          <li>Bahwa dua alamat penerima adalah pasangan satu trade</li>
+          <li>Alamat escrow dan siapa yang memicu settle atau cancel</li>
+          <li>Memo tiap leg dalam bentuk terenkripsi</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Bank mana di balik tiap alamat penerima</li>
+          <li>Identitas bank di dalam memo tiap leg</li>
+          <li>View key dan spend key privat</li>
+          <li>Kunci tanda tangan custodian</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Terms trade (jumlah, harga, token, expiry)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Dua alamat penerima sebagai pasangan trade</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank di balik tiap alamat penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Isi memo tiap leg</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kolom "Pelaku" adalah penjual dan pembeli. Keduanya membaca terms dari escrow dan melihat kedua penerima. Bank ketiga tidak melihat bank mana pun di balik kedua alamat dan tidak bisa membaca memo.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Bukan custodian yang membuat escrow</td><td>Ditolak: <code>OnlyCustodian</code></td></tr>
+            <tr><td>Certificate dipasang oleh selain factory</td><td>Ditolak: <code>OnlyFactory</code></td></tr>
+            <tr><td>Certificate bukan 97 byte</td><td>Ditolak: <code>BadCertificateLength</code></td></tr>
+            <tr><td>Certificate habis sebelum trade dan masa refund selesai</td><td>Ditolak: <code>CertificateExpiresTooEarly</code></td></tr>
+            <tr><td>Certificate dipasang dua kali</td><td>Ditolak: <code>CertificatesAlreadySet</code></td></tr>
+            <tr><td>settle() sebelum certificate terpasang</td><td>Ditolak: <code>NotReady</code></td></tr>
+            <tr><td>settle() saat salah satu leg belum terisi penuh</td><td>Ditolak: <code>NotFunded</code></td></tr>
+            <tr><td>settle() pada atau setelah expiry</td><td>Ditolak: <code>Expired</code></td></tr>
+            <tr><td>settle() atau cancel() setelah sudah settle</td><td>Ditolak: <code>AlreadySettled</code></td></tr>
+            <tr><td>cancel() sebelum expiry</td><td>Ditolak: <code>NotExpired</code></td></tr>
+            <tr><td>cancel() saat tidak ada yang bisa dikembalikan</td><td>Ditolak: <code>NothingToRefund</code></td></tr>
+            <tr><td>Trade yang sama dibuat dua kali</td><td>Ditolak: revert tanpa pesan (alamat CREATE2 sudah terpakai)</td></tr>
+            <tr><td>Certificate bond tidak sah saat settle</td><td>Ditolak: revert <code>"54"</code>, seluruh settle batal</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E DVP-01 sampai DVP-31 di Besu, termasuk: create dan settle oleh pihak ketiga (DVP-06, DVP-13); cancel dua leg, hanya bond, hanya RD, dan saat settle certificate buruk (DVP-26, 28, 29, 31).</li>
+          <li>Penolakan terbukti: OnlyCustodian (DVP-01, 02), CertificateExpiresTooEarly (03, 04), BadCertificateLength (05), OnlyFactory (08, 09), NotFunded (11, 12, 20, 21, 22), AlreadySettled (14, 15), NotExpired (19), Expired (25), NothingToRefund (27, 30).</li>
+          <li>DVP-23 dan DVP-24: settle dengan certificate bond tidak sah gagal dan dana tetap utuh di escrow.</li>
+          <li>DVP-16 sampai DVP-18: BI memetakan kedua leg ke bank dan membaca memo; penjual dan pembeli menemukan penerimanya; bank ketiga tidak melihat apa pun.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f9">
+    <header>
+      <div class="eyebrow">Fitur 9 dari 11</div>
+      <h2 class="ft">Memo pengirim terenkripsi</h2>
+      <p class="lead">Setiap pembayaran dapat membawa memo 102 byte berisi identitas pengirim yang ditandatangani; hanya penerima dan BI yang bisa membukanya, dan tanda tangannya mengikat memo pada satu pembayaran saja.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Pengirim · Penerima · BI</span>
+        <span class="chip">Kontrak: RupiahDigital, DfabiBond (hanya membatasi panjang)</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant S as Pengirim
+  participant T as Kontrak token
+  participant ANN as Kontrak Announcer
+  participant R as Penerima atau BI
+  S->>S: Buat kunci efemeral baru untuk pembayaran ini
+  S->>S: Tanda tangan konteks (chain, token, alamat, jumlah, kunci efemeral, tranche)
+  S->>S: buildMemo(): enkripsi AES-256-GCM, 102 byte
+  S->>T: Kirim sebagai parameter memo
+  T->>T: Cek panjang tidak lebih dari 256 byte
+  T->>ANN: announce(... metadata + memo)
+  ANN-->>R: Event Announcement
+  R->>R: openMemo(): buka dengan view key penerima
+  R->>R: Verifikasi tanda tangan, hasil: pengirim terautentikasi
+</pre>
+      <p class="note">Kontrak tidak melakukan kriptografi apa pun; ia hanya membatasi panjang memo. Memo tidak diwajibkan: memo kosong diterima.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Pengirim membuat kunci efemeral baru</td><td><span class="key">di sisi pengirim</span></td><td>Bilangan acak, satu per pembayaran</td><td>Tidak ada</td></tr>
+          <tr><td class="n">2</td><td>Pengirim menandatangani konteks pembayaran</td><td><span class="key">di sisi pengirim</span></td><td>Chain, token, alamat penerima, jumlah, kunci efemeral (dan tranche untuk DFABI)</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Memo disusun dan dienkripsi</td><td class="fn">buildMemo()</td><td>Identitas pengirim, tanda tangan, view key publik penerima</td><td>Tidak ada. Hasil 102 byte: versi 1, isi 85, tag 16</td></tr>
+          <tr><td class="n">4</td><td>Memo dikirim bersama pembayaran</td><td class="fn">mintStealth(), sendStealth(), issueByPartitionStealth(), transferByPartitionStealth()</td><td>Parameter memo, maks. 256 byte</td><td>Event <code>Announcement</code> (memo di ujung metadata)</td></tr>
+          <tr><td class="n">5</td><td>Kontrak membatasi panjang</td><td class="fn">mintStealth(), sendStealth(), dan padanan DFABI</td><td>Panjang memo</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+          <tr><td class="n">6</td><td>Penerima atau BI membuka memo</td><td class="fn">openMemo()</td><td>Memo, view key privat penerima, konteks pembayaran</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Keberadaan memo dan panjangnya (102 byte)</li>
+          <li>Memo dalam bentuk terenkripsi</li>
+          <li>Alamat sekali pakai pengirim</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Identitas pengirim di dalam memo</li>
+          <li>Tanda tangan pengirim</li>
+          <li>Kunci enkripsi (turunan dari titik rahasia bersama)</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Ada atau tidaknya memo dan panjangnya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Isi memo, identitas pengirim</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Keaslian pengirim (tanda tangan terverifikasi)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kunci memo diturunkan dari titik rahasia bersama yang sama dengan alamat sekali pakai, jadi pemegang view key penerima (termasuk BI) bisa membukanya dan bank lain tidak. Pada DFABI, custodian ikut menjamin memo karena certificate mencakup seluruh isi panggilan.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Memo lebih dari 256 byte</td><td>Ditolak oleh kontrak: <code>MemoTooLong</code></td></tr>
+            <tr><td>Kunci salah, memo diubah, dipotong, atau dipindah ke pembayaran lain</td><td>hasil kosong (tidak terbaca)</td></tr>
+            <tr><td>Tanda tangan bukan milik pengirim yang diklaim</td><td>hasil kosong (tidak terbaca)</td></tr>
+            <tr><td>Kunci efemeral tidak cocok dengan konteks</td><td>ditolak saat memo disusun</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E RD-17 dan BOND-21: penerima membaca pengirim terautentikasi; BI membaca memo yang sama dengan view key penerima.</li>
+          <li>RD-19 dan RD-20: bank ketiga dan view key bank lain tidak bisa membuka memo. RD-21 sampai RD-25 dan BOND-23: memo yang diubah (isi, tag), dipotong, dipindah ke jumlah atau tranche lain, atau berpenanda-tangan palsu tidak terbaca.</li>
+          <li>RD-07, RD-13, BOND-05, BOND-14: MemoTooLong. RD-08: memo 256 byte dan memo kosong diterima.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f10">
+    <header>
+      <div class="eyebrow">Fitur 10 dari 11</div>
+      <h2 class="ft">Pemindaian BI dengan view key</h2>
+      <p class="lead">BI membaca seluruh pengumuman pembayaran setelah kejadian dan memetakan tiap alamat penerima ke bank dengan view key yang diserahkan bank; ia tidak bisa menggerakkan dana karena tidak memegang spend key.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: BI · Custodian (untuk obligasi) · Bank</span>
+        <span class="chip">Kontrak: ERC5564Announcer, RupiahDigital, DfabiBond</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak (BI membaca setelah transaksi)</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI
+  participant N as Node Besu
+  participant T as Kontrak token
+  BI->>N: Baca event Announcement per rentang blok
+  N-->>BI: Daftar pengumuman
+  BI->>BI: Simpan hanya yang dipancarkan kontrak token
+  BI->>BI: scanAll(): cek view tag, hitung alamat tiap bank, cocokkan
+  BI->>BI: Baca token, jumlah, tranche dari metadata
+  BI->>BI: openMemo(): buka memo dengan view key penerima
+  BI->>T: balanceOf() atau balanceOfByPartition() cocokkan saldo
+  BI->>BI: Hasil: bank penerima, jumlah, pengirim terautentikasi
+</pre>
+      <p class="note">Node membatasi rentang blok per permintaan, jadi pemindaian dilakukan bertahap dari titik terakhir. Karena pemindaian hanya membaca, BI offline tidak menghentikan transaksi; BI menyusul saat kembali.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>BI membaca pengumuman per rentang blok</td><td class="fn">event Announcement</td><td>Rentang blok, alamat kontrak token</td><td>Tidak ada (hanya membaca)</td></tr>
+          <tr><td class="n">2</td><td>BI hanya memercayai pengumuman dari kontrak token</td><td><span class="key">di sisi BI</span></td><td>Alamat pemancar (caller) = alamat token</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>BI mencocokkan tiap pengumuman dengan tiap bank</td><td class="fn">scanAll(), scanView()</td><td>Pengumuman; per bank: view key privat + meta-address</td><td>Tidak ada. Hanya memakai kunci publik spend: tidak bisa memindahkan dana.</td></tr>
+          <tr><td class="n">4</td><td>BI membaca token, jumlah, tranche</td><td class="fn">parseTokenMetadata(), parseBondMetadata()</td><td>Metadata pengumuman</td><td>Tidak ada</td></tr>
+          <tr><td class="n">5</td><td>BI membuka memo</td><td class="fn">openMemo()</td><td>Memo, view key penerima</td><td>Tidak ada</td></tr>
+          <tr><td class="n">6</td><td>BI memastikan saldo on-chain</td><td class="fn">balanceOf(), balanceOfByPartition()</td><td>Alamat sekali pakai</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Seluruh event Announcement</li>
+          <li>Metadata: token, jumlah, tranche</li>
+          <li>Alamat sekali pakai penerima</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>View key privat tiap bank (diserahkan ke BI di luar sistem)</li>
+          <li>Spend key privat bank (tidak dipegang BI)</li>
+          <li>Isi memo dalam bentuk terbaca</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Event Announcement</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Bank pemilik alamat penerima</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Pengirim terautentikasi (memo)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          <tr><td>Bisa memindahkan dana di alamat itu</td><td class="x">Tidak</td><td class="y">Ya</td><td style="text-align:center;color:var(--muted)">n/a</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kolom "Pelaku" di sini adalah bank pemilik alamat. Untuk obligasi, pemegang view key adalah custodian; BI hanya bila ia juga memegangnya.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>View key tidak cocok dengan meta-address bank</td><td>galat "view key does not match meta-address of (nama bank)"</td></tr>
+            <tr><td>Pengumuman palsu yang dipancarkan bukan oleh kontrak token</td><td>diabaikan (alamatnya berisi 0)</td></tr>
+            <tr><td>Memo yang tidak untuk view key itu atau sudah diubah</td><td>hasil kosong, tidak dipercaya</td></tr>
+            <tr><td>Pengumuman berisi sampah atau data palsu</td><td>tidak ditolak: Announcer terbuka bagi siapa saja dan tidak memeriksa isi; pembaca yang menyaring</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E RD-30 dan BOND-25: BI memetakan tiap pembayaran ke bank, jumlah, dan pengirim terautentikasi untuk RD dan DFABI.</li>
+          <li>RD-31: view key yang tidak cocok ditolak dengan pesan persis. RD-32 dan BOND-26: bank ketiga memetakan 0 pengumuman.</li>
+          <li>RD-29 dan BOND-24: pengumuman palsu terlihat di scan tanpa filter dan hilang di scan terfilter. DVP-16: kedua leg DvP dipetakan ke bank.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="f11">
+    <header>
+      <div class="eyebrow">Fitur 11 dari 11</div>
+      <h2 class="ft">Registrasi data instrumen</h2>
+      <p class="lead">Data lengkap RD dan DFABI mengikuti taksonomi ICMA BDT v1.2 dan disimpan di luar chain; registri hanya menyimpan sidik jari data dan alamat sumbernya, sehingga siapa pun dapat menghitung ulang dan membuktikan keasliannya.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Registrar (BI atau custodian) · Siapa saja (pembaca)</span>
+        <span class="chip">Kontrak: InstrumentRegistry, DfabiBond (dokumen ERC-1400)</span>
+        <span class="chip">Jaringan: Besu</span>
+        <span class="chip">Butuh BI online: tidak</span>
+      </div>
+    </header>
+    <section>
+      <h3 class="sub">Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant REG as Registrar
+  participant IR as Kontrak InstrumentRegistry
+  participant BOND as Kontrak DfabiBond
+  participant R as Pembaca
+  REG->>REG: Validasi record terhadap profil instrumen
+  REG->>REG: Hitung hash (canonical JSON, keccak256)
+  REG->>IR: register(token, kind, profileVersion, primaryId, dataHash, dataUri)
+  IR-->>REG: Event InstrumentRegistered (versi 1)
+  REG->>BOND: setDocument(nama, uri, hash) khusus obligasi
+  REG->>IR: registerVersion(...) untuk koreksi
+  IR-->>REG: Event InstrumentRegistered (versi berikutnya)
+  R->>IR: getInstrument(token)
+  R->>R: Ambil JSON dari dataUri, hitung ulang hash, bandingkan
+</pre>
+      <p class="note">Data instrumen bersifat publik (isi term sheet). Privasi mencakup kepemilikan dan transfer, bukan syarat instrumen. Versi lama tidak pernah ditimpa; ISIN yang salah di versi 1 hanya bisa diperbaiki dengan mendaftarkan token baru.</p>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Fungsi per langkah</h3>
+      <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+        <tbody>
+          <tr><td class="n">1</td><td>Registrar memvalidasi record</td><td><span class="key">di sisi registrar</span></td><td>Record JSON (RD atau DFABI sesuai ICMA BDT v1.2)</td><td>Tidak ada. Contoh yang ditolak: ISIN salah, LEI salah, field wajib hilang, field terlarang.</td></tr>
+          <tr><td class="n">2</td><td>Registrar menghitung hash</td><td><span class="key">di sisi registrar</span></td><td>Record dalam bentuk canonical (kunci terurut, tanpa spasi)</td><td>Tidak ada</td></tr>
+          <tr><td class="n">3</td><td>Registrar mendaftarkan instrumen</td><td class="fn">register()</td><td>Token, kind, profileVersion, primaryId (ISIN atau IDR), dataHash, dataUri</td><td>Event <code>InstrumentRegistered</code> (versi 1)</td></tr>
+          <tr><td class="n">4</td><td>Khusus obligasi: dokumen ERC-1400</td><td class="fn">setDocument()</td><td>Nama dokumen, URI, hash</td><td>Event <code>DocumentUpdated</code></td></tr>
+          <tr><td class="n">5</td><td>Koreksi lewat versi baru</td><td class="fn">registerVersion()</td><td>Token, kind dan primaryId yang sama dengan versi 1, hash baru, URI baru</td><td>Event <code>InstrumentRegistered</code> (versi berikutnya); versi lama tetap</td></tr>
+          <tr><td class="n">6</td><td>Pembaca memeriksa</td><td class="fn">getInstrument(), getInstrumentVersion(), versionCount()</td><td>Alamat token, nomor versi</td><td>Tidak ada (hanya membaca)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="cols">
+      <div class="panel">
+        <h3>Data publik di chain</h3>
+        <ul class="plain">
+          <li>Hash data, URI, kind, profileVersion, primaryId</li>
+          <li>Siapa yang mendaftar dan kapan</li>
+          <li>Riwayat versi</li>
+          <li>Isi record JSON di URI (data term sheet)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Data rahasia, tidak pernah ke chain</h3>
+        <ul class="plain">
+          <li>Tidak ada data kepemilikan atau transfer di registri ini</li>
+        </ul>
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="sub">Siapa melihat apa</h3>
+      <div class="scroll">
+      <table class="grid">
+        <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim / pelaku</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+        <tbody>
+          <tr><td>Hash, URI, kind, ISIN atau kode mata uang</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          <tr><td>Isi record lengkap di URI</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="note">Kepemilikan tidak ada di registri; BI mengetahuinya lewat pemindaian (lihat fitur pemindaian BI). Kolom "Pelaku" adalah registrar.</p>
+    </section>
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>Bukan registrar</td><td>Ditolak: <code>NotRegistrar</code></td></tr>
+            <tr><td>Token sudah terdaftar</td><td>Ditolak: <code>AlreadyRegistered</code></td></tr>
+            <tr><td>registerVersion untuk token yang belum terdaftar</td><td>Ditolak: <code>NotRegisteredYet</code></td></tr>
+            <tr><td>kind atau primaryId berbeda dari versi 1</td><td>Ditolak: <code>IdentityChanged</code></td></tr>
+            <tr><td>Ada isian kosong atau alamat 0</td><td>Ditolak: <code>EmptyInput</code></td></tr>
+            <tr><td>Token atau versi tidak dikenal</td><td>Ditolak: <code>UnknownInstrument</code></td></tr>
+            <tr><td>Mengubah registrar atau pemilik bukan oleh pemilik</td><td>Ditolak: <code>NotOwner</code></td></tr>
+            <tr><td>Bukan controller token memanggil setDocument</td><td>Ditolak: revert tanpa pesan</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Kasus E2E INS-01 sampai INS-07 di Besu: record RD dan DFABI valid terdaftar; hash di chain sama dengan hash yang dihitung ulang dari JSON; hash tidak bergantung pada urutan kunci; record yang diubah tidak lagi cocok; versi 2 ditambahkan dan versi 1 tetap.</li>
+          <li>INS-08 sampai INS-24: AlreadyRegistered, NotRegistrar, NotRegisteredYet, IdentityChanged, EmptyInput, UnknownInstrument, NotOwner terbukti dengan nama persis. BOND-31: setDocument oleh bukan controller ditolak.</li>
+          <li>INS-25 sampai INS-35: validator menolak ISIN dengan check digit salah, LEI salah, field wajib yang hilang, field terlarang, mata uang di luar IDR, dan field tak dikenal, dengan pesan persis.</li>
+        </ul>
+      </div>
+    </section>
+  </article>
+
+  <article class="feat" id="tidak-ada">
+    <header>
+      <div class="eyebrow">Batas jujur</div>
+      <h2 class="ft">Tidak ada di kode</h2>
+      <p class="lead">Hal-hal berikut tidak diimplementasikan, supaya tidak disangka sudah ada.</p>
+    </header>
+    <section class="panel">
+      <ul class="plain">
+        <li><strong>Redeem RD oleh BI.</strong> Tidak ada fungsi bagi BI untuk menarik atau membakar RD milik bank. RD hanya bisa dimusnahkan oleh pemegangnya sendiri lewat <code>burn()</code>, tanpa pengumuman.</li>
+        <li><strong>Kupon dan pembayaran jatuh tempo.</strong> DFABI zero-coupon; tanggal jatuh tempo hanya data di record instrumen. <code>redeemByPartition()</code> memusnahkan unit tanpa membayar RD.</li>
+        <li><strong>Kewajiban memo.</strong> Kontrak menerima pembayaran tanpa memo; identitas pengirim terautentikasi hanya ada bila pengirim memakai memo.</li>
+        <li><strong>Pemblokiran transfer ERC-20 biasa pada RD.</strong> <code>transfer</code> dan <code>transferFrom</code> RD berjalan tanpa pengumuman; penerima tidak diberi tahu. Pada obligasi jalur ini dikunci oleh allowlist.</li>
+        <li><strong>Serah-terima view key dan KYC.</strong> Penyerahan view key bank ke BI atau custodian terjadi di luar sistem; tidak ada di kontrak maupun kode.</li>
+        <li><strong>Daftar identitas bank yang sah untuk memo.</strong> Kontrak tidak tahu alamat penanda-tangan memo mana yang milik bank resmi.</li>
+        <li><strong>Pause, blacklist, atau kebijakan KYC pada RD.</strong></li>
+        <li><strong>DvP lanjutan.</strong> Tidak ada pengisian sebagian, banyak leg, penemuan harga, atau pembatalan bersama sebelum batas waktu.</li>
+      </ul>
+    </section>
+  </article>
+</div>

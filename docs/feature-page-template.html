@@ -1,0 +1,161 @@
+<title>Penerbitan RD Stealth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: one reading column; a numbered flow table is the spine, privacy grid and rules follow. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #17202b; --muted: #5a6573; --line: #d9dee5;
+  --accent: #0b5f8a; --accent-soft: #e3eff6; --yes: #1d7a46; --no: #a3332b; --yes-soft: #e4f3ea; --no-soft: #f8e6e4;
+  --f-display: "Source Serif 4", Georgia, serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--f-body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(26px, 4vw, 34px)/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+h2 { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.lead { font-size: 17px; max-width: 68ch; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+code, .mono { font-family: var(--f-mono); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.n { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; width: 28px; }
+.fn { font-family: var(--f-mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cols h3 { margin: 0 0 8px; font-size: 15px; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.grid td.y, .grid td.x { text-align: center; font-weight: 600; width: 110px; }
+.grid td.y { color: var(--yes); background: var(--yes-soft); }
+.grid td.x { color: var(--no); background: var(--no-soft); }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.rules td:first-child { white-space: nowrap; }
+.key { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Contoh format · Track Stealth Address · Fitur 1 dari N</div>
+    <h1>Penerbitan Rupiah Digital (RD)</h1>
+    <p class="lead">BI mencetak RD langsung ke alamat sekali pakai milik bank penerima. Jumlah terlihat publik, tetapi hanya BI dan bank penerima yang tahu bank mana pemilik alamat itu.</p>
+    <div class="chips">
+      <span class="chip">Pelaku: BI (penerbit) · Bank penerima</span>
+      <span class="chip">Kontrak: RupiahDigital, ERC5564Announcer</span>
+      <span class="chip">Jaringan: Besu</span>
+      <span class="chip">Butuh BI online: ya (BI yang menerbitkan)</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Alur</h2>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BI as BI (penerbit)
+  participant RD as Kontrak RupiahDigital
+  participant ANN as Kontrak Announcer
+  participant BANK as Bank penerima
+  BI->>BI: Hitung alamat sekali pakai dari meta-address bank
+  BI->>BI: Susun memo terenkripsi (identitas BI, konteks)
+  BI->>RD: mintStealth(alamat, jumlah, kunci efemeral, view tag, memo)
+  RD->>RD: Cek penerbit, jumlah, kunci, panjang memo
+  RD->>RD: Cetak RD ke alamat sekali pakai
+  RD->>ANN: announce(alamat, kunci efemeral, metadata)
+  ANN-->>BANK: Event Announcement
+  BANK->>BANK: Scan dengan view key, temukan alamat miliknya
+  BANK->>RD: balanceOf(alamat) cocokkan jumlah
+</pre>
+    <p class="note">Langkah 3 sampai 6 terjadi dalam satu transaksi. Jika satu cek gagal, pencetakan dan pengumuman sama-sama batal.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Fungsi per langkah</h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td>BI menurunkan alamat sekali pakai untuk bank</td><td><span class="key">di sisi BI</span></td><td>Meta-address bank (spend key publik + view key publik)</td><td>Tidak ada</td></tr>
+        <tr><td class="n">2</td><td>BI menyusun memo</td><td><span class="key">di sisi BI</span></td><td>Identitas BI, konteks pembayaran</td><td>Tidak ada</td></tr>
+        <tr><td class="n">3</td><td>BI mengirim perintah cetak</td><td class="fn">mintStealth()</td><td>Alamat sekali pakai, jumlah, kunci efemeral 33 byte, view tag, memo maks. 256 byte</td><td>Transaksi dari alamat BI</td></tr>
+        <tr><td class="n">4</td><td>Kontrak memeriksa aturan</td><td class="fn">mintStealth()</td><td>Pengirim, jumlah, panjang kunci, panjang memo</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+        <tr><td class="n">5</td><td>RD dicetak</td><td class="fn">_mint()</td><td>Alamat, jumlah</td><td>Event <code>Transfer</code> (dari 0 ke alamat, jumlah). Saldo alamat dan total supply naik.</td></tr>
+        <tr><td class="n">6</td><td>Pengumuman untuk penerima</td><td class="fn">announce()</td><td>Alamat, kunci efemeral, view tag, jumlah, memo</td><td>Event <code>Announcement</code> (alamat, kunci efemeral, metadata)</td></tr>
+        <tr><td class="n">7</td><td>Bank menemukan dananya</td><td><span class="key">di sisi bank</span></td><td>Event Announcement + view key privat bank</td><td>Tidak ada (hanya membaca)</td></tr>
+        <tr><td class="n">8</td><td>Bank memastikan saldo</td><td class="fn">balanceOf()</td><td>Alamat sekali pakai</td><td>Tidak ada (hanya membaca)</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div class="panel">
+      <h3>Data publik di chain</h3>
+      <ul class="plain">
+        <li>Alamat sekali pakai penerima</li>
+        <li>Jumlah RD yang dicetak</li>
+        <li>Alamat BI sebagai penerbit</li>
+        <li>Kunci efemeral dan view tag</li>
+        <li>Memo dalam bentuk terenkripsi</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Data rahasia, tidak pernah ke chain</h3>
+      <ul class="plain">
+        <li>View key privat bank (dipegang bank, salinan di BI)</li>
+        <li>Spend key privat bank</li>
+        <li>Kunci privat alamat sekali pakai (spend + h)</li>
+        <li>Isi memo dalam bentuk terbaca</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Siapa melihat apa</h2>
+    <div class="scroll">
+    <table class="grid">
+      <thead><tr><th>Informasi</th><th>BI</th><th>Bank penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+      <tbody>
+        <tr><td>Jumlah yang dicetak</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        <tr><td>Alamat sekali pakai</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+        <tr><td>Bank pemilik alamat itu</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+        <tr><td>Isi memo</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">Ini sesuai sasaran privasi: jumlah dan pengirim boleh publik, tetapi penerima tidak bisa dikaitkan oleh bank lain.</p>
+  </section>
+
+  <section class="cols">
+    <div class="panel rules">
+      <h3>Aturan yang dijaga kontrak</h3>
+      <table>
+        <tbody>
+          <tr><td>Bukan BI</td><td>Ditolak: <code>OnlyIssuer</code></td></tr>
+          <tr><td>Jumlah 0</td><td>Ditolak: <code>ZeroAmount</code></td></tr>
+          <tr><td>Kunci efemeral bukan 33 byte</td><td>Ditolak: <code>InvalidEphemeralPubKey</code></td></tr>
+          <tr><td>Memo lebih dari 256 byte</td><td>Ditolak: <code>MemoTooLong</code></td></tr>
+          <tr><td>Alamat penerima kosong</td><td>Ditolak: <code>ERC20InvalidReceiver</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h3>Bukti pengujian</h3>
+      <ul class="plain">
+        <li>Kasus E2E RD-01 sampai RD-08 di Besu: penerbitan sah lulus, empat penolakan pertama di samping terbukti.</li>
+        <li>Jumlah di pengumuman selalu sama dengan jumlah yang dicetak, karena keduanya diambil dari nilai yang sama dalam satu transaksi.</li>
+      </ul>
+    </div>
+  </section>
+</div>

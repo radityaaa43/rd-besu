@@ -1,0 +1,1144 @@
+<title>Fitur Zeto</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: one reading column; a numbered flow table is the spine, privacy grid and rules follow. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --fg: #17202b; --muted: #5a6573; --line: #d9dee5;
+  --accent: #0b5f8a; --accent-soft: #e3eff6; --yes: #1d7a46; --no: #a3332b; --yes-soft: #e4f3ea; --no-soft: #f8e6e4;
+  --f-display: "Source Serif 4", Georgia, serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161c; --surface: #18202a; --fg: #e6ebf1; --muted: #9aa6b4; --line: #2b3643;
+  --accent: #6cb6dd; --accent-soft: #16303f; --yes: #6fcf97; --no: #f08a80; --yes-soft: #15301f; --no-soft: #3a1c1a; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--f-body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(26px, 4vw, 34px)/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+h2 { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.lead { font-size: 17px; max-width: 68ch; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12.5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
+code, .mono { font-family: var(--f-mono); font-size: 13px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.n { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; width: 28px; }
+.fn { font-family: var(--f-mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.cols h3 { margin: 0 0 8px; font-size: 15px; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.grid td.y, .grid td.x { text-align: center; font-weight: 600; width: 110px; }
+.grid td.y { color: var(--yes); background: var(--yes-soft); }
+.grid td.x { color: var(--no); background: var(--no-soft); }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.rules td:first-child { white-space: nowrap; }
+.key { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; }
+</style>
+
+<style>
+/* Tambahan untuk halaman multi-fitur. Blok style di atas disalin tanpa perubahan dari templat. */
+.feature { display: grid; gap: 36px; padding-top: 28px; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+.feature > section > h3 { font: 600 20px/1.3 var(--f-display); margin: 0 0 12px; text-wrap: balance; }
+.feature > header h2 { font: 600 clamp(24px, 3.6vw, 30px)/1.2 var(--f-display); margin: 0; text-wrap: balance; }
+nav a.chip { text-decoration: none; }
+nav a.chip:hover { border-color: var(--accent); color: var(--accent); }
+.rules td:last-child, .grid td:first-child { min-width: 140px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Track Zeto · Paladin v1.0.0 di Besu · 9 fitur</div>
+    <h1>Fitur Zeto</h1>
+    <p class="lead">Zeto menyembunyikan jumlah, pemilik, dan hubungan pengirim-penerima dari chain, sementara BI tetap dapat melihat setiap transaksi lewat laporan bank yang diverifikasi terhadap chain.</p>
+    <nav class="chips" aria-label="Daftar fitur">
+      <a class="chip" href="#f-onboarding">1 Onboarding dan KYC</a>
+      <a class="chip" href="#f-rd-terbit">2 Penerbitan RD</a>
+      <a class="chip" href="#f-rd-transfer">3 Transfer RD</a>
+      <a class="chip" href="#f-withdraw">4 Penarikan (withdraw)</a>
+      <a class="chip" href="#f-dfabi-terbit">5 Penerbitan DFABI</a>
+      <a class="chip" href="#f-dfabi-transfer">6 Transfer DFABI</a>
+      <a class="chip" href="#f-dvp">7 DvP dan Atom</a>
+      <a class="chip" href="#f-laporan">8 Laporan ke BI</a>
+      <a class="chip" href="#f-offline">9 BI offline</a>
+      <a class="chip" href="#f-batasan">Batasan</a>
+    </nav>
+  </header>
+
+  <!-- ===================== 1. ONBOARDING ===================== -->
+  <div class="feature" id="f-onboarding">
+    <header>
+      <div class="eyebrow">Fitur 1 dari 9</div>
+      <h2>Onboarding bank dan KYC baseline</h2>
+      <p class="lead">Token dipasang, bank dan BI dihubungkan lewat privacy group, dan pada token baseline kunci tiap bank didaftarkan ke registry KYC.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Penerbit · Bank · BI</span>
+        <span class="chip">Kontrak: ZetoFactory, Zeto_Anon, SampleERC20, PenteFactory, PentePrivacyGroup, Registry (token baseline)</span>
+        <span class="chip">Node Paladin: node1 (penerbit), node bank, node4 (BI)</span>
+        <span class="chip">Butuh BI online: ya, hanya saat membuat privacy group</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant OP as Penerbit (node1)
+  participant ZF as ZetoFactory
+  participant Z as Zeto_Anon (klon)
+  participant ERC as SampleERC20
+  participant BANK as Bank (node sendiri)
+  participant PF as PenteFactory
+  participant BI as BI (node4)
+  OP->>ZF: deploy(Zeto_Anon, nama, simbol, pemilik)
+  ZF->>Z: Clones.clone lalu initialize
+  ZF-->>OP: event ZetoTokenDeployed
+  OP->>ERC: deploy SampleERC20, pemilik penerbit
+  OP->>Z: setERC20(alamat ERC20), hanya owner
+  BANK->>PF: newPrivacyGroup, anggota bank dan BI
+  PF-->>BANK: PentePrivacyGroup baru
+  BI->>BI: catat alamat dan kunci Zeto tiap bank (di luar chain)
+  Note over OP,Z: Token baseline KYC - owner memanggil register(publicKey) per bank pada Zeto_AnonNullifierKyc
+</pre>
+      <p class="note">Token Zeto_Anon, yang dipakai semua alur utama, tidak punya KYC on-chain. KYC hanya ada pada token baseline Zeto_AnonNullifierKyc.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Penerbit membuat token</td><td class="fn">ZetoFactory.deploy()</td><td>Nama implementasi, nama, simbol, pemilik awal</td><td>Alamat klon token baru, event <code>ZetoTokenDeployed</code> dan <code>PaladinRegisterSmartContract_V0</code></td></tr>
+            <tr><td class="n">2</td><td>Penerbit memasang ERC20 pendukung</td><td class="fn">setERC20()</td><td>Alamat kontrak SampleERC20</td><td>Alamat ERC20 tersimpan di token</td></tr>
+            <tr><td class="n">3</td><td>Bank membuat privacy group dengan BI</td><td class="fn">PenteFactory.newPrivacyGroup()</td><td>Anggota (bank dan BI), konfigurasi grup</td><td>Alamat kontrak grup, event <code>PaladinRegisterSmartContract_V0</code></td></tr>
+            <tr><td class="n">4</td><td>BI mencatat pemetaan bank</td><td><span class="key">di sisi BI</span></td><td>Alamat penandatangan dan kunci Zeto tiap bank</td><td>Tidak ada</td></tr>
+            <tr><td class="n">5</td><td>Baseline KYC: owner mendaftarkan kunci bank</td><td class="fn">register()</td><td>Kunci publik BabyJubJub [x, y], data</td><td>Event <code>IdentityRegistered</code>, daun baru di pohon kunci terdaftar</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Alamat token, ERC20, dan privacy group</li>
+          <li>Kunci publik yang terdaftar di token baseline</li>
+          <li>Root pohon identitas</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Kunci atau alamat itu milik bank mana</li>
+          <li>Pemetaan kunci ke nama bank (hanya di catatan BI)</li>
+          <li>Isi pesan yang kelak dikirim lewat privacy group</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Bank</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Alamat token, ERC20, privacy group</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Kunci publik terdaftar (token baseline)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Kunci itu milik bank mana</td><td class="y">Ya</td><td class="y">Ya (miliknya)</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Pemetaan alamat dan kunci ke nama bank</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>setERC20 bukan oleh owner</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+            <tr><td>Nama implementasi tidak terdaftar</td><td>Ditolak: <code>Factory: failed to find implementation</code> (tidak diuji)</td></tr>
+            <tr><td>register bukan oleh owner</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code> (tidak diuji)</td></tr>
+            <tr><td>Kunci sudah terdaftar</td><td>Ditolak: <code>AlreadyRegistered</code> (tidak diuji)</td></tr>
+            <tr><td>Konfigurasi grup tidak dikenal</td><td>Ditolak: <code>PenteUnsupportedConfigType</code> (tidak diuji)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>M1: privacy group dibuat, node4 membaca anggota dan kontrak grup. M3: node3 tidak melihat grup maupun pesan.</li>
+          <li>M5: membuat grup saat node4 mati menunggu sampai node4 kembali, lalu selesai (38 detik).</li>
+          <li>K1: token baseline Zeto_AnonNullifierKyc, transfer dan withdraw 1 unit RD dan DFABI lulus.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 2. PENERBITAN RD ===================== -->
+  <div class="feature" id="f-rd-terbit">
+    <header>
+      <div class="eyebrow">Fitur 2 dari 9</div>
+      <h2>Penerbitan RD (deposit dan mint)</h2>
+      <p class="lead">RD masuk ke sisi privat lewat deposit yang ditopang ERC20 satu banding satu, atau lewat mint oleh pemilik token. Pada deposit jumlah terlihat publik, pada mint hanya hash yang tercatat.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: cashIssuer (penerbit) · Pemegang (bank)</span>
+        <span class="chip">Kontrak: Zeto_Anon, SampleERC20</span>
+        <span class="chip">Node Paladin: node1 (penerbit), node pemegang</span>
+        <span class="chip">Butuh BI online: tidak (laporan ke BI antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant ISS as cashIssuer (node1)
+  participant H as Pemegang (bank)
+  participant ERC as SampleERC20
+  participant Z as Zeto_Anon RD
+  participant BI as BI (node4)
+  ISS->>ERC: mint(ke pemegang, jumlah)
+  H->>ERC: approve(Zeto_Anon, jumlah)
+  H->>Z: deposit(jumlah, outputs, proof)
+  Z->>Z: verifikasi proof, jumlah cocok dengan output
+  Z->>ERC: transferFrom(pemegang, Zeto_Anon, jumlah)
+  Z-->>H: UTXO baru berstatus UNSPENT, event UTXOMint
+  H->>BI: laporan output (pesan privat)
+  ISS->>Z: mint(utxos), hanya owner token
+  Z-->>H: UTXO baru UNSPENT tanpa ERC20, event UTXOMint
+</pre>
+      <p class="note">Deposit dan mint adalah dua jalur terpisah. Mint tidak menyentuh ERC20, sehingga unit hasil mint tidak ditopang ERC20.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Penerbit mencetak ERC20 untuk pemegang</td><td class="fn">SampleERC20.mint()</td><td>Alamat pemegang, jumlah</td><td>Event <code>Transfer</code> (dari 0): jumlah dan alamat terlihat</td></tr>
+            <tr><td class="n">2</td><td>Pemegang mengizinkan Zeto menarik ERC20</td><td class="fn">approve()</td><td>Alamat token Zeto, jumlah</td><td>Event <code>Approval</code></td></tr>
+            <tr><td class="n">3</td><td>Pemegang deposit ke sisi privat</td><td class="fn">deposit()</td><td>Jumlah, 2 commitment output, proof ZK</td><td>Jumlah (parameter terbuka), hash output, proof. Nullifier: tidak ada</td></tr>
+            <tr><td class="n">4</td><td>Kontrak memeriksa proof dan menarik ERC20</td><td class="fn">transferFrom()</td><td>Pemegang, jumlah</td><td>Event <code>Transfer</code> ke Zeto_Anon, lalu event <code>UTXOMint</code> (hash output)</td></tr>
+            <tr><td class="n">5</td><td>Alternatif: owner mint langsung</td><td class="fn">mint()</td><td>Daftar commitment, data</td><td>Hanya hash output di event <code>UTXOMint</code>. Jumlah tidak tercatat</td></tr>
+            <tr><td class="n">6</td><td>Pemegang melapor ke BI</td><td><span class="key">di luar chain</span></td><td>Jumlah, salt, pemilik tiap output</td><td>Tidak ada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah deposit dan alamat penandatangannya (lewat ERC20 dan parameter deposit)</li>
+          <li>Hash (commitment) output baru</li>
+          <li>Alamat penerbit yang memanggil mint</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah pada mint langsung</li>
+          <li>Pemilik tiap UTXO baru dan salt-nya</li>
+          <li>Nama bank di balik alamat penandatangan</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Penerbit</th><th>Pemegang</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Jumlah deposit</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Jumlah hasil mint</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Hash output baru</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Pemilik dan salt UTXO</td><td class="y">Ya (laporan)</td><td class="x">Tidak</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Penerbit hanya tahu jumlah yang ia setor atau cetak, bukan pemilik UTXO setelah dipindahkan.</p>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>mint oleh bukan owner token</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+            <tr><td>ERC20.mint oleh bukan pemilik</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+            <tr><td>Proof deposit tidak cocok dengan jumlah</td><td>Ditolak: <code>Invalid proof</code></td></tr>
+            <tr><td>ERC20 gagal ditarik</td><td>Ditolak: <code>Failed to transfer ERC20 tokens</code> (tidak diuji)</td></tr>
+            <tr><td>Output kembar, sudah ada, atau pernah terpakai</td><td>Ditolak: <code>UTXODuplicate</code>, <code>UTXOAlreadyOwned</code>, <code>UTXOAlreadySpent</code> (tidak diuji pada deposit)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>L1: deposit RD ke investor2, saldo privat dan escrow naik tepat sebesar jumlah. L3: mint RD +7 ke investor2.</li>
+          <li>L5: mint RD oleh non-penerbit ditolak <code>OwnableUnauthorizedAccount</code>. L7: percobaan itu tidak membuat apa pun.</li>
+          <li>B1: laporan deposit dan mint, 10 dari 10 output terverifikasi BI, 0 mismatch.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 3. TRANSFER RD ===================== -->
+  <div class="feature" id="f-rd-transfer">
+    <header>
+      <div class="eyebrow">Fitur 3 dari 9</div>
+      <h2>Transfer RD</h2>
+      <p class="lead">Bank memindahkan RD ke bank lain tanpa jumlah, pengirim, atau penerima terlihat di chain. Chain hanya mencatat hash UTXO yang dipakai dan yang lahir, dibuktikan dengan proof ZK.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank pengirim · Bank penerima</span>
+        <span class="chip">Kontrak: Zeto_Anon (RD), verifier Groth16</span>
+        <span class="chip">Node Paladin: node pengirim (membuat proof), node penerima</span>
+        <span class="chip">Butuh BI online: tidak (laporan antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant S as Bank pengirim
+  participant Z as Zeto_Anon RD
+  participant V as Verifier Groth16
+  participant R as Bank penerima
+  participant BI as BI (node4)
+  S->>S: pilih UTXO tak terkunci, hitung output dan kembalian
+  S->>S: buat proof ZK di node sendiri
+  S->>Z: transfer(inputs, outputs, proof)
+  Z->>Z: cek input belum terpakai, output baru
+  Z->>V: verifyProof(hash input dan output)
+  Z->>Z: input jadi SPENT, output jadi UNSPENT
+  Z-->>S: event UTXOTransfer
+  S-->>R: state output dikirim hanya ke node penerima
+  S->>BI: laporan output (pesan privat)
+</pre>
+      <p class="note">Langkah 3 sampai 6 terjadi dalam satu transaksi. Jika satu cek gagal, seluruh transfer batal.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Pengirim memilih input dan menyusun output</td><td><span class="key">di sisi bank</span></td><td>Saldo UTXO tak terkunci, jumlah, penerima</td><td>Tidak ada</td></tr>
+            <tr><td class="n">2</td><td>Pengirim membuat proof ZK</td><td><span class="key">di sisi bank</span></td><td>Kunci privat BabyJubJub, jumlah, salt</td><td>Tidak ada</td></tr>
+            <tr><td class="n">3</td><td>Pengirim mengirim transfer</td><td class="fn">transfer()</td><td>Hash input, hash output (diisi nol sampai 2 slot, atau sampai 10), proof</td><td>Hash input dan output, proof. Nullifier: tidak ada. Penandatangan: kunci sekali pakai, bukan nama bank</td></tr>
+            <tr><td class="n">4</td><td>Kontrak memeriksa aturan UTXO</td><td class="fn">transfer()</td><td>Daftar input dan output</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+            <tr><td class="n">5</td><td>Proof diverifikasi</td><td class="fn">verifyProof()</td><td>Hash input dan output sebagai public input</td><td>Tidak ada</td></tr>
+            <tr><td class="n">6</td><td>Status UTXO diperbarui</td><td class="fn">transfer()</td><td>Input, output</td><td>Event <code>UTXOTransfer</code> (hash input dan output). Input berstatus SPENT, output UNSPENT</td></tr>
+            <tr><td class="n">7</td><td>Penerima menerima state</td><td><span class="key">di luar chain</span></td><td>Jumlah, salt, pemilik</td><td>Tidak ada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Hash UTXO yang dipakai (input) dan yang lahir (output)</li>
+          <li>Proof ZK, tanpa jumlah di dalamnya</li>
+          <li>Bahwa ada transfer pada token RD, dan waktunya</li>
+          <li>Hubungan antar-transaksi lewat hash input (spend dapat ditautkan)</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah transfer dan kembalian</li>
+          <li>Pengirim dan penerima (penandatangan memakai kunci sekali pakai)</li>
+          <li>Saldo siapa pun</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Pengirim</th><th>Penerima</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Bahwa transfer terjadi</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Jumlah</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Pengirim</td><td class="y">Ya (lewat input yang dilaporkan)</td><td class="y">Ya</td><td class="x">Tidak otomatis</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Penerima</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Node bank lain memegang 0 state dari token ini (uji P1 dan P3). Penerima menerima jumlah, salt, dan pemilik, tetapi tidak otomatis tahu siapa pengirimnya.</p>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>Input kembar</td><td>Ditolak: <code>UTXODuplicate</code></td></tr>
+            <tr><td>Input belum pernah ada</td><td>Ditolak: <code>UTXONotMinted</code></td></tr>
+            <tr><td>Input sudah terpakai</td><td>Ditolak: <code>UTXOAlreadySpent</code></td></tr>
+            <tr><td>Input sedang terkunci</td><td>Ditolak: <code>UTXOAlreadyLocked</code></td></tr>
+            <tr><td>Output sudah ada</td><td>Ditolak: <code>UTXOAlreadyOwned</code></td></tr>
+            <tr><td>Lebih dari 10 input atau output</td><td>Ditolak: <code>UTXOArrayTooLarge</code></td></tr>
+            <tr><td>Proof tidak sah</td><td>Ditolak: <code>Invalid proof</code> (batch: <code>Invalid proof (batch)</code>)</td></tr>
+            <tr><td>Saldo kurang, jumlah 0, tanpa penerima</td><td>Ditolak sebelum dikirim, oleh domain Paladin: <code>PD210033</code>, <code>PD210027</code>, <code>PD210024</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>L9: transfer RD -1 dan +1 tepat. L11: transfer di atas saldo ditolak <code>PD210033</code>. L12 dan L13: jumlah 0 dan tanpa penerima ditolak. L14: pemegang tanpa saldo ditolak. L15: transfer gagal tidak menggeser saldo.</li>
+          <li>B2: 4 dari 4 output transfer terverifikasi BI. P1 sampai P3: node3 memegang 0 state dan 0 saldo.</li>
+          <li>N6: transfer tepat di atas saldo tidak selalu ditolak di tahap domain, tetapi selalu ditolak chain dengan <code>UTXODuplicate</code> dan tidak ada dana hilang (celah Paladin v1.0.0, uji ini FAIL).</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 4. PENARIKAN ===================== -->
+  <div class="feature" id="f-withdraw">
+    <header>
+      <div class="eyebrow">Fitur 4 dari 9</div>
+      <h2>Penarikan RD (withdraw)</h2>
+      <p class="lead">Pemegang menukar UTXO privat kembali menjadi ERC20 publik. Jumlah yang ditarik terlihat publik. Alur yang sama berlaku untuk DFABI (redeem).</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Pemegang (bank)</span>
+        <span class="chip">Kontrak: Zeto_Anon, SampleERC20</span>
+        <span class="chip">Node Paladin: node pemegang</span>
+        <span class="chip">Butuh BI online: tidak (laporan antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant H as Pemegang (bank)
+  participant Z as Zeto_Anon
+  participant ERC as SampleERC20
+  participant BI as BI (node4)
+  H->>H: pilih input, buat proof withdraw
+  H->>Z: withdraw(jumlah, inputs, output, proof)
+  Z->>Z: verifikasi proof (public input jumlah, input, output)
+  Z->>Z: input SPENT, output kembalian UNSPENT
+  Z->>ERC: transfer(pemegang, jumlah)
+  Z-->>H: event UTXOWithdraw
+  H->>BI: laporan output kembalian
+</pre>
+      <p class="note">Tidak ada fungsi burn. Penebusan memakai withdraw: UTXO dipakai, ERC20 dilepas dari escrow ke alamat publik pemegang.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Pemegang menyusun penarikan dan proof</td><td><span class="key">di sisi bank</span></td><td>Jumlah, UTXO yang dipakai, kunci privat</td><td>Tidak ada</td></tr>
+            <tr><td class="n">2</td><td>Pemegang mengirim penarikan</td><td class="fn">withdraw()</td><td>Jumlah, hash input, 1 hash output (kembalian), proof</td><td>Jumlah (terbuka), hash input dan output, proof. Nullifier: tidak ada. Penandatangan: identitas pemegang</td></tr>
+            <tr><td class="n">3</td><td>Kontrak memeriksa aturan UTXO</td><td class="fn">withdraw()</td><td>Input, output</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+            <tr><td class="n">4</td><td>Proof diverifikasi</td><td class="fn">_withdraw()</td><td>Jumlah, hash input, hash output sebagai public input</td><td>Tidak ada</td></tr>
+            <tr><td class="n">5</td><td>ERC20 dilepas ke pemegang</td><td class="fn">transfer()</td><td>Pemegang, jumlah</td><td>Event <code>Transfer</code> ERC20 dari Zeto_Anon ke alamat pemegang</td></tr>
+            <tr><td class="n">6</td><td>Status UTXO diperbarui</td><td class="fn">withdraw()</td><td>Input, output</td><td>Event <code>UTXOWithdraw</code> (jumlah, hash input, hash output)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah yang ditarik</li>
+          <li>Alamat penandatangan penarikan</li>
+          <li>Hash input dan output kembalian</li>
+          <li>Saldo ERC20 publik pemegang naik, escrow turun</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Saldo privat yang tersisa sebagai kembalian</li>
+          <li>Riwayat transfer sebelumnya yang menghasilkan UTXO itu</li>
+          <li>Nama bank di balik alamat penandatangan</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Pemegang</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Jumlah yang ditarik</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Alamat penandatangan</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Nama bank di balik alamat itu</td><td class="y">Ya (catatan BI)</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Kembalian privat</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>Proof tidak sah</td><td>Ditolak: <code>Invalid proof</code></td></tr>
+            <tr><td>Lebih dari 10 input</td><td>Ditolak: <code>UTXOArrayTooLarge</code> (tidak diuji)</td></tr>
+            <tr><td>ERC20 gagal dilepas</td><td>Ditolak: <code>Failed to transfer ERC20 tokens</code> (tidak diuji)</td></tr>
+            <tr><td>Input kembar, belum ada, terpakai, atau terkunci</td><td>Ditolak: <code>UTXODuplicate</code>, <code>UTXONotMinted</code>, <code>UTXOAlreadySpent</code>, <code>UTXOAlreadyLocked</code></td></tr>
+            <tr><td>Tanpa saldo atau melebihi saldo privat</td><td>Ditolak sebelum dikirim, oleh domain Paladin: <code>PD210033</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>W1: withdraw RD. W2: redeem DFABI, saldo privat 1, publik 100, escrow 3900, bergeser tepat.</li>
+          <li>W3: pemegang tanpa saldo ditolak. W4: melebihi saldo privat ditolak, keduanya <code>PD210033</code>.</li>
+          <li>BW1 dan BW2: output withdraw terverifikasi BI (1 dari 1), laporan ganda digabung.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 5. PENERBITAN DFABI ===================== -->
+  <div class="feature" id="f-dfabi-terbit">
+    <header>
+      <div class="eyebrow">Fitur 5 dari 9</div>
+      <h2>Penerbitan DFABI</h2>
+      <p class="lead">DFABI diterbitkan ke kustodian lewat deposit atau mint seperti RD. Terms obligasi disimpan terpisah sebagai hash di InstrumentRegistry, publik oleh sifatnya.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: bondIssuer (penerbit) · bondCustodian (pemegang)</span>
+        <span class="chip">Kontrak: Zeto_Anon (DFABI), SampleERC20, InstrumentRegistry</span>
+        <span class="chip">Node Paladin: node1</span>
+        <span class="chip">Butuh BI online: tidak (laporan antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant ISS as bondIssuer (node1)
+  participant C as bondCustodian (node1)
+  participant ERC as SampleERC20
+  participant Z as Zeto_Anon DFABI
+  participant REG as InstrumentRegistry
+  participant BI as BI (node4)
+  ISS->>ERC: mint(ke kustodian, jumlah)
+  C->>ERC: approve(Zeto_Anon, jumlah)
+  C->>Z: deposit(jumlah, outputs, proof)
+  Z-->>C: UTXO DFABI baru, event UTXOMint
+  ISS->>Z: mint(utxos), hanya owner token
+  Z-->>C: UTXO DFABI baru tanpa ERC20
+  C->>BI: laporan output (pesan privat)
+  ISS->>REG: register(token, kind, primaryId, dataHash, dataUri)
+  REG-->>ISS: event InstrumentRegistered
+</pre>
+      <p class="note">Pendaftaran data instrumen (ISIN, hash dokumen) terpisah dari token dan boleh dikerjakan kapan saja oleh registrar yang diizinkan.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Penerbit mencetak ERC20 DFABI untuk kustodian</td><td class="fn">SampleERC20.mint()</td><td>Alamat kustodian, jumlah</td><td>Event <code>Transfer</code>: jumlah dan alamat terlihat</td></tr>
+            <tr><td class="n">2</td><td>Kustodian mengizinkan Zeto menarik ERC20</td><td class="fn">approve()</td><td>Alamat token Zeto, jumlah</td><td>Event <code>Approval</code></td></tr>
+            <tr><td class="n">3</td><td>Kustodian deposit ke sisi privat</td><td class="fn">deposit()</td><td>Jumlah, 2 commitment output, proof ZK</td><td>Jumlah (terbuka), hash output, proof. Nullifier: tidak ada</td></tr>
+            <tr><td class="n">4</td><td>Alternatif: owner mint langsung</td><td class="fn">mint()</td><td>Daftar commitment, data</td><td>Hanya hash output di event <code>UTXOMint</code>. Jumlah tidak tercatat</td></tr>
+            <tr><td class="n">5</td><td>Kustodian melapor ke BI</td><td><span class="key">di luar chain</span></td><td>Jumlah, salt, pemilik tiap output</td><td>Tidak ada</td></tr>
+            <tr><td class="n">6</td><td>Registrar mendaftarkan data instrumen</td><td class="fn">InstrumentRegistry.register()</td><td>Alamat token, jenis (DFABI), ISIN, hash data, lokasi data</td><td>Entri versi 1, event <code>InstrumentRegistered</code>. Seluruhnya publik</td></tr>
+            <tr><td class="n">7</td><td>Koreksi data instrumen</td><td class="fn">registerVersion()</td><td>Data yang sama jenis dan ISIN-nya, hash baru</td><td>Entri versi berikutnya, versi lama tetap utuh</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah deposit dan alamat penandatangannya</li>
+          <li>Hash output baru</li>
+          <li>Entri registry: ISIN, jenis, hash data, lokasi data, registrar, waktu, versi</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah pada mint langsung</li>
+          <li>Pemilik UTXO DFABI dan salt-nya</li>
+          <li>Isi lengkap terms obligasi (hanya hash-nya yang tercatat)</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Penerbit</th><th>Kustodian</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Jumlah deposit</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Jumlah hasil mint</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Pemilik dan salt UTXO</td><td class="y">Ya (laporan)</td><td class="x">Tidak</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Hash dan ISIN di registry</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>mint DFABI oleh bukan owner token</td><td>Ditolak: <code>OwnableUnauthorizedAccount</code></td></tr>
+            <tr><td>Proof deposit tidak cocok</td><td>Ditolak: <code>Invalid proof</code></td></tr>
+            <tr><td>register oleh bukan registrar</td><td>Ditolak: <code>NotRegistrar</code></td></tr>
+            <tr><td>setRegistrar oleh bukan owner registry</td><td>Ditolak: <code>NotOwner</code></td></tr>
+            <tr><td>Token sudah terdaftar</td><td>Ditolak: <code>AlreadyRegistered</code></td></tr>
+            <tr><td>registerVersion untuk token belum terdaftar</td><td>Ditolak: <code>NotRegisteredYet</code></td></tr>
+            <tr><td>registerVersion mengubah jenis atau ISIN</td><td>Ditolak: <code>IdentityChanged</code></td></tr>
+            <tr><td>Alamat URI atau hash kosong</td><td>Ditolak: <code>EmptyInput</code></td></tr>
+            <tr><td>Baca instrumen yang tak terdaftar</td><td>Ditolak: <code>UnknownInstrument</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>L2: deposit DFABI, privat 4000 dan escrow 4000. L4: mint DFABI +5. L6: mint oleh non-penerbit ditolak.</li>
+          <li>G3 dan G4: hash di registry sama dengan hash catatan RD dan DFABI. G5: koreksi menjadi versi 2, versi 1 tidak berubah.</li>
+          <li>G6 sampai G12: tujuh penolakan registry di atas terbukti. V1 sampai V12: validasi catatan (ISIN, LEI, field terlarang).</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 6. TRANSFER DFABI ===================== -->
+  <div class="feature" id="f-dfabi-transfer">
+    <header>
+      <div class="eyebrow">Fitur 6 dari 9</div>
+      <h2>Transfer DFABI</h2>
+      <p class="lead">Kustodian memindahkan DFABI ke investor lain dengan mekanisme privat yang sama dengan RD. Pengirim, penerima, dan jumlah tidak terlihat di chain.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: bondCustodian (pengirim) · investor2 (penerima)</span>
+        <span class="chip">Kontrak: Zeto_Anon (DFABI), verifier Groth16</span>
+        <span class="chip">Node Paladin: node1 (pengirim), node2 (penerima)</span>
+        <span class="chip">Butuh BI online: tidak (laporan antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as bondCustodian (node1)
+  participant Z as Zeto_Anon DFABI
+  participant I as investor2 (node2)
+  participant BI as BI (node4)
+  C->>C: pilih UTXO DFABI tak terkunci, buat proof ZK
+  C->>Z: transfer(inputs, outputs, proof)
+  Z->>Z: cek UTXO, verifyProof
+  Z->>Z: input SPENT, output UNSPENT
+  Z-->>C: event UTXOTransfer
+  C-->>I: state output hanya ke node2
+  C->>BI: laporan output (pesan privat)
+</pre>
+      <p class="note">Mekanismenya identik dengan transfer RD (fitur 3). Perbedaannya hanya token, pelaku, dan node.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Kustodian menyusun transfer dan proof</td><td><span class="key">di sisi bank</span></td><td>UTXO DFABI, jumlah, penerima, kunci privat</td><td>Tidak ada</td></tr>
+            <tr><td class="n">2</td><td>Kustodian mengirim transfer</td><td class="fn">transfer()</td><td>Hash input dan output, proof</td><td>Hash input dan output, proof. Nullifier: tidak ada. Penandatangan: kunci sekali pakai</td></tr>
+            <tr><td class="n">3</td><td>Kontrak memeriksa dan memverifikasi</td><td class="fn">verifyProof()</td><td>Hash input dan output</td><td>Tidak ada (gagal = transaksi batal)</td></tr>
+            <tr><td class="n">4</td><td>Status UTXO diperbarui</td><td class="fn">transfer()</td><td>Input, output</td><td>Event <code>UTXOTransfer</code>. Input SPENT, output UNSPENT</td></tr>
+            <tr><td class="n">5</td><td>Investor menerima state</td><td><span class="key">di luar chain</span></td><td>Jumlah, salt, pemilik</td><td>Tidak ada</td></tr>
+            <tr><td class="n">6</td><td>Kustodian melapor ke BI</td><td><span class="key">di luar chain</span></td><td>Jumlah, salt, pemilik tiap output</td><td>Tidak ada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Hash UTXO yang dipakai dan yang lahir</li>
+          <li>Proof ZK</li>
+          <li>Bahwa ada transfer pada token DFABI</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah DFABI yang dipindahkan</li>
+          <li>Pengirim dan penerima</li>
+          <li>Total kepemilikan siapa pun</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Kustodian</th><th>Investor</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Bahwa transfer terjadi</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Jumlah</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Pengirim dan penerima</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya (penerima)</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Node3 (investor3, bank lain) memegang 0 state DFABI (uji P1: node1 sampai node4 = 30, 10, 0, 0).</p>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>Input kembar atau belum ada</td><td>Ditolak: <code>UTXODuplicate</code>, <code>UTXONotMinted</code></td></tr>
+            <tr><td>Input sudah terpakai atau terkunci</td><td>Ditolak: <code>UTXOAlreadySpent</code>, <code>UTXOAlreadyLocked</code></td></tr>
+            <tr><td>Output sudah ada</td><td>Ditolak: <code>UTXOAlreadyOwned</code></td></tr>
+            <tr><td>Proof tidak sah</td><td>Ditolak: <code>Invalid proof</code></td></tr>
+            <tr><td>Saldo kurang</td><td>Ditolak sebelum dikirim, oleh domain Paladin: <code>PD210033</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>L8: transfer DFABI bondCustodian ke investor2, -1 dan +1 tepat. L10: transfer di atas saldo ditolak <code>PD210033</code>.</li>
+          <li>B2: output transfer terverifikasi BI. P1 dan P2: node3 dan node4 memegang 0 state.</li>
+          <li>BI offline (fitur 9): transfer DFABI selesai saat node4 mati.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 7. DVP ===================== -->
+  <div class="feature" id="f-dvp">
+    <header>
+      <div class="eyebrow">Fitur 7 dari 9</div>
+      <h2>DvP Zeto_Anon dan Atom</h2>
+      <p class="lead">Penukaran DFABI dengan RD berlangsung atomik: kedua leg berpindah dalam satu transaksi, atau tidak ada yang berpindah. Jumlah tetap tersembunyi dari chain.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Penjual (bondCustodian) · Pembeli (investor2) · Pembuat Atom</span>
+        <span class="chip">Kontrak: Zeto_Anon (DFABI dan RD), AtomFactory, Atom</span>
+        <span class="chip">Node Paladin: node1 (penjual), node2 (pembeli)</span>
+        <span class="chip">Butuh BI online: tidak (laporan antre bila node4 mati)</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant S as Penjual (node1)
+  participant B as Pembeli (node2)
+  participant MK as Pembuat Atom
+  participant ZB as Zeto_Anon DFABI
+  participant ZR as Zeto_Anon RD
+  participant AF as AtomFactory
+  participant A as Atom
+  participant BI as BI (node4)
+  S->>ZB: lock(inputs, outputs, lockedOutputs, proof, delegate)
+  B->>ZR: lock(inputs, outputs, lockedOutputs, proof, delegate)
+  S->>S: siapkan transferLocked leg obligasi (tidak dikirim)
+  B->>B: siapkan transferLocked leg kas (tidak dikirim)
+  S->>BI: laporan lock DFABI
+  B->>BI: laporan lock RD
+  Note over S,B: jumlah dan penerima disepakati di luar chain
+  MK->>AF: create(operations)
+  AF-->>MK: alamat Atom, status Pending
+  S->>ZB: delegateLock(utxos, alamat Atom)
+  B->>ZR: delegateLock(utxos, alamat Atom)
+  B->>A: execute()
+  A->>ZB: transferLocked leg obligasi
+  A->>ZR: transferLocked leg kas
+  Note over A,ZR: satu leg gagal, semuanya batal
+  S->>BI: laporan output kedua leg
+  Note over A: Alternatif - cancel() mengubah status menjadi Cancelled
+</pre>
+      <p class="note">Langkah execute sampai kedua transferLocked terjadi dalam satu transaksi. Sebelum execute, UTXO yang terkunci hanya bisa digerakkan oleh delegate-nya.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Tiap pihak mengunci UTXO untuk legnya</td><td class="fn">lock()</td><td>Input, output, output terkunci, proof, alamat delegate</td><td>Event <code>UTXOsLocked</code> (hash saja, alamat delegate terbuka). Output terkunci berstatus UNSPENT di daftar terkunci</td></tr>
+            <tr><td class="n">2</td><td>Tiap pihak menyiapkan transferLocked ke lawan</td><td><span class="key">di sisi bank</span></td><td>UTXO terkunci, jumlah, penerima</td><td>Tidak ada (proof dibuat, belum dikirim)</td></tr>
+            <tr><td class="n">3</td><td>Pembuat Atom mendaftarkan dua operasi</td><td class="fn">AtomFactory.create()</td><td>Daftar (alamat kontrak Zeto, calldata transferLocked)</td><td>Alamat Atom baru, event <code>AtomDeployed</code>, event <code>AtomStatusChanged</code> (Pending). Calldata berisi hash dan proof</td></tr>
+            <tr><td class="n">4</td><td>Tiap pemilik menyerahkan hak pakai ke Atom</td><td class="fn">delegateLock()</td><td>Daftar UTXO terkunci, alamat Atom</td><td>Event <code>LockDelegateChanged</code></td></tr>
+            <tr><td class="n">5</td><td>Atom dieksekusi</td><td class="fn">Atom.execute()</td><td>Tidak ada argumen</td><td>Status Executed, event <code>AtomStatusChanged</code></td></tr>
+            <tr><td class="n">6</td><td>Atom memindahkan tiap leg</td><td class="fn">transferLocked()</td><td>Hash input terkunci, hash output, proof</td><td>Event <code>UTXOTransfer</code> per leg. Input SPENT, output UNSPENT</td></tr>
+            <tr><td class="n">7</td><td>Alternatif: Atom dibatalkan</td><td class="fn">Atom.cancel()</td><td>Tidak ada argumen</td><td>Status Cancelled, event <code>AtomStatusChanged</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Hash UTXO terkunci, hash output, proof tiap leg</li>
+          <li>Alamat delegate (alamat Atom) dan alamat Atom itu sendiri</li>
+          <li>Status Atom: Pending, Executed, atau Cancelled</li>
+          <li>Alamat penandatangan delegateLock dan pembuatan Atom</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Jumlah DFABI dan RD yang ditukar</li>
+          <li>Harga dan rasio penukaran</li>
+          <li>Pemilik tiap UTXO</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Penjual</th><th>Pembeli</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Bahwa DvP terjadi dan status Atom</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Jumlah leg obligasi</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya (sebagai penerima)</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Jumlah leg kas</td><td class="y">Ya (laporan)</td><td class="y">Ya (sebagai penerima)</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Lawan transaksi</td><td class="y">Ya (laporan)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Uji N5: bank lain tidak bisa memakai transferLocked pada UTXO terkunci milik pihak lain (state tidak ada di nodenya).</p>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan yang dijaga kontrak</h3>
+        <table>
+          <tbody>
+            <tr><td>Leg belum didelegasikan ke Atom</td><td>Ditolak: <code>NotLockDelegate</code>, semua batal</td></tr>
+            <tr><td>Pihak lain mendelegasikan lock orang lain</td><td>Ditolak: <code>NotLockDelegate</code></td></tr>
+            <tr><td>Output leg diubah</td><td>Ditolak: <code>Invalid proof</code>, tidak ada yang berpindah</td></tr>
+            <tr><td>Leg mengarah ke kontrak yang salah</td><td>Ditolak: <code>UTXONotMinted</code></td></tr>
+            <tr><td>Execute dua kali, atau setelah cancel</td><td>Ditolak: <code>AtomNotPending</code></td></tr>
+            <tr><td>Menyiapkan atau memulihkan lock yang sudah terpakai</td><td>Ditolak sebelum dikirim, oleh domain Paladin: <code>PD210134</code></td></tr>
+            <tr><td>Atom diinisialisasi dua kali</td><td>Ditolak: <code>InvalidInitialization</code> (tidak diuji)</td></tr>
+            <tr><td>cancel() oleh pihak mana pun</td><td>Berhasil selama Pending (lihat Batasan)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>S1: DvP selesai, bondCustodian -100 DFABI dan +10 RD, investor2 sebaliknya. B3: 6 dari 6 output terverifikasi BI.</li>
+          <li>D1 sampai D8: leg tak didelegasikan, replay, dan leg salah kontrak ditolak, saldo tidak bergeser. N1 dan N2: output yang diubah menghasilkan <code>Invalid proof</code>.</li>
+          <li>N3 sampai N5: pihak ketiga tidak bisa mendelegasikan atau memakai lock orang lain. N7 sampai N9: transferLocked pada UTXO tak terkunci dan lock melebihi saldo ditolak, lock yang belum disiapkan atau didelegasikan dapat dipulihkan.</li>
+          <li>F1 sampai F3 dan X1 sampai X5: lock tidak dapat dipulihkan setelah transferLocked disiapkan atau setelah Atom dibatalkan. Uji siklus penuh: 4 DvP paralel selesai 16 detik.</li>
+          <li>BI offline (fitur 9): DvP Atom selesai saat node4 mati.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 8. LAPORAN KE BI ===================== -->
+  <div class="feature" id="f-laporan">
+    <header>
+      <div class="eyebrow">Fitur 8 dari 9</div>
+      <h2>Laporan ke BI dan verifikasi BI</h2>
+      <p class="lead">Bank melaporkan isi tiap output ke BI lewat kanal privat. BI menghitung ulang hash Poseidon dan mencocokkannya dengan chain, sehingga laporan palsu atau yang ditahan terdeteksi.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank pelapor · BI (verifier)</span>
+        <span class="chip">Kontrak: PentePrivacyGroup (kanal), event Zeto_Anon (sumber pembanding)</span>
+        <span class="chip">Node Paladin: node bank, node4 (BI)</span>
+        <span class="chip">Butuh BI online: tidak untuk bank mengirim (antre), ya untuk BI menerima dan memverifikasi</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant BK as Bank pelapor
+  participant ND as Node bank
+  participant PG as Privacy group bank dan BI
+  participant BN as Node4 (BI)
+  participant BV as Verifikasi BI
+  participant CH as Besu
+  BK->>CH: transaksi Zeto selesai
+  BK->>ND: baca event transaksi, ambil isi output milik node
+  ND->>PG: kirim laporan (jumlah, salt, pemilik, hash)
+  PG-->>BN: pesan sampai ke node4 (antre bila node4 mati)
+  BV->>BN: ambil pesan baru
+  BV->>BV: hitung Poseidon(jumlah, salt, pemilik.x, pemilik.y)
+  BV->>CH: baca event transaksi yang dilaporkan
+  BV->>BV: hash cocok dan ada di transaksi itu? verified, kalau tidak mismatch
+  BV->>CH: pindai semua output di kontrak yang diawasi
+  BV->>BV: output tanpa laporan setelah masa tunggu ditandai unreported
+</pre>
+      <p class="note">Laporan hanyalah pembawa data. Kebenarannya selalu dicek ke chain, karena pesan privacy group tidak dijamin urutan dan keasliannya oleh Paladin.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Bank membaca event transaksinya</td><td><span class="key">di luar chain</span></td><td>Hash transaksi</td><td>Tidak ada (membaca event <code>UTXOMint</code>, <code>UTXOTransfer</code>, <code>UTXOWithdraw</code>, <code>UTXOsLocked</code>)</td></tr>
+            <tr><td class="n">2</td><td>Bank menyusun laporan dari state di nodenya</td><td><span class="key">di sisi bank</span></td><td>Jumlah, salt, pemilik, hash tiap output</td><td>Tidak ada</td></tr>
+            <tr><td class="n">3</td><td>Bank mengirim laporan ke BI</td><td><span class="key">pesan privacy group</span></td><td>Laporan bertopik <code>zeto-report-v1</code></td><td>Tidak ada. Pesan tidak lewat chain</td></tr>
+            <tr><td class="n">4</td><td>BI menghitung ulang hash</td><td><span class="key">di sisi BI</span></td><td>Jumlah, salt, pemilik dari laporan</td><td>Tidak ada</td></tr>
+            <tr><td class="n">5</td><td>BI mencocokkan dengan chain</td><td><span class="key">di sisi BI</span></td><td>Hash hasil hitung, hash di event transaksi</td><td>Tidak ada (hanya membaca)</td></tr>
+            <tr><td class="n">6</td><td>BI memindai seluruh output kontrak yang diawasi</td><td><span class="key">di sisi BI</span></td><td>Semua event Zeto sejak blok awal</td><td>Tidak ada (hanya membaca)</td></tr>
+            <tr><td class="n">7</td><td>BI menentukan pengirim</td><td><span class="key">di sisi BI</span></td><td>Pemilik input yang sudah terverifikasi</td><td>Tidak ada</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Hash output dan input pada event Zeto (bahan pembanding BI)</li>
+          <li>Alamat kontrak privacy group</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Isi laporan: jumlah, salt, pemilik</li>
+          <li>Bahwa sebuah laporan dikirim</li>
+          <li>Pengirim transfer biasa (kunci sekali pakai, BI menyimpulkannya dari input)</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI</th><th>Bank pelapor</th><th>Bank lain</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Isi laporan (jumlah, salt, pemilik)</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Hasil verifikasi (verified, mismatch, unreported)</td><td class="y">Ya</td><td class="x">Tidak</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+            <tr><td>Hash output di event Zeto</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Pesan laporan di node</td><td class="y">Ya</td><td class="y">Ya</td><td class="x">Tidak (0 pesan)</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Visibilitas BI ditegakkan oleh prosedur dan deteksi, bukan protokol. Bank bisa menahan laporan, tetapi tidak bisa menyembunyikan bahwa output ada.</p>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Aturan verifikasi BI (bukan revert kontrak)</h3>
+        <table>
+          <tbody>
+            <tr><td>Hash hitung ulang berbeda (jumlah, salt, atau pemilik salah)</td><td>Ditandai <code>mismatch</code></td></tr>
+            <tr><td>Hash bukan output dari transaksi yang disebut</td><td>Ditandai <code>mismatch</code></td></tr>
+            <tr><td>Kontrak tidak diawasi BI</td><td>Diabaikan, tidak dihitung</td></tr>
+            <tr><td>Output di chain tanpa laporan terverifikasi setelah masa tunggu</td><td>Ditandai <code>unreported</code></td></tr>
+            <tr><td>Input transaksi tidak pernah dilaporkan</td><td>Pengirim tercatat <code>unknown-input-owner</code></td></tr>
+            <tr><td>Laporan ganda untuk output yang sama</td><td>Digabung satu kali</td></tr>
+            <tr><td>Nama privacy group memuat tanda @</td><td>Ditolak pembuatannya: <code>PD020005</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>B1 sampai B3 dan BW1, BW2: laporan deposit, mint, transfer, DvP, dan withdraw terverifikasi semua, 0 mismatch.</li>
+          <li>U1 sampai U6: laporan benar diterima, jumlah, salt, dan pemilik salah menjadi mismatch, laporan untuk transaksi lain menjadi mismatch, kontrak tak diawasi diabaikan.</li>
+          <li>B5: pindai chain, setiap output kontrak yang diawasi terverifikasi. B6: transfer tanpa laporan ditandai unreported setelah 20 detik, pengirimnya benar (investor2).</li>
+          <li>B4: investor3 memegang 0 pesan laporan. M2: laporan sampai ke node4 sekitar 0,25 detik setelah dikirim.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== 9. BI OFFLINE ===================== -->
+  <div class="feature" id="f-offline">
+    <header>
+      <div class="eyebrow">Fitur 9 dari 9</div>
+      <h2>BI offline</h2>
+      <p class="lead">Saat node BI mati, bank tetap bertransaksi dan menyelesaikan DvP. Laporan antre di sisi bank dan semuanya terverifikasi setelah node BI kembali.</p>
+      <div class="chips">
+        <span class="chip">Pelaku: Bank (bondCustodian, investor2) · BI</span>
+        <span class="chip">Kontrak: Zeto_Anon, Atom, PentePrivacyGroup</span>
+        <span class="chip">Node Paladin: node1, node2, node4 (mati sekitar 56 detik)</span>
+        <span class="chip">Butuh BI online: tidak untuk transaksi, ya untuk membuat privacy group baru</span>
+      </div>
+    </header>
+
+    <section>
+      <h3>Alur (uji 2026-10-17)</h3>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant OPS as Operator cluster
+  participant BN as Node4 (BI)
+  participant S as bondCustodian (node1)
+  participant B as investor2 (node2)
+  participant CH as Besu
+  participant BV as Verifikasi BI
+  OPS->>BN: hapus pod node4, node4 mati
+  par tiga flow bank ke bank
+    S->>CH: DvP Atom execute (DFABI ke investor2, RD ke bondCustodian)
+    S->>CH: transfer RD ke investor2
+    S->>CH: transfer DFABI ke investor2
+  end
+  S-->>S: 5 laporan dikirim, antre di sisi bank
+  BN-->>BN: node4 menjawab lagi setelah sekitar 56 detik
+  S-->>BN: laporan antre sampai
+  BV->>BN: ambil semua pesan
+  BV->>CH: cocokkan dengan chain
+  BV->>BV: 6 dari 6 output outage terverifikasi
+</pre>
+      <p class="note">Transaksi Zeto tidak melibatkan BI, sehingga tidak ada yang menunggu node4. Hanya penerimaan laporan yang tertunda.</p>
+    </section>
+
+    <section class="panel">
+      <h3>Fungsi per langkah</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>#</th><th>Langkah</th><th>Fungsi</th><th>Data masuk</th><th>Yang tercatat di chain</th></tr></thead>
+          <tbody>
+            <tr><td class="n">1</td><td>Node4 dimatikan oleh operator</td><td><span class="key">di luar kontrak</span></td><td>Hapus pod node4</td><td>Tidak ada</td></tr>
+            <tr><td class="n">2</td><td>DvP Atom selesai</td><td class="fn">Atom.execute()</td><td>Tidak ada argumen</td><td>Dua <code>UTXOTransfer</code>, status Executed (tx 0x37705a92…)</td></tr>
+            <tr><td class="n">3</td><td>Transfer RD selesai</td><td class="fn">transfer()</td><td>Hash input dan output, proof</td><td><code>UTXOTransfer</code> (tx 0xaa8fea34…)</td></tr>
+            <tr><td class="n">4</td><td>Transfer DFABI selesai</td><td class="fn">transfer()</td><td>Hash input dan output, proof</td><td><code>UTXOTransfer</code> (tx 0x8feba94d…)</td></tr>
+            <tr><td class="n">5</td><td>Bank mengirim 5 laporan</td><td><span class="key">pesan privacy group</span></td><td>Isi output tiap transaksi</td><td>Tidak ada. Pesan antre di sisi bank</td></tr>
+            <tr><td class="n">6</td><td>Node4 kembali, laporan sampai</td><td><span class="key">di luar chain</span></td><td>Pesan antre</td><td>Tidak ada</td></tr>
+            <tr><td class="n">7</td><td>BI memverifikasi dari awal</td><td><span class="key">di sisi BI</span></td><td>Semua pesan dan event chain</td><td>Tidak ada (hanya membaca)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel">
+        <h3>Terlihat di chain</h3>
+        <ul class="plain">
+          <li>Tiga transaksi selesai dengan penandatangan dan waktu biasa</li>
+          <li>Hash UTXO dan proof seperti transaksi normal</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>Tidak terlihat di chain</h3>
+        <ul class="plain">
+          <li>Bahwa node4 sedang mati</li>
+          <li>Laporan yang antre dan isinya</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>Siapa melihat apa</h3>
+      <div class="scroll">
+        <table class="grid">
+          <thead><tr><th>Informasi</th><th>BI saat node4 mati</th><th>BI setelah kembali</th><th>Bank</th><th>Publik</th></tr></thead>
+          <tbody>
+            <tr><td>Isi tiga transaksi (jumlah, pemilik)</td><td class="x">Tidak</td><td class="y">Ya (setelah laporan sampai)</td><td class="y">Ya</td><td class="x">Tidak</td></tr>
+            <tr><td>Bahwa transaksi terjadi</td><td class="x">Tidak (node mati)</td><td class="y">Ya</td><td class="y">Ya</td><td class="y">Ya</td></tr>
+            <tr><td>Hasil verifikasi 6 output outage</td><td class="x">Tidak</td><td class="y">Ya (6 dari 6 verified)</td><td class="x">Tidak</td><td class="x">Tidak</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="cols">
+      <div class="panel rules">
+        <h3>Yang dijaga</h3>
+        <table>
+          <tbody>
+            <tr><td>Kirim laporan saat penerima mati</td><td>Diterima tanpa error, laporan antre (N2)</td></tr>
+            <tr><td>Saldo setelah tiga flow</td><td>Bergeser tepat, tidak ada dana hilang (N1)</td></tr>
+            <tr><td>Setiap laporan sekali</td><td>82 pesan = 77 sebelum + 5 outage, masing-masing sekali (R2)</td></tr>
+            <tr><td>Ketidakcocokan</td><td>0 mismatch (R3)</td></tr>
+            <tr><td>Membuat privacy group baru saat node4 mati</td><td>Menunggu sampai node4 kembali (M5: 38 detik)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Bukti pengujian</h3>
+        <ul class="plain">
+          <li>Waktu (UTC): node4 terdeteksi mati 10:53:20, tiga flow selesai 10:53:24, node4 menjawab lagi 10:54:16. Mati sekitar 56 detik.</li>
+          <li>Hasil: 11 PASS dan 1 INFO. R1: 6 dari 6 output outage terverifikasi 2,1 detik setelah node4 kembali.</li>
+          <li>R4: pindai chain 16 output, 16 verified, 0 unreported.</li>
+          <li>Batas: satu outage sekitar 56 detik dengan 5 laporan. Outage lebih lama belum diuji.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== BATASAN ===================== -->
+  <div class="feature" id="f-batasan">
+    <header>
+      <div class="eyebrow">Penutup</div>
+      <h2>Tidak ada di kode dan batasan</h2>
+      <p class="lead">Hal yang tidak ada atau belum terbukti. Tidak satu pun di bawah ini diklaim berfungsi di halaman lain.</p>
+    </header>
+    <section class="panel">
+      <ul class="plain">
+        <li><b>Burn:</b> tidak ada pada Zeto_Anon. Penebusan memakai withdraw.</li>
+        <li><b>Mint oleh BI:</b> tidak ada. BI hanya memverifikasi, penerbit tetap cashIssuer dan bondIssuer.</li>
+        <li><b>D9:</b> Atom tidak mengikat jumlah dan penerima, sehingga kesepakatan harus dicek di luar chain sebelum delegateLock (leg kas 1 RD tetap selesai).</li>
+        <li><b>X1:</b> Atom.cancel() dapat dipanggil siapa pun selama Pending, dan lock yang sudah didelegasikan tidak dapat dipulihkan setelahnya.</li>
+        <li><b>Fungsi publik:</b> fungsi <code>_withdraw</code> dan <code>_deposit</code> berstatus publik di kode sumber Zeto v0.2.2, belum diuji dan perlu dicek ke upstream.</li>
+        <li><b>Unlock:</b> tidak ada di Paladin v1.0.0. Pemulihan lock hanya lewat transferLocked ke diri sendiri sebelum disiapkan atau didelegasikan.</li>
+        <li><b>KYC pada DvP:</b> tidak ada. Circuit transferLocked untuk token KYC tidak tersedia di v1.0.0.</li>
+        <li><b>Laporan ke BI:</b> tidak ditandatangani, dan atribusi pengirim bergantung pada input yang pernah dilaporkan.</li>
+        <li><b>Outage BI:</b> hanya satu kali uji, sekitar 56 detik.</li>
+      </ul>
+    </section>
+  </div>
+</div>
