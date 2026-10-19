@@ -45,3 +45,4 @@ export function validateRequest(req: FlowRequest): { ok: true; amount: bigint } 
   else if (req.from === 'BI') return fail('Transfer dijalankan oleh bank');
   return { ok: true, amount };
 }
+export const MODEL_NAMES: Record<ModelId, string> = { zeto: 'Zeto', noto: 'Noto', stealth: 'Stealth' };
