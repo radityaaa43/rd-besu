@@ -86,6 +86,10 @@ test('health answers within 4 s with nodes even when an adapter health never res
   expect(body.models.zeto).toEqual({ ready: false, detail: 'Cek kesiapan tidak selesai dalam 3 detik' });
 });
 
+test('400 on an amount string longer than 20 characters', async () => {
+  expect((await post(make(), '/api/tx', { ...req, amount: '1'.repeat(21) })).statusCode).toBe(400);
+});
+
 test('400 on bad amount', async () => {
   const res = await post(make(), '/api/tx', { ...req, amount: '0' });
   expect(res.statusCode).toBe(400);

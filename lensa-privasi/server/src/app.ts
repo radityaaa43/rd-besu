@@ -30,7 +30,7 @@ const txBody = {
     flow: { enum: Object.keys(FLOWS) },
     from: { enum: PARTY_IDS },
     to: { enum: PARTY_IDS },
-    amount: { type: 'string' },
+    amount: { type: 'string', maxLength: 20 },
   },
 } as const;
 const stressBody = {

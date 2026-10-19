@@ -47,7 +47,7 @@ npm run preflight -- --prepare 500
 npm run preflight
 ```
 
-Perintah pertama menyiapkan kapasitas stress test (500 tx per model). Perintah kedua mengecek Besu, 4 node Paladin, dan kapasitas, tanpa mengubah apa pun.
+Perintah pertama menyiapkan kapasitas stress test (500 tx per model). Setelah `--prepare`, restart server supaya state kolam yang baru terbaca. Perintah kedua mengecek Besu, 4 node Paladin, dan kapasitas, tanpa mengubah apa pun.
 
 ## Menjalankan
 
@@ -81,5 +81,6 @@ Kalau node Paladin crash-loop atau restart (exit 137 saat proving, atau panic `I
 
 - Nominal Stealth publik di chain; yang tersembunyi hanya pihaknya.
 - Zeto dengan lebih dari 2 pengirim paralel berisiko membuat node restart (bukti ZK dibangun di CPU node).
+- Zeto punya batas yang sama dengan Noto: satu panggilan Paladin yang menggantung membuat bank itu terkunci (dan satu dari 2 slot Zeto) sampai server di-restart.
 - Langkah 0 dan 1 berbagi satu durasi bila SDK tidak menyediakan batas di antaranya.
 - Angka diukur di cluster demo, bukan kapasitas produksi.

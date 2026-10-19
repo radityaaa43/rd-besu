@@ -1,3 +1,4 @@
+// Imported by the web bundle at runtime: keep this file free of imports.
 export type ModelId = 'zeto' | 'noto' | 'stealth';
 export type FlowId = 'rd-issue' | 'rd-transfer' | 'dfabi-issue' | 'dfabi-transfer' | 'dvp';
 export type PartyId = 'BI' | 'A' | 'B' | 'C';
