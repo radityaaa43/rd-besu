@@ -218,10 +218,9 @@ test('rejects tx while stress active', async () => {
   expect((await post(a, '/api/tx', req)).statusCode).toBe(202);
 });
 
-test('stress: 404 before any run', async () => {
+test('stress: nothing to report before any run', async () => {
   const a = make();
-  expect((await a.inject('/api/stress')).statusCode).toBe(404);
-  expect((await a.inject('/api/stress')).json()).toEqual({ reason: 'Belum ada stress test' });
+  expect((await a.inject('/api/stress')).statusCode).toBe(204);
   expect((await a.inject('/api/stress/csv')).statusCode).toBe(404);
   expect((await post(a, '/api/stress/stop', {})).statusCode).toBe(404);
 });

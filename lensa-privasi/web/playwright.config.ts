@@ -3,6 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Mocked smoke: the real HTTP API and the built web over fake adapters (no chain). Port 8791; 8790 is the real server.
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: 'live/**', // live specs have their own config (playwright.live.config.ts)
   workers: 1,
   retries: 0,
   reporter: 'list',

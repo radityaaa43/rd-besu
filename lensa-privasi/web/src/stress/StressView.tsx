@@ -22,10 +22,10 @@ export function StressView({ meta, hidden }: { meta: Meta; hidden: boolean }) {
     const r = await getCapacity();
     if (!r.ok) return;
     setCapacity(r.body);
-    // first answer: everything usable starts selected
+    // first answer: everything with capacity starts selected
     if (!selectedOnce.current) {
       selectedOnce.current = true;
-      setForm((f) => ({ ...f, models: (Object.keys(meta.models) as ModelId[]).filter((m) => r.body[m] !== undefined) }));
+      setForm((f) => ({ ...f, models: (Object.keys(meta.models) as ModelId[]).filter((m) => (r.body[m] ?? 0) > 0) }));
     }
   }, [meta]);
 
@@ -42,7 +42,7 @@ export function StressView({ meta, hidden }: { meta: Meta; hidden: boolean }) {
   useEffect(() => {
     void loadCapacity();
     void getStress().then((r) => {
-      if (!r.ok) return;
+      if (!r.ok || !r.body) return;
       setSnap(r.body);
       if (r.body.state === 'running') follow();
     });

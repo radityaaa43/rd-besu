@@ -44,7 +44,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
 
   const line = (l: LensView) => counterpartyLine(l, f.dvp, nm);
   const value = (l: LensView) => {
-    if (l.amount === null) return <span className="redact">Rp 000.000.000</span>;
+    if (l.amount === null) return <span className="redact">{f.asset === 'RD' ? 'Rp 000.000.000' : '000 unit DFABI'}</span>;
     try {
       const a = BigInt(l.amount);
       return (
@@ -108,7 +108,7 @@ export function Lenses({ meta, s, dispatch }: { meta: Meta; s: DemoState; dispat
             <h4>Yang tercatat di chain</h4>
             <ul>
               <li>Tx <code title={s.result!.txHash}>{shortHash(s.result!.txHash)}</code>, block {s.result!.block}</li>
-              {(open.onChain ?? []).map((o, k) => <li key={k}>{o.label}: <code title={o.value}>{shortHash(o.value)}</code></li>)}
+              {(open.onChain ?? []).filter((o) => o.value !== s.result!.txHash).map((o, k) => <li key={k}>{o.label}: <code title={o.value}>{shortHash(o.value)}</code></li>)}
             </ul>
           </div>
         </div>

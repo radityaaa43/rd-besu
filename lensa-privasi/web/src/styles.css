@@ -120,7 +120,7 @@ svg.i{width:15px;height:15px;flex:none}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:1280px){.lensrow{grid-template-columns:1fr}}
-@media (max-width:860px){.shell{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}.compose,.fields,.detail{grid-template-columns:1fr}.compose>div+div{border-left:0;border-top:1px solid var(--line-2)}.timeline{grid-auto-flow:row}.lenses{grid-auto-flow:row}.lens{border-right:0;border-bottom:1px solid var(--line);min-height:0}header nav,.net span+span{display:none}}
+@media (max-width:860px){.shell{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}.compose,.fields,.detail{grid-template-columns:1fr}.compose>div+div{border-left:0;border-top:1px solid var(--line-2)}.timeline{grid-auto-flow:row}.lenses{grid-auto-flow:row}.lens{border-right:0;border-bottom:1px solid var(--line);min-height:0}header{gap:12px;padding:0 12px}header nav button{padding:0 10px;font-size:13px}.net{gap:8px}.net span{font-size:0}}
 /* stress test view */
 .mchk{display:flex;flex-direction:column;gap:6px}
 .mchk button{display:flex;gap:10px;align-items:center;border:1px solid var(--line);background:var(--sheet);border-radius:var(--r);padding:9px 12px;text-align:left;font-size:14px;font-weight:500}

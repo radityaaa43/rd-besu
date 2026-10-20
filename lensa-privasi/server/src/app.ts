@@ -248,7 +248,8 @@ export function buildApp(adapters: Adapters, opts: { webDist?: string; probe?: P
 
   const noStress = (reply: FastifyReply) => reply.code(404).send({ reason: 'Belum ada stress test' });
 
-  app.get('/api/stress', async (_req, reply) => (lastStress ? lastStress.snapshot() : noStress(reply)));
+  // 204 (not 404) before the first run: the page asks on every load and a 404 would show up as a console error
+  app.get('/api/stress', async (_req, reply) => (lastStress ? lastStress.snapshot() : reply.code(204).send()));
 
   app.get('/api/stress/events', async (request, reply) => {
     const run = lastStress;

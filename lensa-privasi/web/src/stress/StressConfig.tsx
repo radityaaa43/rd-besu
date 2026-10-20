@@ -71,6 +71,9 @@ export function StressConfig(p: ConfigProps) {
         <button className={running ? 'btn2 stop' : 'btn2'} disabled={!running && (p.starting || form.models.length === 0 || p.cap === 0)} onClick={p.onGo}>
           {running ? 'Hentikan' : 'Mulai stress test'}
         </button>
+        {!running && !p.starting && (form.models.length === 0 || p.cap === 0) && (
+          <p className="small">{form.models.length === 0 ? 'Pilih minimal satu model.' : 'Model terpilih belum punya kapasitas siap. Jalankan preflight --prepare dulu.'}</p>
+        )}
         {p.error && <p className="small" role="alert" style={{ color: 'var(--sealed)' }}>{p.error}</p>}
       </div>
     </aside>

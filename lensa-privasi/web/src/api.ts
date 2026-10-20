@@ -28,13 +28,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<Reply<T>> {
   }
 }
 const post = <T,>(path: string, body?: unknown) =>
-  call<T>(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  // a content-type without a body is rejected by Fastify (400), so send the header only with a body
+  call<T>(path, body === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 export const getMeta = () => call<Meta>('/api/meta');
 export const getHealth = () => call<Health>('/api/health');
 export const getCapacity = () => call<Capacity>('/api/preflight-capacity');
 export const postTx = (req: FlowRequest) => post<{ runId: string }>('/api/tx', req);
-export const getStress = () => call<StressSnapshot>('/api/stress');
+export const getStress = () => call<StressSnapshot | null>('/api/stress'); // body is null (204) before the first run
 export const postStress = (cfg: StressConfig) => post<StressSnapshot>('/api/stress', cfg);
 export const stopStress = () => post<StressSnapshot>('/api/stress/stop');
 export const CSV_URL = '/api/stress/csv';

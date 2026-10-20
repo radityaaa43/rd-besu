@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { watchTx } from './api.ts';
+import { stopStress, watchTx } from './api.ts';
 
 class FakeES {
   static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
@@ -42,4 +42,11 @@ test('a server error event passes its reason through and closes', () => {
   FakeES.last.emit('error', { data: JSON.stringify({ reason: 'Saldo tidak cukup' }) });
   expect(h.onError).toHaveBeenCalledWith('Saldo tidak cukup');
   expect(FakeES.last.closed).toBe(true);
+});
+
+test('a POST without a body sends no content-type (Fastify rejects an empty JSON body)', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  vi.stubGlobal('fetch', fetchMock);
+  await stopStress();
+  expect(fetchMock.mock.calls[0][1]).toEqual({ method: 'POST' });
 });
