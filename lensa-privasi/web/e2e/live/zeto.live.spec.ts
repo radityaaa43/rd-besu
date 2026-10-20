@@ -121,14 +121,15 @@ for (const c of CASES) {
         expect.soft(f.line.trim(), `${w.id} counterparty`).toBe('Pihak tidak terbaca');
       }
     }
-    // counterparty lines (derived from BI ledger per server/src/adapters/zeto.ts)
+    // counterparty lines: BI reads both sides from its ledger; a bank reads only what its own node holds,
+    // and a Zeto UTXO does not name its sender (server/src/adapters/zeto.ts)
     const byId = Object.fromEntries(lenses.map((l) => [l.id as string, l as { line: string }]));
     if (c.issuer) {
       expect.soft(byId[c.from]!.line).toBe(`diterbitkan untuk ${nm(c.to)}`);
-      expect.soft(byId[c.to]!.line).toBe(`dari ${nm(c.from)}`);
+      expect.soft(byId[c.to]!.line).toBe('Pengirim tidak tercantum di UTXO');
     } else {
       expect.soft(byId[c.from]!.line).toBe(`${c.dvp ? 'jual ke' : 'ke'} ${nm(c.to)}`);
-      expect.soft(byId[c.to]!.line).toBe(`${c.dvp ? 'beli dari' : 'dari'} ${nm(c.from)}`);
+      expect.soft(byId[c.to]!.line).toBe('Pengirim tidak tercantum di UTXO');
       expect.soft(byId.BI!.line).toBe(`${nm(c.from)} → ${nm(c.to)}`);
     }
 

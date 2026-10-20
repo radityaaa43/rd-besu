@@ -44,6 +44,7 @@ State ditulis ke `server/state/` (git-ignored). Catatan:
 
 ```bash
 npm run preflight -- --prepare 500
+npm run preflight -- --prepare 200 --only stealth   # Besu saja, tidak menyentuh node Paladin
 npm run preflight
 ```
 

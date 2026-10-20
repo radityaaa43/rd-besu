@@ -17,7 +17,7 @@ describe('counterpartyLine', () => {
   test('issuer', () => expect(line('issuer', { from: 'BI', to: 'B' })).toBe('diterbitkan untuk Bank Nusantara'));
   test('null counterparty and unreadable side', () => {
     expect(line('outsider', null)).toBe('Pihak tidak terbaca');
-    expect(line('receiver', { from: null, to: 'B' })).toBe('Pihak tidak terbaca');
+    expect(line('receiver', { from: null, to: 'B' })).toBe('Pengirim tidak tercantum di UTXO');
     expect(line('regulator', { from: 'A', to: null })).toBe('Bank Mandala → tidak terbaca');
   });
 });

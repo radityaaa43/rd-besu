@@ -222,7 +222,9 @@ export function createZetoAdapter(state: ZetoState) {
         ...i.inputs.map((n) => ({ label: `Input terpakai ${i.token}`, value: hex32(n) })),
       ]),
     ];
-    // counterparty comes from BI's ledger (already verified by run()), never from the request
+    // BI reads both sides from its ledger (already verified by run()), never from the request.
+    // A bank only knows what its own node holds: the sender sees who owns the new outputs, the receiver sees
+    // that the outputs are its own and nothing about the sender (a Zeto UTXO carries no sender).
     const assetParties = () => ledgerParties(ledger, io.filter((i) => i.token === asset).flatMap((i) => i.outputs), FLOWS[req.flow].issuer);
     const view = (verdict: LensView['verdict'], amount: bigint | null, counterparty: Counterparty | null, method: string): LensView =>
       ({ party: id, role, verdict, amount: amount === null ? null : amount.toString(), counterparty, onChain, method });
@@ -240,7 +242,12 @@ export function createZetoAdapter(state: ZetoState) {
         'Node bank ini tidak menerima state maupun laporan: 0 state, saldo 0.');
     }
     if (!mine.length) throw new Error(`Node ${PARTIES[id].name} tidak memiliki state transaksi ini`);
-    return view('clear', sum(mine), assetParties(),
+    const partyOf = new Map(PARTY_IDS.map((p) => [lower(state.owners[p]), p]));
+    const others = new Set(mine.filter((x) => x.token === asset && x.owner !== lower(state.owners[id])).map((x) => partyOf.get(x.owner) ?? null));
+    const own: Counterparty = id === req.from
+      ? { from: id, to: others.size === 1 ? [...others][0]! : null }
+      : { from: null, to: id };
+    return view('clear', sum(mine), own,
       id === req.from ? 'Query state privat di node sendiri (`pstate.queryContractStates`).' : 'Node penerima menerima state terenkripsi dan membukanya.');
   }
 

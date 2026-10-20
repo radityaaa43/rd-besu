@@ -11,7 +11,7 @@ export function counterpartyLine(l: Pick<LensView, 'role' | 'counterparty'>, dvp
   switch (l.role) {
     case 'issuer': return to ? `diterbitkan untuk ${to}` : NONE;
     case 'sender': return to ? `${dvp ? 'jual ke' : 'ke'} ${to}` : NONE;
-    case 'receiver': return from ? `${dvp ? 'beli dari' : 'dari'} ${from}` : NONE;
+    case 'receiver': return from ? `${dvp ? 'beli dari' : 'dari'} ${from}` : 'Pengirim tidak tercantum di UTXO';
     default: return from || to ? `${from ?? 'tidak terbaca'} → ${to ?? 'tidak terbaca'}` : NONE; // regulator reads both sides
   }
 }

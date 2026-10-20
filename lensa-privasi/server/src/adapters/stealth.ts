@@ -26,7 +26,7 @@ export interface StealthState {
   pool: Record<string, PoolEntry[]>; // 'A>B': funded stealth addresses of A reserved for the stress test
 }
 
-const LABELS: [string, string, string, string] = ['Alamat stealth & enkripsi memo', 'Tanda tangan bank', 'Masuk block Besu', 'BI memindai dengan view key'];
+const LABELS: [string, string, string, string] = ['Alamat stealth & enkripsi memo', 'Tanda tangan & kirim transaksi', 'Masuk block Besu', 'BI memindai dengan view key'];
 const FLOW_IDS: FlowId[] = ['rd-issue', 'rd-transfer', 'dfabi-issue', 'dfabi-transfer', 'dvp'];
 const PAIRS: [BankId, BankId][] = [['A', 'B'], ['B', 'C'], ['C', 'A']];
 const TX_MS = 120_000;

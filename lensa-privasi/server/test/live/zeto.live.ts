@@ -28,7 +28,9 @@ describe('zeto live', () => {
     expect(outsider!.amount).toBeNull();
     expect(outsider!.counterparty).toBeNull();
     // read back from BI's ledger, not echoed from the request
-    for (const l of [sender!, receiver!, bi!]) expect(l.counterparty).toEqual({ from: 'A', to: 'B' });
+    expect(bi!.counterparty).toEqual({ from: 'A', to: 'B' });
+    expect(sender!.counterparty).toEqual({ from: 'A', to: 'B' }); // from its own node's outputs
+    expect(receiver!.counterparty).toEqual({ from: null, to: 'B' }); // a UTXO does not name its sender
     expect(outsider!.onChain.length).toBeGreaterThan(1); // tx hash + commitments are public
   });
 

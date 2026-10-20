@@ -91,7 +91,7 @@ for (const c of cases) {
     await expect(page.locator('button.lens')).toHaveCount(4);
     const wallMs = Date.now() - t0;
     const stepLabels = await steps.allInnerTexts();
-    expect(stepLabels.map((s) => s.split('\n')[0])).toEqual(['Alamat stealth & enkripsi memo', 'Tanda tangan bank', 'Masuk block Besu', 'BI memindai dengan view key']);
+    expect(stepLabels.map((s) => s.split('\n')[0])).toEqual(['Alamat stealth & enkripsi memo', 'Tanda tangan & kirim transaksi', 'Masuk block Besu', 'BI memindai dengan view key']);
 
     // response JSON
     await expect(page.getByRole('tab', { name: 'Response' })).toHaveAttribute('aria-selected', 'true');
@@ -128,8 +128,8 @@ for (const c of cases) {
       const txLi = await detail.locator('li').first().innerText();
       expect(txLi).toContain(`block ${response.block}`);
       lenses[p] = { cls, verdict: await card.locator('.verdict').innerText(), line: await card.locator('.line').innerText(), value: val, method, onChain, hexText: await card.locator('.hex').allInnerTexts() };
-      if (cls === 'partial') expect(Object.keys(onChain).sort()).toEqual(['Alamat sekali pakai', 'Memo terenkripsi', 'Nominal (publik)', 'Tx', 'Tx hash'].sort());
-      expect(onChain['Tx hash']).toBe(response.txHash);
+      if (cls === 'partial') expect(Object.keys(onChain).sort()).toEqual(['Alamat sekali pakai', 'Memo terenkripsi', 'Nominal (publik)', 'Tx'].sort());
+      expect(onChain['Tx']).toBe(response.txHash); // shown once; no duplicate 'Tx hash' row
     }
 
     // sanity: no leaked placeholders / raw html anywhere

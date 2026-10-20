@@ -12,7 +12,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export async function runPreflight(
   adapters: Partial<Record<ModelId, ModelAdapter>>,
   probe: Probe,
-  opts: { prepare?: number },
+  opts: { prepare?: number; only?: ModelId[] },
   print: (line: string) => void,
 ): Promise<number> {
   let failed = false;
@@ -31,7 +31,7 @@ export async function runPreflight(
       else check(true, `Kapasitas ${name}: ${cap} tx`);
     } catch (e) { check(false, `Kapasitas ${name}`, msg(e)); }
   };
-  for (const m of Object.keys(MODEL_NAMES) as ModelId[]) {
+  for (const m of (opts.only ?? Object.keys(MODEL_NAMES)) as ModelId[]) {
     const name = MODEL_NAMES[m];
     const a = adapters[m];
     if (!a) { check(false, `${name} belum tersedia`); continue; }
@@ -65,7 +65,11 @@ export function parsePrepare(argv: string[]): number | undefined {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let prepare: number | undefined;
   try { prepare = parsePrepare(process.argv); } catch (e) { console.error(msg(e)); process.exit(2); }
+  // --only stealth,noto: prepare (and check) just these models, e.g. Stealth is Besu-only and spares the Paladin nodes
+  const oi = process.argv.indexOf('--only');
+  const only = oi < 0 ? undefined : (process.argv[oi + 1] ?? '').split(',').filter((m): m is ModelId => m in MODEL_NAMES);
+  if (only && !only.length) { console.error('--only butuh model: stealth, noto, atau zeto'); process.exit(2); }
   let adapters;
-  try { adapters = await loadAdapters(); } catch (e) { console.log(`GAGAL Muat adapter: ${msg(e)}`); process.exit(1); }
-  process.exit(await runPreflight(adapters, probeNodes, { prepare }, console.log));
+  try { adapters = await loadAdapters({ only }); } catch (e) { console.log(`GAGAL Muat adapter: ${msg(e)}`); process.exit(1); }
+  process.exit(await runPreflight(adapters, probeNodes, { prepare, only }, console.log));
 }
