@@ -15,6 +15,9 @@ export interface NotoTxView {
   visible: boolean; // this node holds the private state of the tx
   amount?: bigint; // sum of the transfers the node can see
   parties: string[]; // from / to / sender addresses or lookups the node can see, lower-cased
+  from: string[]; // senders of the transfers the node can see, lower-cased; empty for a mint, and for a DvP leg whose locked inputs the node cannot read
+  to: string[]; // recipients of the transfers the node can see, lower-cased
+  sender?: string; // the domain receipt's sender (the minter, or the owner of the lock), lower-cased
   spenders: string[]; // owners of the (locked) input states the node holds, lower-cased
   receivers: string[]; // owners of the output states the node holds that are not spenders (change excluded)
   hidden: string[]; // state ids the node knows exist but cannot read
@@ -41,6 +44,9 @@ export async function readNotoTx(client: PaladinClient, txId: string): Promise<N
       visible: true,
       amount: transfers.reduce((sum, t) => sum + BigInt(t.amount), 0n),
       parties: [...transfers.flatMap((t) => [t.from, t.to]), dom.sender].filter((x): x is string => !!x).map((x) => x.toLowerCase()),
+      from: [...new Set(transfers.map((t) => t.from).filter((x): x is string => !!x).map((x) => x.toLowerCase()))],
+      to: [...new Set(transfers.map((t) => t.to).filter((x): x is string => !!x).map((x) => x.toLowerCase()))],
+      sender: dom.sender?.toLowerCase(),
       spenders,
       receivers: owners(dom.states.outputs).filter((o) => !spenders.includes(o)),
       hidden: [],
@@ -48,7 +54,7 @@ export async function readNotoTx(client: PaladinClient, txId: string): Promise<N
   }
   const st = await client.ptx.getStateReceipt(id);
   const u = st?.unavailable ?? {};
-  return { visible: false, parties: [], spenders: [], receivers: [], hidden: [...(u.confirmed ?? []), ...(u.spent ?? []), ...(u.info ?? [])] };
+  return { visible: false, parties: [], from: [], to: [], spenders: [], receivers: [], hidden: [...(u.confirmed ?? []), ...(u.spent ?? []), ...(u.info ?? [])] };
 }
 
 // The node answered, but has no receipt for the tx (yet). Any other error from a read is a real failure.
