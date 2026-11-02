@@ -1,5 +1,5 @@
 /*
- * Private-mint spike (Lensa Privasi spec §7a.3): can BI issue RD privately with Zeto `mint`, with
+ * Private-mint spike (Lensa Privasi spec §7a.3): can BI (bi@node1, V1-axis Zeto_Anon owner) issue RD privately with Zeto `mint`, with
  * no setERC20 and no public tx to a Zeto contract?
  *   fresh Zeto_Anon (deployed by bi@node1) -> mint 100 to bankA@node2 -> bankA reports to BI
  * Asserts: bankA balanceOf = 100, node4 (bankC) holds 0 states, BI's ledger verifies the output.
@@ -13,6 +13,7 @@ import PaladinClient, {
   algorithmZetoSnarkBJJ,
 } from "@lfdecentralizedtrust/paladin-sdk";
 import { LONG_POLL_TIMEOUT, nodeConnections } from "./src/common";
+import { ZETO_V1 } from "./src/zeto-v1";
 import { BiLedger, REPORT_TOPIC, buildReport, chainOutputs } from "./src/bi-report";
 
 const nodes = nodeConnections.map((n) => new PaladinClient(n.clientOptions));
@@ -35,7 +36,7 @@ async function main() {
   const [bi, bankA, bankC] = ["bi@node1", "bankA@node2", "bankC@node4"].map(party);
   const fromBlock = await bi.c.bidx.getConfirmedBlockHeight();
 
-  const zeto = await new ZetoFactory(bi.c, "zeto").newZeto(bi.v, { tokenName: "Zeto_Anon" }).waitForDeploy(LONG_POLL_TIMEOUT);
+  const zeto = await new ZetoFactory(bi.c, "zeto").newZeto(bi.v, { ...ZETO_V1 }).waitForDeploy(LONG_POLL_TIMEOUT);
   if (!zeto) throw new Error("BLOCKED: Zeto_Anon deploy returned no instance within 120s");
   console.log(`zeto ${zeto.address}`);
 

@@ -1,20 +1,21 @@
 /*
  * End-to-end test of every Zeto feature for RD and DFABI on the live Paladin cluster: a HAPPY and
  * NEGATIVE path per feature, each negative asserting the exact Paladin error code or revert name.
- * Zeto_Anon only (no Noto, no KYC); fresh tokens per group, so the live KYC tokens in out/ are
- * only touched by the optional "kyc" group (the existing smoke script, happy path).
+ * Zeto_Anon on the V1 axis (Paladin main + PR #1189, zeto-contracts v0.5.1), no Noto, no KYC; fresh
+ * tokens per group. Topology: node1 = BI (cashIssuer, bondIssuer, bondCustodian, bi), node2-4 = banks.
  *
  * Groups (--only=a,b runs a subset; no --only runs everything and writes the report):
  *   life  RD + DFABI lifecycle on one token pair: deposit, mint, transfer, S1 DvP, privacy, withdraw
- *   bi    Option A BI reporting over the life flow (implies life): verify, U1-U6, rogue transfer
+ *   bi    Option A BI reporting over the life flow (implies life): banks report, BI-originated txs are
+ *         verified from node1's own state store, U1-U6, rogue bank-to-bank transfer flagged
  *   reg   InstrumentRegistry on Paladin + the shared record validator (implies life)
  *   dvp   Atom: undelegated leg, replay, double-spend, mismatched legs, terms not bound (finding)
- *   neg   tampered legs, third-party delegate, reclaim, over-lock, locked-state transfer, foreign UTXO
- *   f1b   abort after prepareTransferLocked      f2  Atom.cancel() after delegation (finding)
- *   kyc   smoke-zeto.ts on the live Zeto_AnonNullifierKyc tokens
- * Skipped by design: BI offline (node4 restart, needs user approval). Never sends a PUBLIC tx
- * straight to a Zeto contract (v1.0.0 poison-pill, README): every Zeto tx is a domain tx, and
- * phase 0 deploys + links (setERC20) every token set, each awaited, before anything else.
+ *   neg   tampered legs, third-party delegate, cancelLock, over-lock, locked-state transfer, foreign lock
+ *   f1b   cancelLock after prepareSpendLock (V0 finding re-check)    f2  Atom.cancel() after delegation (finding)
+ *   kyc   smoke-zeto.ts on the bootstrap tokens (group name kept; the tokens are Zeto_Anon V1 now)
+ * Skipped by design: BI offline (node1 restart, needs user approval; see spike-zeto-bi-offline.ts).
+ * Phase 0 deploys + links (setERC20) every token set, each awaited, before anything else: on Paladin
+ * main the PUBLIC-tx poison pill is fixed, so that up-front phase is now OPTIONAL (kept as is).
  * Cluster safety: after every group, kubectl (read-only) must show no pod restart / non-Running.
  *
  * SAFE BY DEFAULT: dry-run unless --execute. The dry run runs the offline validator cases only.
@@ -37,6 +38,8 @@ import { ethers } from "ethers";
 import { DEFAULT_POLL_TIMEOUT, LONG_POLL_TIMEOUT, checkDeploy, nodeConnections } from "./src/common";
 import { Atom, AtomFactory, newAtomFactory } from "./src/atom";
 import { BiLedger, REPORT_TOPIC, Report, buildReport, chainOutputs } from "./src/bi-report";
+import { heldStates } from "./src/flows";
+import { SpendLeg, ZETO_V1, cancelLock, createLock, delegateLock, prepareSpend, tamperedCall } from "./src/zeto-v1";
 import { buildDfabiRecord, buildRdRecord, catalogField } from "./src/instrument";
 import atomJson from "./abis/Atom.json";
 import erc20Artifact from "./abis/SampleERC20.json";
@@ -48,13 +51,14 @@ const BOND = 100n;
 const CASH = 10n;
 const GRACE_MS = 20000;
 const KUBECONFIG = "/home/ecs-user/alibaba-kube/alibaba-zeto.yaml";
-const REPORT_FILE = path.join(__dirname, "docs", "e2e-report-2026-10-17.md");
+// The v1.0.0 (V0) report docs/e2e-report-2026-10-17.md is kept as history; the V1 run writes its own file.
+const REPORT_FILE = path.join(__dirname, "docs", "e2e-report-v1.md");
 
 type Party = { lookup: string; c: PaladinClient; v: PaladinVerifier };
 type Tok = "DFABI" | "RD";
 type Pair = { bond: ZetoInstance; cash: ZetoInstance; bondErc20: string; cashErc20: string };
 type Snap = Map<Party, { bond: bigint; cash: bigint }>;
-type Leg = { utxo: string; call: string; encode: (outputs: string[]) => string; outputs: string[]; states: any[] };
+type Leg = SpendLeg & { lockRcpt: ITransactionReceipt };
 type Rcpt = ITransactionReceipt | undefined;
 
 const nodes = nodeConnections.map((n) => new PaladinClient(n.clientOptions));
@@ -66,7 +70,7 @@ const cashIssuer = party("cashIssuer@node1");
 const bondIssuer = party("bondIssuer@node1");
 const seller = party("bondCustodian@node1");
 const [inv2, inv3, inv4] = ["investor2@node2", "investor3@node3", "investor4@node4"].map(party);
-const bi = party("bi@node4");
+const bi = party("bi@node1");
 let factory: AtomFactory;
 let T: Pair;
 let life: Pair | undefined;
@@ -144,7 +148,7 @@ const erc20Balance = async (erc20: string, account: string) =>
   BigInt((await cashIssuer.c.ptx.call({ type: TransactionType.PUBLIC, abi: erc20Artifact.abi, function: "balanceOf", to: erc20, from: cashIssuer.lookup, data: { account } }))[0]);
 
 async function issueToken(issuer: Party) {
-  const zeto = await new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { tokenName: "Zeto_Anon" }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
+  const zeto = await new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { ...ZETO_V1 }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zeto)) throw new Error("Zeto deploy failed");
   const id = await issuer.c.ptx.sendTransaction({ type: TransactionType.PUBLIC, from: issuer.lookup, function: "", abi: erc20Artifact.abi, bytecode: erc20Artifact.bytecode, data: { initialOwner: await issuer.v.address() } });
   const erc20 = must((await issuer.c.pollForReceipt(id, DEFAULT_POLL_TIMEOUT))?.contractAddress, "ERC20 address");
@@ -196,29 +200,19 @@ async function expectUnchanged(id: string, feature: string, before: Snap) {
   happy(id, feature, "balances unchanged", fmt(got), fmt(got) === fmt(before));
 }
 
-// ---- Zeto lock / prepare / Atom (examples/swap's Zeto leg, both tokens) ----
+// ---- Zeto V1 lock lifecycle / Atom (examples/swap, both tokens) ----
 
-async function lock(zeto: ZetoInstance, owner: Party, amount: bigint) {
-  const r = ok(await zeto.using(owner.c).lock(owner.v, { amount: Number(amount), delegate: await owner.v.address() }).waitForReceipt(LONG_POLL_TIMEOUT), "lock");
-  let utxo: string | undefined;
-  for (const start = Date.now(); !utxo && Date.now() - start < LONG_POLL_TIMEOUT; await sleep(1000)) utxo = (await owner.c.ptx.getStateReceipt(r.id))?.confirmed?.find((s) => s.data["locked"])?.id;
-  return { rcpt: r, utxo: must(utxo, "locked state") };
+// A leg = createLock (recipient pinned) + prepareSpendLock. `amount` is what the lock pays out.
+async function legOf(zeto: ZetoInstance, owner: Party, to: Party, amount: bigint): Promise<Leg> {
+  const l = await createLock(zeto, owner, to, amount);
+  return { ...(await prepareSpend(zeto, owner, l.lockId)), lockRcpt: l.receipt };
 }
-async function prepare(zeto: ZetoInstance, owner: Party, utxo: string, to: Party, amount: bigint): Promise<Leg> {
-  const txId = await zeto.using(owner.c).prepareTransferLocked(owner.v, { lockedInputs: [utxo], delegate: owner.lookup, transfers: [{ to: to.v, amount: Number(amount), data: "0x" }] }).id;
-  const prepared = must(await owner.c.pollForPreparedTransaction(txId, LONG_POLL_TIMEOUT), "prepared transferLocked");
-  const abi = must(await owner.c.ptx.getStoredABI(prepared.transaction.abiReference ?? ""), "stored ABI").abi;
-  const d = prepared.transaction.data as any;
-  const encode = (outputs: string[]) => new ethers.Interface(abi).encodeFunctionData("transferLocked", [d.inputs, outputs, d.proof, d.data]);
-  return { utxo, call: encode(d.outputs), encode, outputs: d.outputs as string[], states: prepared.states.confirmed ?? [] };
-}
-const bondLeg = async (to: Party, from: Party = seller) => { const l = await lock(T.bond, from, BOND); return { ...(await prepare(T.bond, from, l.utxo, to, BOND)), lockRcpt: l.rcpt }; };
-const cashLeg = async (buyer: Party, to: Party = seller, amount: bigint = CASH) => { const l = await lock(T.cash, buyer, CASH); return { ...(await prepare(T.cash, buyer, l.utxo, to, amount)), lockRcpt: l.rcpt }; };
-const delegate = (zeto: ZetoInstance, p: Party, utxo: string, to: string) => zeto.using(p.c).delegateLock(p.v, { utxos: [utxo], delegate: to }).waitForReceipt(LONG_POLL_TIMEOUT);
-// Zeto has no unlock in Paladin: the owner (still the lock delegate) transferLocked's back to itself.
-const reclaim = (zeto: ZetoInstance, owner: Party, utxo: string, amount: bigint) =>
-  zeto.using(owner.c).transferLocked(owner.v, { lockedInputs: [utxo], delegate: owner.lookup, transfers: [{ to: owner.v, amount: Number(amount), data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT);
-const tampered = (leg: Leg) => leg.encode([(BigInt(leg.outputs[0]) + 1n).toString(), ...leg.outputs.slice(1)]);
+const bondLeg = (to: Party, from: Party = seller) => legOf(T.bond, from, to, BOND);
+const cashLeg = (buyer: Party, to: Party = seller, amount: bigint = CASH) => legOf(T.cash, buyer, to, amount);
+const delegate = (zeto: ZetoInstance, p: Party, lockId: string, to: string) => delegateLock(zeto, p, lockId, to);
+// V1 reclaim = cancelLock: only the current lock spender may; the pre-pinned cancel output returns the funds.
+const reclaim = (zeto: ZetoInstance, owner: Party, lockId: string) => cancelLock(zeto, owner, lockId);
+const tampered = tamperedCall;
 const createAtom = async (ops: [string, string][]) => must(await factory.create(cashIssuer.v, ops.map(([contractAddress, callData]) => ({ contractAddress, callData }))), "Atom");
 const stdAtom = (bond: Leg, cash: Leg) => createAtom([[T.bond.address, bond.call], [T.cash.address, cash.call]]);
 async function cancelAtom(atom: Atom, by: Party) {
@@ -226,8 +220,8 @@ async function cancelAtom(atom: Atom, by: Party) {
   return by.c.pollForReceipt(id, DEFAULT_POLL_TIMEOUT);
 }
 async function delegateBoth(bond: Leg, cash: Leg, buyer: Party, atom: Atom) {
-  ok(await delegate(T.bond, seller, bond.utxo, atom.address), "DFABI delegateLock");
-  ok(await delegate(T.cash, buyer, cash.utxo, atom.address), "RD delegateLock");
+  ok(await delegate(T.bond, seller, bond.lockId, atom.address), "DFABI delegateLock");
+  ok(await delegate(T.cash, buyer, cash.lockId, atom.address), "RD delegateLock");
 }
 async function swap(buyer: Party) {
   const bond = await bondLeg(buyer);
@@ -251,26 +245,27 @@ const groupOf = new Map<Party, string>();
 const tokenName = (t: Tok) => (t === "DFABI" ? "DFABI" : "RD");
 const zetoOf = (t: Tok) => (t === "DFABI" ? T.bond : T.cash);
 async function biSetup(fromBlock: number) {
-  for (const p of [seller, inv2]) {
+  // Option A: every BANK (node2-4) has a group {bank, bi@node1}. BI's own identities (node1) need none.
+  for (const p of [inv2]) {
     const g = must(await new PenteFactory(p.c, "pente").newPrivacyGroup({ name: `e2e-report-${p.lookup.replace("@", ".")}-${Date.now()}`, members: [p.v, bi.v], evmVersion: "shanghai", externalCallsEnabled: true }).waitForDeploy(LONG_POLL_TIMEOUT), "group");
     groupOf.set(p, g.group.id);
-    logger.log(`   group {${p.lookup}, bi@node4} = ${g.group.id}`);
+    logger.log(`   group {${p.lookup}, bi@node1} = ${g.group.id}`);
   }
   const addressBook = new Map<string, string>();
   const ownerBook = new Map<string, string>();
-  for (const p of [cashIssuer, bondIssuer, seller, inv2, inv3]) {
+  for (const p of [cashIssuer, bondIssuer, seller, inv2, inv3, inv4]) {
     addressBook.set((await bi.c.ptx.resolveVerifier(p.lookup, "ecdsa:secp256k1", "eth_address")).toLowerCase(), p.lookup);
     ownerBook.set((await bi.c.ptx.resolveVerifier(p.lookup, algorithmZetoSnarkBJJ("zeto"), IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X)).toLowerCase(), p.lookup);
   }
   ledger = new BiLedger(bi.c, new Map([[T.bond.address.toLowerCase(), "DFABI"], [T.cash.address.toLowerCase(), "RD"]]), addressBook, ownerBook, fromBlock);
 }
 async function report(p: Party, t: Tok, r: Rcpt, known: any[] = []): Promise<Report | undefined> {
-  if (!ledger) return undefined;
+  if (!ledger || p.c === bi.c) return undefined; // BI-originated (node1): BI already holds those states, no report
   const rep = await buildReport(p.c, p.lookup, tokenName(t), zetoOf(t).address, must(r?.transactionHash, "txHash"), known);
   await p.c.pgroup.sendMessage({ domain: "pente", group: must(groupOf.get(p), `${p.lookup} group`), topic: REPORT_TOPIC, data: rep });
   return rep;
 }
-// BI side: every output of the step's txs must be verified from node4 alone.
+// BI side: every output of the step's txs must be verified from node1 alone (bank reports + BI's own states).
 async function biVerify(id: string, step: string, txs: { t: Tok; r: Rcpt }[]) {
   const L = ledger;
   if (!L) return;
@@ -278,7 +273,7 @@ async function biVerify(id: string, step: string, txs: { t: Tok; r: Rcpt }[]) {
   for (const x of txs) want.push(...(await chainOutputs(bi.c, must(x.r?.transactionHash, "txHash"), zetoOf(x.t).address)).map(String));
   want = [...new Set(want)];
   const missing = () => want.filter((c) => !L.verified.has(c));
-  for (const start = Date.now(); missing().length && Date.now() - start < LONG_POLL_TIMEOUT; await sleep(2000)) await L.pollReports();
+  for (const start = Date.now(); missing().length && Date.now() - start < LONG_POLL_TIMEOUT; await sleep(2000)) await L.sync();
   happy(id, "Option A BI reporting", `${step}: every output verified, 0 mismatch`, `${want.length - missing().length}/${want.length} verified, mismatch=${L.mismatches.length}, duplicates merged=${L.duplicates}`, want.length > 0 && !missing().length && !L.mismatches.length, txs[0].r?.id);
 }
 
@@ -302,6 +297,7 @@ async function groupLife(withBi: boolean) {
   }
   const dTxs = [...dep.sellerDeposits.map((r) => ({ t: "DFABI" as Tok, r })), ...dep.buyerDeposits[0].map((r) => ({ t: "RD" as Tok, r }))];
   const dReports: Report[] = [];
+  // Deposits to bondCustodian (node1 = BI) need no report; the bank (investor2) reports its RD deposits.
   for (const x of dTxs) { const r = await report(x.t === "DFABI" ? seller : inv2, x.t, x.r); if (r) dReports.push(r); }
 
   // L3 / L4 mint by the token's deployer (unbacked by ERC20)
@@ -310,8 +306,8 @@ async function groupLife(withBi: boolean) {
   await expectBalances("L3", "RD mint by cashIssuer", "investor2 +7 RD", shift(s, [[inv2, 0n, 7n]]), mRd.id);
   const mBond = ok(await T.bond.using(bondIssuer.c).mint(bondIssuer.v, { mints: [{ to: seller.v, amount: 5, data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT), "DFABI mint");
   await expectBalances("L4", "DFABI mint by bondIssuer", "bondCustodian +5 DFABI", shift(s, [[seller, 5n, 0n], [inv2, 0n, 7n]]), mBond.id);
-  await report(inv2, "RD", mRd);
-  await report(seller, "DFABI", mBond);
+  await report(inv2, "RD", mRd); // BI-issued mint: BI holds the state already, the bank reports anyway (merged as a duplicate)
+  await report(seller, "DFABI", mBond); // no-op: bondCustodian is on node1 (BI)
   s = await snap(seller, inv2);
   // N-L1/N-L2 mint by someone who is not the token deployer: the on-chain minter check rejects it
   await negTx("L5", "RD mint by non-issuer (bondIssuer)", /PD012216.*reverted/, () => T.cash.using(bondIssuer.c).mint(bondIssuer.v, { mints: [{ to: inv2.v, amount: 1000, data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT));
@@ -349,18 +345,16 @@ async function groupLife(withBi: boolean) {
   await delegateBoth(bLeg, cLeg, inv2, atom);
   const exec = ok(await atom.using(inv2.c).execute(inv2.v), "Atom execute");
   await expectBalances("S1", "DvP Zeto-vs-Zeto: lock both, prepare, execute atomically", `bondCustodian -${BOND} DFABI +${CASH} RD, investor2 reverse`, shift(s, [[seller, -BOND, CASH], [inv2, BOND, -CASH]]), exec.id);
-  await report(seller, "DFABI", bLeg.lockRcpt);
+  // Seller = BI (node1): its lock and its legs are in BI's own state store, no report. The bank reports its cash lock and the spend.
   await report(inv2, "RD", cLeg.lockRcpt);
   await sleep(5000);
-  await report(seller, "RD", exec, cLeg.states);
-  await report(seller, "DFABI", exec, bLeg.states);
   await report(inv2, "RD", exec, cLeg.states);
   await biVerify("B3", "DvP locks + execute", [{ t: "DFABI", r: bLeg.lockRcpt }, { t: "RD", r: cLeg.lockRcpt }, { t: "DFABI", r: exec }, { t: "RD", r: exec }]);
 
   // P privacy
   for (const [id, name, address] of [["P1", "DFABI", T.bond.address], ["P2", "RD", T.cash.address]]) {
     const n = await Promise.all(nodes.map((c) => visibleStates(c, address)));
-    happy(id, `Privacy: ${name} states visible per node`, "node1+node2 >0, node3 = node4 = 0", `node1..4 = ${n.join("/")}`, n[0] > 0 && n[1] > 0 && n[2] === 0 && n[3] === 0);
+    happy(id, `Privacy: ${name} states visible per node`, "the two DvP parties node1+node2 >0, non-party banks node3 = node4 = 0", `node1..4 = ${n.join("/")}`, n[0] > 0 && n[1] > 0 && n[2] === 0 && n[3] === 0);
   }
   const foreign = await inv3.c.pstate.queryContractStates("zeto", T.cash.address, (await inv3.c.pstate.listSchemas("zeto"))[0].id, { limit: 10 } as any, "all");
   const bal3 = await T.cash.using(inv3.c).balanceOf(inv3.v, { account: seller.lookup });
@@ -394,9 +388,10 @@ async function groupLife(withBi: boolean) {
 async function groupBi(dReports: Report[], tBond: ITransactionReceipt) {
   const L = must(ledger, "ledger");
   logger.log("\n== bi: verifier unit checks + inv3 blind + rogue");
-  const base = must(dReports.find((r) => r.token === "DFABI" && r.outputs.some((o) => o.amount !== "0")), "DFABI deposit report");
+  const base = must(dReports.find((r) => r.token === "RD" && r.outputs.some((o) => o.amount !== "0")), "RD deposit report (bank report)");
   const o = base.outputs.find((x) => x.amount !== "0")!;
-  const otherKey = await bi.c.ptx.resolveVerifier(inv2.lookup, algorithmZetoSnarkBJJ("zeto"), IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X);
+  // base is investor2's RD deposit, so the "wrong" owner must be another identity's key.
+  const otherKey = await bi.c.ptx.resolveVerifier(seller.lookup, algorithmZetoSnarkBJJ("zeto"), IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X);
   const variant = async (change: Partial<typeof o>, top: Partial<Report> = {}) => (await L.check({ ...base, ...top, outputs: [{ ...o, ...change }] }))[0];
   const cases: [string, string, Partial<typeof o>, Partial<Report>, string, string | undefined][] = [
     ["U1", "BI: correct report", {}, {}, "verified", undefined],
@@ -414,20 +409,20 @@ async function groupBi(dReports: Report[], tBond: ITransactionReceipt) {
   await L.ingest({ ...base, contract: ethers.Wallet.createRandom().address });
   rec("U6", "BI: report for a contract BI does not supervise", "negative", "ignored: no verified, no mismatch added", `verified +${L.verified.size - v0}, mismatch +${L.mismatches.length - m0}`, L.verified.size === v0 && L.mismatches.length === m0);
 
-  // inv3 blind: no report messages, no states
-  const msgs = ((await inv3.c.pgroup.queryMessages({ limit: 100, eq: [{ field: "topic", value: REPORT_TOPIC }] } as any)) ?? []).length;
-  happy("B4", "Privacy: investor3@node3 holds no BI reports", "0 report messages", `reports=${msgs}`, msgs === 0);
+  // inv3 blind: no report messages of this run's groups (node3 keeps its own reports from earlier runs, e.g. spike-zeto-bi.ts)
+  let msgs = 0;
+  for (const g of groupOf.values()) msgs += ((await inv3.c.pgroup.queryMessages({ limit: 100, eq: [{ field: "topic", value: REPORT_TOPIC }, { field: "group", value: g }] } as any)) ?? []).length;
+  happy("B4", "Privacy: investor3@node3 holds no BI reports of this run", "0 report messages", `reports=${msgs}`, msgs === 0);
 
   // whole-chain reconciliation, then a rogue (unreported) transfer
-  await L.scanChain();
+  await L.sync();
   const gap = L.unreported(0);
   happy("B5", "Option A BI reporting", "BI chain scan: every output on the supervised tokens is verified", `chain=${L.chain.size} verified=${L.verified.size} unreported=${gap.length}`, L.chain.size > 0 && gap.length === 0);
-  const rogue = ok(await transferOf(inv2, T.cash, seller, 1), "rogue RD transfer");
+  const rogue = ok(await transferOf(inv2, T.cash, inv3, 1), "rogue RD transfer investor2 -> investor3 (bank-to-bank, never reported)");
   const rogueOut = new Set((await chainOutputs(bi.c, must(rogue.transactionHash, "rogue hash"), T.cash.address)).map(String));
   let flagged: ReturnType<BiLedger["unreported"]> = [];
   for (const start = Date.now(); flagged.length < rogueOut.size && Date.now() - start < LONG_POLL_TIMEOUT; await sleep(2000)) {
-    await L.pollReports();
-    await L.scanChain();
+    await L.sync();
     flagged = L.unreported(GRACE_MS);
   }
   const same = flagged.map((f) => f.commitment).sort().join(",") === [...rogueOut].sort().join(",");
@@ -441,7 +436,7 @@ async function groupReg() {
   const stealth = (record: unknown): { valid: boolean; errors: string[]; hash: string; args?: any } =>
     JSON.parse(execFileSync("node", [path.join(__dirname, "src", "stealth-check.mjs")], { input: JSON.stringify(record) }).toString());
   const strip = ({ _note, ...rest }: any) => rest;
-  const tok = (zeto: ZetoInstance) => ({ address: zeto.address, tokenName: "Zeto_Anon" as const });
+  const tok = (zeto: ZetoInstance) => ({ address: zeto.address, tokenName: ZETO_V1.tokenName });
   const rdTerms = strip(readJson(path.join(__dirname, "docs", "samples", "rd-terms.sample.json")));
   const dfTerms = strip(readJson(path.join(__dirname, "docs", "samples", "dfabi-terms.sample.json")));
   const P = life ?? { bond: T.bond, cash: T.cash };
@@ -536,11 +531,11 @@ async function groupDvp() {
   const bond = await bondLeg(inv2);
   const cash = await cashLeg(inv2);
   const atom = await stdAtom(bond, cash);
-  ok(await delegate(T.bond, seller, bond.utxo, atom.address), "DFABI delegateLock");
+  ok(await delegate(T.bond, seller, bond.lockId, atom.address), "DFABI delegateLock");
   const locked = await snap(seller, inv2);
-  await negTx("D1", "DvP execute with the cash leg not delegated to the Atom", /PD012216.*NotLockDelegate\(/, () => atom.using(inv2.c).execute(inv2.v));
+  await negTx("D1", "DvP execute with the cash leg not delegated to the Atom", /PD012216.*LockUnauthorized\(/, () => atom.using(inv2.c).execute(inv2.v));
   await expectUnchanged("D2", "DvP failed execute moved nothing", locked);
-  ok(await delegate(T.cash, inv2, cash.utxo, atom.address), "RD delegateLock");
+  ok(await delegate(T.cash, inv2, cash.lockId, atom.address), "RD delegateLock");
   const exec = await atom.using(inv2.c).execute(inv2.v);
   await expectBalances("D3", "DvP same Atom executes once the missing leg is delegated", `bondCustodian -${BOND}/+${CASH}`, shift(s0, [[seller, -BOND, CASH], [inv2, BOND, -CASH]]), exec?.id);
   await negTx("D4", "DvP replay: executed Atom executes again", /PD012216.*AtomNotPending\(\)/, () => atom.using(inv2.c).execute(inv2.v));
@@ -550,78 +545,90 @@ async function groupDvp() {
   const bad = await createAtom([[T.cash.address, b2.call], [T.bond.address, c2.call]]);
   await delegateBoth(b2, c2, inv2, bad);
   const lk = await snap(seller, inv2);
-  await negTx("D7", "Atom with mismatched legs (each call aimed at the other token's contract)", /PD012216.*UTXONotMinted\(/, () => bad.using(inv2.c).execute(inv2.v));
+  await negTx("D7", "Atom with mismatched legs (each call aimed at the other token's contract)", /PD012216.*(LockNotActive|LockUnauthorized)\(/, () => bad.using(inv2.c).execute(inv2.v));
   await expectUnchanged("D8", "mismatched-leg execute moved nothing", lk);
   // D9 finding: the Atom does not bind the commercial terms; a short-paid cash leg settles
   const s1 = await snap(seller, inv2);
   const b3 = await bondLeg(inv2);
-  const c3 = await cashLeg(inv2, seller, 1n);
+  const c3 = await cashLeg(inv2, seller, 1n); // V1: the amount is pinned by createLock, so the buyer locks 1 RD up front
   const a3 = await stdAtom(b3, c3);
   await delegateBoth(b3, c3, inv2, a3);
   const e3 = await a3.using(inv2.c).execute(inv2.v);
-  rec("D9", "FINDING: Atom does not bind amounts/recipients; cash leg of 1 instead of 10 still settles", "finding", "execute succeeds (terms must be checked off-chain before delegateLock)", e3?.success === true ? "settled with 1 RD for 100 DFABI" : `failed: ${e3?.failureMessage}`, e3?.success === true, e3?.id);
+  rec("D9", "FINDING: Atom does not bind amounts/recipients; cash leg of 1 instead of 10 still settles", "finding", "execute succeeds (terms must be checked off-chain before delegateLock; V1 pins them in the lock, the Atom still does not compare them)", e3?.success === true ? "settled with 1 RD for 100 DFABI" : `failed: ${e3?.failureMessage}`, e3?.success === true, e3?.id);
   await expectBalances("D10", "DvP short-paid swap moved exactly the encoded legs", "bondCustodian -100 DFABI +1 RD", shift(s1, [[seller, -BOND, 1n], [inv2, BOND, -1n]]), e3?.id);
-  // Double spend last: the failed-assemble txs are the prime suspect for the sequencer stall seen in runs 1-2
-  // D5 double spend: the locked UTXO the executed Atom already spent
-  await negTx("D5", "Double spend: re-prepare transferLocked of an already-spent locked UTXO", /PD210134.*Wanted: 1, Found: 0/, () => T.bond.using(seller.c).prepareTransferLocked(seller.v, { lockedInputs: [bond.utxo], delegate: seller.lookup, transfers: [{ to: inv2.v, amount: Number(BOND), data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT));
-  await negTx("D6", "Double spend: reclaim (transferLocked to self) of a spent locked UTXO", /PD210134.*Wanted: 1, Found: 0/, () => reclaim(T.bond, seller, bond.utxo, BOND));
+  // Double spend last: failed-assemble txs are the prime suspect for the sequencer stall seen in runs 1-2 (v1.0.0)
+  // D5/D6: the lock the executed Atom already spent. V1 loads the lock-info state by lockId (spent with the lock).
+  await negTx("D5", "Double spend: re-prepare spendLock of an already-spent lock", /PD210149/, () => T.bond.using(seller.c).prepareSpendLock(seller.v, { lockId: bond.lockId, from: seller.lookup, data: "0x" }).waitForReceipt(LONG_POLL_TIMEOUT));
+  await negTx("D6", "Double spend: cancelLock of an already-spent lock", /PD210149/, () => reclaim(T.bond, seller, bond.lockId));
 }
 
 async function groupNeg() {
-  logger.log("\n== neg: tampered legs, third party, reclaim, over-lock, locked-state transfer, foreign UTXO");
+  logger.log("\n== neg: tampered legs, third party, cancelLock, over-lock, locked-state transfer, foreign lock");
   await freshTokens([inv2]);
   const s0 = await snap(seller, inv2);
-  // N1 tampered output = wrong amount / counterparty bound by the proof
+  // N1 tampered output: V1 checks keccak(lockedInputs, lockedOutputs, outputs, data) against the spendCommitment
+  // pinned at createLock before the proof, so the revert is InvalidUnlockHash (V0: "Invalid proof").
   for (const side of ["bond", "cash"] as const) {
     const bond = await bondLeg(inv2);
     const cash = await cashLeg(inv2);
     const atom = await createAtom([[T.bond.address, side === "bond" ? tampered(bond) : bond.call], [T.cash.address, side === "cash" ? tampered(cash) : cash.call]]);
     await delegateBoth(bond, cash, inv2, atom);
     const locked = await snap(seller, inv2);
-    await negTx(`N${side === "bond" ? 1 : 2}`, `DvP execute with a tampered ${side} output (amount/recipient changed)`, /PD012216.*Invalid proof/, () => atom.using(inv2.c).execute(inv2.v));
+    await negTx(`N${side === "bond" ? 1 : 2}`, `DvP execute with a tampered ${side} output (amount/recipient changed)`, /PD012216.*(InvalidUnlockHash|Invalid proof)/, () => atom.using(inv2.c).execute(inv2.v));
     await expectUnchanged(`N${side === "bond" ? 1 : 2}b`, `tampered ${side} execute moved nothing`, locked);
   }
-  // N3 third party delegates someone else's lock
+  // N3 third party delegates someone else's lock (only the current spender may)
   const s1 = await snap(seller, inv2);
-  const bUtxo = (await lock(T.bond, seller, BOND)).utxo;
-  const cUtxo = (await lock(T.cash, inv2, CASH)).utxo;
-  await negTx("N3", "investor3 delegates bondCustodian's locked DFABI (wrong counterparty)", /PD012216.*NotLockDelegate\(/, async () => delegate(T.bond, inv3, bUtxo, await inv3.v.address()));
-  await negTx("N4", "investor3 delegates investor2's locked RD", /PD012216.*NotLockDelegate\(/, async () => delegate(T.cash, inv3, cUtxo, await inv3.v.address()));
-  // N5 foreign UTXO: investor3 tries to spend bondCustodian's locked UTXO (not in its state store)
-  await negTx("N5", "Privacy: investor3 transferLocked on bondCustodian's locked UTXO", /PD210134.*Wanted: 1, Found: 0/, () => T.bond.using(inv3.c).transferLocked(inv3.v, { lockedInputs: [bUtxo], delegate: inv3.lookup, transfers: [{ to: inv3.v, amount: Number(BOND), data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT));
+  const bLock = await createLock(T.bond, seller, inv2, BOND);
+  const cLock = await createLock(T.cash, inv2, seller, CASH);
+  await negTx("N3", "investor3 delegates bondCustodian's DFABI lock (not the spender)", /PD012216.*LockUnauthorized\(/, async () => delegate(T.bond, inv3, bLock.lockId, await inv3.v.address()));
+  await negTx("N4", "investor3 delegates investor2's RD lock (not the spender)", /PD012216.*LockUnauthorized\(/, async () => delegate(T.cash, inv3, cLock.lockId, await inv3.v.address()));
+  // N5 foreign lock: investor3 tries to cancel bondCustodian's lock (lock-info is not in its state store)
+  await negTx("N5", "Privacy: investor3 cancelLock on bondCustodian's lock", /PD210149/, () => reclaim(T.bond, inv3, bLock.lockId));
   // N6 locked funds cannot be transferred: ask for more than balance - locked
   const now = await snap(seller, inv2);
   const sb = must(now.get(seller), "seller").bond;
-  const sch = must((await seller.c.pstate.listSchemas("zeto")).find((x: any) => /ZetoCoin/.test(x.signature ?? "")), "ZetoCoin schema");
-  const avail = await seller.c.pstate.queryContractStates("zeto", T.bond.address, sch.id, { limit: 100 } as any, "available");
-  logger.log(`   N6 diagnostics: balanceOf=${sb}; available states: ${avail.map((x: any) => `${x.data.amount}${x.data.locked ? "L" : ""}`).join(",")}`);
+  const held = await heldStates(seller.c, T.bond.address);
+  logger.log(`   N6 diagnostics: balanceOf=${sb}; unspent states: ${held.map((x) => `${x.data.amount}${x.data.locked ? "L" : ""}`).join(",")}`);
   await negTx("N6", "Transfer of a locked state: amount above balance excluding the lock", new RegExp(`PD210033.*available=${sb}\\)`), () => transferOf(seller, T.bond, inv2, Number(sb) + 1));
-  // N7 transferLocked with a UTXO that is not locked
-  const coinSchema = must((await seller.c.pstate.listSchemas("zeto")).find((x: any) => /ZetoCoin/.test(x.signature ?? "")), "ZetoCoin schema");
-  const plain = (await seller.c.pstate.queryContractStates("zeto", T.bond.address, coinSchema.id, { limit: 50 } as any, "available")).find((x: any) => !x.data.locked);
-  await negTx("N7", "transferLocked of an ordinary (not locked) UTXO", /PD210128.*not locked/, () => T.bond.using(seller.c).transferLocked(seller.v, { lockedInputs: [must(plain, "plain utxo").id], delegate: seller.lookup, transfers: [{ to: seller.v, amount: 1, data: "0x" }] }).waitForReceipt(LONG_POLL_TIMEOUT));
+  // N7 spendLock on a lock id that does not exist
+  await negTx("N7", "prepareSpendLock of a lock id that was never created", /PD210149/, () => T.bond.using(seller.c).prepareSpendLock(seller.v, { lockId: "0x" + "ab".repeat(32), from: seller.lookup, data: "0x" }).waitForReceipt(LONG_POLL_TIMEOUT));
   // N8 over-lock
-  await negTx("N8", "Lock more than the balance", /PD210033.*Insufficient funds/, async () => T.bond.using(seller.c).lock(seller.v, { amount: 10_000_000, delegate: await seller.v.address() }).waitForReceipt(LONG_POLL_TIMEOUT));
-  // N9 happy: the owners reclaim their still-delegated locks (transferLocked to self)
-  const r1 = ok(await reclaim(T.bond, seller, bUtxo, BOND), "reclaim DFABI");
-  const r2 = ok(await reclaim(T.cash, inv2, cUtxo, CASH), "reclaim RD");
-  await expectBalances("N9", "Reclaim of a lock never delegated to an Atom (transferLocked to self)", "both back to the pre-lock balances", s1, `${r1.id} ${r2.id}`);
+  await negTx("N8", "Lock more than the balance", /PD210033.*Insufficient funds/, () => T.bond.using(seller.c).createLock(seller.v, { from: seller.lookup, recipients: [{ to: inv2.v, amount: 10_000_000, data: "0x" }], unlockData: "0x", data: "0x" }).waitForReceipt(LONG_POLL_TIMEOUT));
+  // N9 happy: the owners reclaim their still-owned locks (cancelLock)
+  const r1 = ok(await reclaim(T.bond, seller, bLock.lockId), "cancelLock DFABI");
+  const r2 = ok(await reclaim(T.cash, inv2, cLock.lockId), "cancelLock RD");
+  await expectBalances("N9", "cancelLock of a lock never delegated to an Atom", "both back to the pre-lock balances", s1, `${r1.id} ${r2.id}`);
   void s0;
 }
 
 async function groupF1b() {
-  logger.log("\n== f1b: abort after prepareTransferLocked");
+  logger.log("\n== f1b: cancelLock after prepareSpendLock (V0 finding \"cannot reclaim after prepareTransferLocked\", PD210134, re-check)");
   await freshTokens([inv2]);
   const s0 = await snap(seller, inv2);
   const bond = await bondLeg(inv2);
   const cash = await cashLeg(inv2);
-  await negTx("F1", "Seller reclaims DFABI after transferLocked was prepared", /PD012616.*PD210134.*Wanted: 1, Found: 0/, () => reclaim(T.bond, seller, bond.utxo, BOND));
-  await negTx("F2", "Buyer reclaims RD after transferLocked was prepared", /PD012616.*PD210134.*Wanted: 1, Found: 0/, () => reclaim(T.cash, inv2, cash.utxo, CASH));
-  const relockOnce = async (zeto: ZetoInstance, p: Party, amount: bigint) => (await lock(zeto, p, amount)).rcpt;
-  const r3 = ok(await relockOnce(T.bond, seller, BOND), "next DFABI lock");
-  const r4 = ok(await relockOnce(T.cash, inv2, CASH), "next RD lock");
-  await expectBalances("F3", "Other funds are unaffected: the next locks still go through", "only the 4 locks are held back", shift(s0, [[seller, -2n * BOND, 0n], [inv2, 0n, -2n * CASH]]), `${r3.id} ${r4.id}`);
-  void s0;
+  // V0 failed because transferLocked read its inputs as AVAILABLE states. V1 spendLock/cancelLock read the locked
+  // coins by id (states.go:234 getCoinStatesByID, any confirm/spend status). Not known from source whether the
+  // sequencer still reserves them for the prepared tx, so the outcome is RECORDED, not asserted.
+  const outcome = async (id: string, name: string, zeto: ZetoInstance, p: Party, lockId: string) => {
+    let why: string | undefined;
+    let tx = "-";
+    try {
+      const r = await reclaim(zeto, p, lockId);
+      tx = r?.id ?? "-";
+      if (r?.success !== true) why = r?.failureMessage ?? "no receipt";
+    } catch (e) { why = msgOf(e); }
+    rec(id, `${name}: cancelLock after prepareSpendLock`, "finding", "outcome recorded (V0: failed with PD210134)", why === undefined ? "cancelLock SUCCEEDED: V0 finding does not apply on V1" : `cancelLock failed: ${why}`, true, tx);
+    return why === undefined;
+  };
+  const [bondBack, cashBack] = [await outcome("F1", "Seller reclaims DFABI", T.bond, seller, bond.lockId), await outcome("F2", "Buyer reclaims RD", T.cash, inv2, cash.lockId)];
+  const want = shift(s0, [[seller, bondBack ? 0n : -BOND, 0n], [inv2, 0n, cashBack ? 0n : -CASH]]);
+  await expectBalances("F3", "Balances match the recorded outcome (a failed cancelLock leaves the lock held back)", "balances consistent with outcome", want);
+  const relockOnce = async (zeto: ZetoInstance, p: Party, to: Party, amount: bigint) => (await createLock(zeto, p, to, amount)).receipt;
+  const r3 = ok(await relockOnce(T.bond, seller, inv2, BOND), "next DFABI lock");
+  const r4 = ok(await relockOnce(T.cash, inv2, seller, CASH), "next RD lock");
+  await expectBalances("F4", "Other funds are unaffected: the next locks still go through", "the 2 new locks are held back too", shift(want, [[seller, -BOND, 0n], [inv2, 0n, -CASH]]), `${r3.id} ${r4.id}`);
 }
 
 async function groupF2() {
@@ -635,17 +642,18 @@ async function groupF2() {
   const c = await cancelAtom(atom, inv4);
   rec("X1", "FINDING: Atom.cancel() has no access control; a third party (investor4) cancels a pending Atom", "finding", "cancel by non-participant succeeds", c?.success === true ? "cancel succeeded" : `cancel failed: ${c?.failureMessage}`, c?.success === true, c?.id);
   await negTx("X2", "Cancelled Atom executes", /PD012216.*AtomNotPending\(\)/, () => atom.using(inv2.c).execute(inv2.v));
-  await negTx("X3", "Seller reclaims DFABI delegated to the cancelled Atom", /PD012616.*PD210134.*Wanted: 1, Found: 0/, () => reclaim(T.bond, seller, bond.utxo, BOND));
-  await negTx("X4", "Buyer reclaims RD delegated to the cancelled Atom", /PD012616.*PD210134.*Wanted: 1, Found: 0/, () => reclaim(T.cash, inv2, cash.utxo, CASH));
+  // V1: the Atom is now the lock spender, and cancelLock is spender-only, so the owner cannot get the funds back.
+  await negTx("X3", "Seller cancelLock on the DFABI lock delegated to the cancelled Atom", /PD012216.*LockUnauthorized\(|PD012616/, () => reclaim(T.bond, seller, bond.lockId));
+  await negTx("X4", "Buyer cancelLock on the RD lock delegated to the cancelled Atom", /PD012216.*LockUnauthorized\(|PD012616/, () => reclaim(T.cash, inv2, cash.lockId));
   await expectUnchanged("X5", "FINDING data: both legs stay locked (balances reduced by the locks)", locked);
 }
 
 function groupKyc() {
-  logger.log("\n== kyc: smoke-zeto.ts on the live Zeto_AnonNullifierKyc tokens");
+  logger.log("\n== kyc: smoke-zeto.ts on the bootstrap tokens (V1 Zeto_Anon; the V0 KYC tokens are retired)");
   const r = spawnSync("npx", ["ts-node", "smoke-zeto.ts"], { cwd: __dirname, timeout: 15 * 60 * 1000, encoding: "utf8" });
   const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   const pass = r.status === 0 && /Zeto smoke: PASS/.test(out);
-  happy("K1", "KYC baseline: RD + DFABI private transfer + withdraw on Zeto_AnonNullifierKyc", "smoke-zeto.ts exits 0 and prints 'Zeto smoke: PASS'", pass ? "Zeto smoke: PASS" : out.split("\n").slice(-3).join(" "), pass);
+  happy("K1", "Bootstrap baseline: RD + DFABI private transfer + withdraw on the V1 Zeto_Anon bootstrap tokens", "smoke-zeto.ts exits 0 and prints 'Zeto smoke: PASS'", pass ? "Zeto smoke: PASS" : out.split("\n").slice(-3).join(" "), pass);
   // A failed smoke while a pod restarted is the cluster's fault, not the feature's: mark it BLOCKED.
   let restarted = false;
   try { restarted = podState() !== podBaseline; } catch { /* pod check unavailable */ }
@@ -662,9 +670,9 @@ function writeReport(file: string) {
   const fails = rows.filter((r) => r.status === "FAIL");
   const esc = (s: string) => s.replace(/\|/g, "\\|");
   const lines = [
-    "# Zeto end-to-end report, 2026-10-17",
+    "# Zeto end-to-end report, Zeto V1 (Paladin main + PR #1189)",
     "",
-    "Live Paladin v1.0.0 cluster (ACK), Zeto_Anon, Zeto-vs-Zeto only. Generated by `spike-zeto-e2e.ts`.",
+    "Live Paladin cluster (ACK), Paladin main 559567e38 + PR #1189 merge 82fbd49ce, Zeto v0.5.1 (V1 axis), Zeto_Anon, Zeto-vs-Zeto only. node1 = BI. Generated by `spike-zeto-e2e.ts`.",
     "",
     `Totals: happy ${h.pass}/${h.total}, negative ${n.pass}/${n.total}, findings ${f.pass}/${f.total} recorded as documented, FAIL ${fails.length}, BLOCKED ${blocked.length}.`,
     "",
@@ -682,13 +690,13 @@ function writeReport(file: string) {
     ...rows.filter((r) => r.kind === "finding").map((r) => `- ${r.id} ${r.feature}: ${r.actual}`),
     "",
     "## Skipped",
-    "- BI offline (node4 restart, then reports queue and BI verifies on return): SKIPPED - needs user approval for node4 restart.",
+    "- BI offline (node1 restart, then reports queue and BI verifies on return): SKIPPED - needs user approval for the node1 restart; see spike-zeto-bi-offline.ts.",
     "",
     "## Not implemented / not exercised",
-    "- Burn: Paladin v1.0.0's Zeto SDK has no burn; redeem is `withdraw` (ERC20 release), covered by W1/W2.",
-    "- Unlock: no Zeto unlock call; reclaim is `transferLocked` to self (covered), and impossible after prepareTransferLocked or a delegation to a cancelled Atom.",
-    "- `*_transferLocked` circuits for Zeto_AnonNullifierKyc are missing in v1.0.0: DvP is Zeto_Anon only.",
-    "- A PUBLIC tx straight to a Zeto contract is never sent (v1.0.0 poison-pill, zeto.go:435).",
+    "- Burn: the Zeto SDK has no burn; redeem is `withdraw` (ERC20 release), covered by W1/W2.",
+    "- Unlock: V1 reclaim is `cancelLock` (spender-only, covered by F1a/N9); impossible after a delegation to a cancelled Atom (X3/X4). F1-F3 record whether it works after prepareSpendLock.",
+    "- V1 DvP is exercised on Zeto_Anon only (KYC tokens: V0 / Paladin v1.0.0 had no transferLocked circuit; V1 KYC lock circuits are not tested here).",
+    "- The only PUBLIC txs to a Zeto contract are setERC20 (phase 0) and delegateLock (V1 hand-over to the Atom); the v1.0.0 poison pill is fixed on main.",
     "- A Zeto deposit without ERC20 allowance (base-ledger revert of a domain tx) is not tested.",
   ];
   fs.writeFileSync(file, lines.join("\n") + "\n");

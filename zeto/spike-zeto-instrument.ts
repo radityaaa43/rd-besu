@@ -4,8 +4,8 @@
  * out/zeto-contract-data.json, has the stealth validator check them, deploys the shared
  * InstrumentRegistry through a Paladin PUBLIC tx from bondIssuer@node1, registers both (RD by
  * cashIssuer, DFABI by bondIssuer), reads them back with ptx.call and matches the hash.
- * The registry is not a Zeto contract, so a PUBLIC tx to it cannot hit the v1.0.0 resume
- * poison-pill (README "Poison-pill bug"); every receipt is still awaited. The registry artifact
+ * The registry is not a Zeto contract, so a PUBLIC tx to it never hit the Paladin v1.0.0 resume
+ * poison-pill (README, V0 / Paladin v1.0.0; fixed upstream on main); every receipt is still awaited. The registry artifact
  * is the stealth track's (abis/InstrumentRegistry.json, from stealth-address 8a89bc3).
  *
  * SAFE BY DEFAULT: dry-run unless --execute. The dry run needs no cluster access.

@@ -1,7 +1,8 @@
 // Zeto flow helpers for the Lensa Privasi app, parameterised (no module globals). Same calls as
-// spike-zeto-e2e.ts (lock/prepare/delegate/Atom/report), plus private mint.
-// Never sends a PUBLIC tx to a Zeto contract: there is deliberately no issueToken/seed here,
-// because both need setERC20 (the v1.0.0 poison pill, README). Issuance is private `mint`.
+// spike-zeto-e2e.ts (createLock/prepareSpendLock/delegateLockV1/Atom/report), plus private mint.
+// Zeto V1 (Paladin main + PR #1189, zeto-contracts v0.5.1). Issuance is private `mint` by the token owner
+// (BI, node1): no ERC20, no setERC20. (The v1.0.0 PUBLIC-tx poison pill is fixed upstream on main.)
+// The only PUBLIC txs to a Zeto contract are delegateLock (V1 lock hand-over to the Atom), by design.
 // Every wait is bounded by a real deadline: the SDK's pollForReceipt/pollForPreparedTransaction
 // loop `waitMs` iterations of ~100 ms, so a "120000" there is hours.
 import PaladinClient, {
@@ -13,10 +14,10 @@ import PaladinClient, {
   ZetoInstance,
   algorithmZetoSnarkBJJ,
 } from "@lfdecentralizedtrust/paladin-sdk";
-import { ethers } from "ethers";
 import { AtomFactory } from "./atom";
 import { REPORT_TOPIC, Report, buildReport } from "./bi-report";
 import { LONG_POLL_TIMEOUT, nodeConnections } from "./common";
+import { ZETO_V1, createLock, delegateLock, prepareSpend } from "./zeto-v1";
 
 export { PaladinClient, ZetoInstance, AtomFactory, nodeConnections, IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X, algorithmZetoSnarkBJJ };
 export { newAtomFactory } from "./atom";
@@ -24,7 +25,7 @@ export { BiLedger, chainIO } from "./bi-report";
 
 export type Party = { lookup: string; c: PaladinClient; v: PaladinVerifier };
 export type Settled = { receipt: ITransactionReceipt; publicAt: number; receiptAt: number; startedAt: number };
-export type Leg = { utxo: string; call: string; outputs: string[]; states: any[]; lockRcpt: ITransactionReceipt };
+export type Leg = { lockId: string; call: string; states: any[]; lockRcpt: ITransactionReceipt };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const must = <V>(v: V | undefined | null, what: string): V => {
@@ -65,9 +66,9 @@ export async function settle(c: PaladinClient, fut: { id: string | Promise<strin
   throw new Error(`${what}: tidak ada receipt dalam ${ms / 1000} detik (tx ${id})`);
 }
 
-// Fresh Zeto_Anon owned by `issuer`. Private from the start: no ERC20, no setERC20.
+// Fresh V1-axis Zeto_Anon owned by `issuer` (BI on node1). Private from the start: no ERC20, no setERC20.
 export async function deployToken(issuer: Party): Promise<ZetoInstance> {
-  const zeto = await within(new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { tokenName: "Zeto_Anon" }).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy Zeto");
+  const zeto = await within(new ZetoFactory(issuer.c, "zeto").newZeto(issuer.v, { ...ZETO_V1 }).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy Zeto");
   return must(zeto, "Zeto deploy");
 }
 
@@ -99,30 +100,17 @@ export async function newGroup(bank: Party, bi: Party, name: string): Promise<st
   return must(g, "privacy group").group.id;
 }
 
-// ---- DvP: Zeto lock + prepare per leg, one Atom to execute both (examples/swap) ----
-
-async function lock(zeto: ZetoInstance, owner: Party, amount: bigint) {
-  const delegate = await within(owner.v.address(), LONG_POLL_TIMEOUT, "Alamat delegate");
-  const { receipt } = await settle(owner.c, zeto.using(owner.c).lock(owner.v, { amount: Number(amount), delegate }), `lock ${owner.lookup}`);
-  let utxo: string | undefined;
-  for (const end = Date.now() + LONG_POLL_TIMEOUT; !utxo && Date.now() < end; await sleep(1000)) {
-    utxo = (await within(owner.c.ptx.getStateReceipt(receipt.id), Math.max(1, end - Date.now()), "Cek state lock"))?.confirmed?.find((s: any) => s.data["locked"])?.id;
-  }
-  return { receipt, utxo: must(utxo, "locked state") };
-}
+// ---- DvP: Zeto V1 lock lifecycle per leg, one Atom to execute both (examples/swap, PR #1189) ----
+// createLock (recipient pinned) -> prepareSpendLock -> delegateLockV1(Atom) -> Atom.execute -> spendLock.
 
 async function leg(zeto: ZetoInstance, owner: Party, to: Party, amount: bigint): Promise<Leg> {
-  const l = await lock(zeto, owner, amount);
-  const txId = await within(Promise.resolve(zeto.using(owner.c).prepareTransferLocked(owner.v, { lockedInputs: [l.utxo], delegate: owner.lookup, transfers: [{ to: to.v, amount: Number(amount), data: "0x" }] }).id), LONG_POLL_TIMEOUT, "prepareTransferLocked: kirim");
-  const prepared = must(await within(owner.c.pollForPreparedTransaction(txId, LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "prepareTransferLocked"), "prepared transferLocked");
-  const abi = must(await owner.c.ptx.getStoredABI(prepared.transaction.abiReference ?? ""), "stored ABI").abi;
-  const d = prepared.transaction.data as any;
-  const call = new ethers.Interface(abi).encodeFunctionData("transferLocked", [d.inputs, d.outputs, d.proof, d.data]);
-  return { utxo: l.utxo, call, outputs: d.outputs as string[], states: prepared.states.confirmed ?? [], lockRcpt: l.receipt };
+  const l = await createLock(zeto, owner, to, amount);
+  const p = await prepareSpend(zeto, owner, l.lockId);
+  return { lockId: l.lockId, call: p.call, states: p.states, lockRcpt: l.receipt };
 }
 
 // Seller delivers `units` of `bond`; buyer pays units * price of `cash`. The Atom is created by the
-// seller and executed by the buyer (public txs to the Atom contracts, never to a Zeto contract).
+// seller and executed by the buyer (public txs to the Atom contracts and delegateLock on the pools).
 export async function swap(f: AtomFactory, seller: Party, buyer: Party, bond: ZetoInstance, cash: ZetoInstance, units: number, price: number) {
   const bondLeg = await leg(bond, seller, buyer, BigInt(units));
   const cashLeg = await leg(cash, buyer, seller, BigInt(units) * BigInt(price));
@@ -131,7 +119,8 @@ export async function swap(f: AtomFactory, seller: Party, buyer: Party, bond: Ze
     { contractAddress: cash.address, callData: cashLeg.call },
   ]), LONG_POLL_TIMEOUT, "Atom create"), "Atom");
   for (const [z, p, l] of [[bond, seller, bondLeg], [cash, buyer, cashLeg]] as const) {
-    await settle(p.c, z.using(p.c).delegateLock(p.v, { utxos: [l.utxo], delegate: atom.address }), `delegateLock ${p.lookup}`);
+    const r = await within(delegateLock(z, p, l.lockId, atom.address), LONG_POLL_TIMEOUT, `delegateLock ${p.lookup}`);
+    if (r?.success !== true) throw new Error(`delegateLock ${p.lookup} gagal: ${r?.failureMessage ?? "tanpa receipt"}`);
   }
   const execAt = Date.now();
   const receipt = must(await within(atom.using(buyer.c).execute(buyer.v), LONG_POLL_TIMEOUT, "Atom execute"), "Atom receipt");
@@ -139,8 +128,8 @@ export async function swap(f: AtomFactory, seller: Party, buyer: Party, bond: Ze
   return { atom, exec: { receipt, publicAt: execAt, receiptAt: Date.now(), startedAt: execAt } as Settled, bond: bondLeg, cash: cashLeg };
 }
 
-// States a node holds on one Zeto contract (default: available ones); used for load capacity.
-export async function heldStates(c: PaladinClient, zetoAddress: string, status: "available" | "all" = "available", limit = 1000) {
+// States a node holds on one Zeto contract (default: confirmed = unspent; the "available" qualifier was removed in main); used for load capacity.
+export async function heldStates(c: PaladinClient, zetoAddress: string, status: "confirmed" | "all" = "confirmed", limit = 1000) {
   const schema = must((await c.pstate.listSchemas("zeto")).find((s: any) => /ZetoCoin/.test(s.signature ?? "")), "ZetoCoin schema");
   return (await c.pstate.queryContractStates("zeto", zetoAddress, schema.id, { limit } as any, status)) as { id: string; data: { amount: string; owner: string; locked?: boolean } }[];
 }

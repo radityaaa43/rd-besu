@@ -1,26 +1,42 @@
 # Zeto RD + DFABI exploration (Paladin on Besu)
 
 This is a standalone exploration of Paladin's `zeto` domain for RD (cash) and DFABI (bond). It
-runs on the Alibaba ACK Paladin v1.0.0 cluster (`paladin-node1..4`, namespace `paladin`). It is
+runs on the Alibaba ACK Paladin cluster (platform below) (`paladin-node1..4`, namespace `paladin`). It is
 not integrated with the Noto+Pente backend in `platform-rd-dfabi`.
+
+## Platform
+
+- Paladin: upstream `main` at 559567e38 merged with upstream PR #1189 "Zeto V1 support with multi-version support" (merge commit 82fbd49ce), worktree `/home/ecs-user/eksplorasi-paladin/build-v1/paladin` (branch `build-main-zeto-v1`). All platform facts below are read from there.
+- Zeto contracts v0.5.1, V1 axis: tokens are deployed with `tokenName: "Zeto_Anon_V1"` (the V1 implementation name in the live factory; `Zeto_Anon` is still v0.2.2), `domainConfigSchema: "v1"`, `zetoVariant: 1`, `factoryVersion: 1` (`ZETO_V1` in `src/zeto-v1.ts`, copied from `examples/swap/src/index.ts:136-143`). A pool left on the V0 axis reverts on its first proving call.
+- V0 retired (2026-10-21): the `zeto` PaladinDomain config now lists only `Zeto_Anon_V1`, so a V0 deploy (`Zeto_Anon`, `Zeto_AnonEnc`, `Zeto_AnonNullifier`, `Zeto_AnonNullifierKyc`) is refused with `PD210000`. The v0.2.2 contracts and old V0 tokens stay on chain (immutable) and are unused; the factory proxy is shared with V1 and must stay. Backup of the old config and rollback input: `out/domain-v0-removal-backup-20261021/` (re-apply `configJSON.live.json`, then restart the four pods one at a time, since the operator updates the ConfigMap without rolling the StatefulSets).
+- Prover: rapidsnark `main`, which is thread-safe. The earlier concurrent "Invalid proof" reverts (multi-token stress, V0 section below) were caused by the non-thread-safe rapidsnark v0.0.7 ThreadPool.
+- Topology: node1 = BI (`bi`, `cashIssuer`, `bondIssuer`, `bondCustodian` are all BI), node2-4 = banks (`investor2@node2`, `investor3@node3`, `investor4@node4`). node4 is no longer BI.
+- Everything written before this section about v1.0.0 (KYC tokens, `lock` / `prepareTransferLocked`, the poison pill, node4 as BI) is kept as history and is marked "V0 / Paladin v1.0.0".
+- Typecheck: the SDK's generated ABI JSONs (`sdk/typescript/src/domains/abis/`) only exist after the gradle build, which has not run. `npm run typecheck:v1` (`tsconfig.check-v1.json`) typechecks against the merged SDK sources; its only errors are the missing generated `./abis/*.json` imports. `npm run typecheck` uses `node_modules/@lfdecentralizedtrust/paladin-sdk`, which resolves to the old v1.0.0-era checkout until `npm install` is re-run against the new path in `package.json`.
+
 
 ## Setup
 
 1. Start the port-forwards to the four Paladin nodes on 127.0.0.1:31548, 31648, 31748 and 31848,
    as listed in `config.json`. The script that does this is `alibaba-kube/Paladin/scripts/port-forward-start.sh`.
 2. Run `npm install`. The SDK is resolved from the local Paladin source at
-   `/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript`.
+   `/home/ecs-user/eksplorasi-paladin/build-v1/paladin/sdk/typescript`.
 3. Run `npm run typecheck`.
 
 All three scripts are dry-run by default. Pass `--execute` to send transactions.
 
 | Script | What it does |
 |---|---|
-| `bootstrap-zeto.ts` | Phase 1. Deploys RD-Zeto and DFABI-Zeto. Both are `Zeto_AnonNullifierKyc` tokens backed by an ERC20, following Paladin's `examples/private-stablecoin`. Writes `out/zeto-contract-data.json`, which is gitignored. |
+| `bootstrap-zeto.ts` | Phase 1. Deploys RD-Zeto and DFABI-Zeto as Zeto V1 `Zeto_Anon` tokens backed by an ERC20 (V1 constructor params from `examples/swap`), both owned by BI on node1. Writes `out/zeto-contract-data.json`, gitignored. |
 | `smoke-zeto.ts` | Makes a 1-unit private transfer and a withdraw on each token. |
-| `spike-zeto-dvp-zz.ts` | Option A. Runs the full lifecycle with both tokens on Zeto_Anon and no Noto: issuance, private transfer, Zeto-vs-Zeto DvP and withdraw. See "Zeto-vs-Zeto DvP" below. |
-| `spike-bi-messaging.ts` | Option A step 1: tests the Pente privacy-group channel {bank, bi@node4}, including the case where BI's node is down (M1-M5). |
-| `spike-zeto-bi.ts` | Option A steps 3-4: runs the lifecycle with each bank reporting to BI, BI verifying against chain, and BI flagging a rogue unreported transfer. See "Option A: BI reporting". |
+| `spike-zeto-dvp-zz.ts` | Runs the full lifecycle with both tokens on V1 `Zeto_Anon` and no Noto: issuance, private transfer, Zeto-vs-Zeto DvP with the V1 lock lifecycle (`createLock`, `prepareSpendLock`, `delegateLockV1`, Atom) and withdraw. See "Zeto-vs-Zeto DvP". |
+| `spike-bi-messaging.ts` | Option A step 1: tests the Pente privacy-group channel {bank, bi@node1}, including the case where BI's node (node1) is down (M1-M5). |
+| `spike-zeto-bi.ts` | Option A: banks (node2-4) report to BI (`bi@node1`) over `{bank, bi@node1}` groups, BI verifies against the chain and its own state store, and flags a rogue unreported bank-to-bank transfer. See "Option A on the V1 topology". |
+| `spike-zeto-bi-offline.ts` | BI-offline test: node1 (BI) goes down, banks node2 <-> node3 keep settling, queued reports are verified when node1 returns. Deletes a pod only with `--delete-pod`. |
+| `spike-zeto-e2e.ts` | Happy and negative path per feature (groups via `--only=`); writes `docs/e2e-report-v1.md`. |
+| `spike-private-mint.ts` | BI privately `mint`s RD to a bank, the bank reports, BI verifies. |
+| `stress-zeto-tps.ts` | TPS stress of private RD transfers on a V1 token; BI mints, banks (node2-4) send. See "Stress". |
+| `spike-zeto-instrument.ts` | Instrument-data registry check (needs `out/zeto-contract-data.json`). |
 
 Run a script like this: `npx ts-node spike-zeto-dvp-zz.ts --execute`.
 
@@ -31,10 +47,11 @@ notary online). It is in git history before this commit.
 
 - `src/common.ts` is a minimal stand-in for Paladin's `examples/common`.
 - `src/atom.ts` and the Atom ABIs in `abis/` are copied from `examples/swap`.
+- `src/zeto-v1.ts` is the V1 lock lifecycle (`createLock`, `prepareSpend`, `delegateLock`, `cancelLock`, `tamperedCall`) shared by the scripts and `src/flows.ts`; `abis/ZetoV1Events.json` holds the V1 Zeto events (hand-written from zeto-contracts v0.5.1, because the Paladin repo only generates them at gradle build time).
 - `ops/backup-pld-node*-1792061433.yaml` holds the `pld` CRs as they were before the Zeto domain
   install. They are the rollback artifacts.
 
-## Zeto domain install (2026-10-15)
+## Zeto domain install (2026-10-15, V0 / Paladin v1.0.0)
 
 The cluster runs `zeto` alongside `noto` and `pente`. The steps were applied in this order, after
 a clean pre-check on all 4 nodes:
@@ -54,7 +71,7 @@ stay but are unused.
 The log line `PD210102: Not implemented. See state receipt for coin transfers` is known noise.
 The v1.0.0 Zeto domain has no domain receipt, so it is harmless.
 
-## DvP findings
+## DvP findings (V0 / Paladin v1.0.0)
 
 - KYC tokens cannot do DvP. Upstream (`domains/integration-test/zeto_fungible_test.go:264` at
   v1.0.0) supports lock and transferLocked only on `Zeto_Anon`, and the v1.0.0 image ships no KYC
@@ -68,7 +85,7 @@ The v1.0.0 Zeto domain has no domain receipt, so it is harmless.
   both locks are stuck permanently. To avoid that, create the Atom, delegate both legs and execute
   in one step.
 
-## Poison-pill bug (v1.0.0)
+## Poison-pill bug (V0 / Paladin v1.0.0, fixed upstream on main)
 
 A PUBLIC tx sent to a Zeto contract (in this repo, only `setERC20`) can crash the Paladin node
 that sent it. The pod then goes into CrashLoopBackOff. This was seen on `paladin-node1` on
@@ -99,24 +116,47 @@ Mitigation in `spike-zeto-dvp-zz.ts`: every token set is deployed and linked wit
 one up-front phase, and each call is awaited before any other tx. This is a mitigation, not a
 fix. It only makes the window smaller. Any app that calls `setERC20` on v1.0.0 has the same risk.
 
-## Zeto-vs-Zeto DvP (option A)
+**Status on Paladin main:** fixed upstream, the sequencer resume query now filters `type = private`.
+The up-front `setERC20` phase is therefore now optional. The scripts keep it and say so in a comment.
 
-`npx ts-node spike-zeto-dvp-zz.ts --execute` runs the whole lifecycle for both tokens on
-`Zeto_Anon`, with no Noto. Each step and the upstream code it follows:
+## Zeto-vs-Zeto DvP
 
-1. Issuance: deploy a Zeto_Anon token plus an ERC20, link them with `setERC20`, then do the
-   public mint, approve, and deposit into the private side. This is `examples/private-stablecoin`
-   at v1.0.0 without the KYC registration.
+`npx ts-node spike-zeto-dvp-zz.ts --execute` runs the whole lifecycle for both tokens on V1
+`Zeto_Anon`, with no Noto. BI (node1) owns the tokens and is the bond seller; the buyers are banks
+on node2-4. Each step and the upstream code it follows:
+
+1. Issuance: deploy a V1-axis `Zeto_Anon` (`ZETO_V1`) plus an ERC20, link them with `setERC20`,
+   then do the public mint, approve, and deposit into the private side
+   (`examples/private-stablecoin`, no KYC). Private `mint` by the token owner is the other path.
 2. A 1-unit private transfer of each token.
 3. DvP: S1 (happy path), P (privacy), N1-N4 (negative cases), F1a/F1b/F2 (aborts and a cancelled
-   Atom) and C (4 parallel swaps). Both legs are the Zeto leg
-   of `examples/swap` at v1.0.0: lock, then prepareTransferLocked, then a re-encoded
-   transferLocked inside the Atom, then delegateLock to the Atom, then execute. Upstream has no
-   Zeto-for-Zeto example; `pvp_test.go` has only `TestNotoForNoto`, `TestNotoForNotoWithHooks`
-   and `TestNotoForZeto`.
+   Atom) and C (4 parallel swaps). Both legs are the cash leg of `examples/swap` after PR #1189,
+   applied to both tokens. V1 call sequence per leg (`src/zeto-v1.ts`):
+   1. `createLock` by the owner, naming the spend recipient and amount (pinned now, not at spend time).
+   2. Read the `lockId` from the lock-info state in the `getStateReceipt` of that tx.
+   3. `prepareSpendLock` (a prepared, unsent tx), re-encode `spendLock(lockId, spendArgs, data)` for the Atom.
+   4. Create one Atom holding both legs' `spendLock` calls.
+   5. `delegateLockV1` on each pool, `newSpender = Atom` (public tx from the lock's creator).
+   6. `Atom.execute`, which calls `spendLock` on both pools atomically.
+   Reclaim is `cancelLock` (spender only). Upstream still has no Zeto-for-Zeto example.
 4. Withdraw to ERC20: RD is cashed out by the seller, and DFABI is redeemed by the buyer.
 
-Results on the ACK cluster (2026-10-16):
+**V1 vs V0, what changed for DvP.**
+
+- Recipient and amount are pinned at `createLock`; the Atom still does not compare them to the agreed terms (finding D9 stays).
+- A tampered output now reverts with `InvalidUnlockHash` (the pool compares keccak of the outputs to the
+  `spendCommitment` fixed at `createLock` before it verifies the proof); V0 reverted with `Invalid proof`.
+- `delegateLockV1` and `cancelLock` only work for the current spender. Once a lock is delegated to an Atom,
+  the owner cannot `cancelLock` it, so a third-party `Atom.cancel()` still strands both locks.
+- The V0 finding "a locked UTXO cannot be reclaimed once prepared (PD210134)" came from the V0
+  `transferLocked` handler reading its inputs as available states. The V1 handlers read locked coins by id
+  (`domains/zeto/internal/zeto/fungible/states.go:234`), so the mechanism is gone. Whether the sequencer still
+  holds the coins for a prepared tx is not known from source: the F1b scenario (`spike-zeto-dvp-zz.ts`) and group `f1b` (`spike-zeto-e2e.ts`) **record** the outcome on the next live run.
+  No V1 result exists yet; the V0 results below are history.
+
+### V0 / Paladin v1.0.0 results
+
+Results on the ACK cluster (2026-10-16, V0 / Paladin v1.0.0, KYC baseline and `lock` / `transferLocked`):
 
 - The DvP-only run passed all 30 checks.
 - The first full-lifecycle run stopped at 27/31 when node1 crashed (see "Poison-pill bug").
@@ -146,7 +186,33 @@ Findings, on both legs this time:
 | KYC (only registered identities can hold) | yes | no: anyone can receive |
 | Nullifiers (spent UTXOs unlinkable) | yes | no: spends are linkable on chain |
 
-## Option A: BI reporting
+## Option A on the V1 topology (BI on node1)
+
+BI moved from node4 to node1, the node that also hosts `cashIssuer`, `bondIssuer` and `bondCustodian`
+(all of them ARE BI). Banks are node2-4. Reporting is unchanged for banks and cheaper for BI:
+
+- Every bank has a Pente group `{bank, bi@node1}` and reports each tx it sends or receives (`zeto-report-v1`).
+- BI-originated transactions (issuance by cashIssuer/bondIssuer, BI's own DvP leg, bondCustodian transfers
+  and withdraws) need no report: BI's node1 already holds those states. `BiLedger.adoptOwnStates()`
+  (`src/bi-report.ts`) reads node1's state store, recomputes each commitment and, if it is an output on
+  chain, marks it verified with reporter `bi-own-state`. `scanChain()` calls it.
+- Bank-to-bank outputs (node2 <-> node3 ...) exist only on the banks' nodes. Without a bank report BI
+  cannot adopt them, so they are still flagged `unreported` after the grace period (scripts `spike-zeto-bi.ts` step R
+  and `spike-zeto-e2e.ts` B6 send a rogue investor2 -> investor3 transfer without a report).
+- Privacy checks: the two DvP parties see states of the swap; a non-party bank (node3 before it
+  receives anything, node4) holds no states and no report messages.
+- BI offline now means node1 down, which also stops the issuers: banks keep trading with the balances they
+  already hold, but no mint/deposit by BI and no BI legs (`spike-zeto-bi-offline.ts`, see its header).
+- V1 lock txs: `createLock` and `spendLock` are signed by the lock owner's own key, not a one-time key
+  (`RequiredSigner` in `handler_create_lock.go:493`, `handler_spend_lock.go:377`), so the base-ledger signer of a lock tx
+  does name the party. Plain `transfer`/`mint`/`deposit` still use the sequencer's one-time key. The BI attribution
+  code still goes through the spent inputs for all of them.
+- Event decoding uses the V1 ABI (`abis/ZetoV1Events.json`): `ZetoLockCreated`, `ZetoLockSpent`,
+  `ZetoLockCancelled` replace `UTXOsLocked`.
+
+The sections below are the **V0 / Paladin v1.0.0** results of the same design with BI on node4.
+
+## Option A: BI reporting (V0 / Paladin v1.0.0 results, BI on node4)
 
 Plan: `docs/plans/2026-10-16-option-a-bi-reporting.md`. Aim: BI (`bi@node4`) sees every Zeto tx
 in full (amount and parties). Other banks see nothing. Txs keep working when BI's node is down,
@@ -235,6 +301,14 @@ outputs), duplicates merged = 1.
 | Atomic DvP | yes, see `../stealth-address` DvP design | yes, through an Atom (36/36) | not possible on v1.0.0 |
 | Token-level KYC | custodian certificate | no | yes |
 | Official components only | own contracts on Besu (no Paladin) | yes: Paladin v1.0.0 Zeto, Pente and Atom, unpatched | yes |
+
+## Stress
+
+`npm run stress -- --execute` (`stress-zeto-tps.ts`) deploys a V1 `Zeto_Anon`, `cashIssuer@node1` (BI) privately
+`mint`s to the sender identities, and the banks send 1-unit transfers. `--sender-nodes` defaults to `2,3,4`
+(banks). All monitoring (pods, CPU, restarts, stop rules) is unchanged. Earlier numbers (about 18.5 TPS on 4
+nodes with 1 token; multi-token and batch broke) are **V0 / Paladin v1.0.0**; multi-token is expected to work
+on rapidsnark main and has not been re-measured.
 
 ## Instrument data (RD and DFABI)
 

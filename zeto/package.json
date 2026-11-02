@@ -10,7 +10,9 @@
     "dvp": "ts-node spike-zeto-dvp-zz.ts",
     "bi": "ts-node spike-zeto-bi.ts",
     "bi-offline": "ts-node spike-zeto-bi-offline.ts",
-    "e2e": "ts-node spike-zeto-e2e.ts"
+    "e2e": "ts-node spike-zeto-e2e.ts",
+    "stress": "flock /tmp/lensa-paladin.lock ts-node stress-zeto-tps.ts",
+    "typecheck:v1": "tsc -p tsconfig.check-v1.json"
   },
   "devDependencies": {
     "@types/circomlibjs": "^0.1.6",
@@ -19,7 +21,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/paladin/sdk/typescript",
+    "@lfdecentralizedtrust/paladin-sdk": "file:/home/ecs-user/eksplorasi-paladin/build-v1/paladin/sdk/typescript",
     "circomlibjs": "^0.1.7",
     "ethers": "6.13.4"
   }

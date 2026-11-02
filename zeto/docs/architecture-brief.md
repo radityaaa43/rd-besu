@@ -4,6 +4,20 @@ Dokumen arsitektur untuk eksplorasi RD (Rupiah Digital) dan DFABI di atas Paladi
 yang **sudah ada dan terbukti dari kode, tes, atau docs** yang ditulis di sini. Tanggal acuan: 2026-10-17.
 Status: eksplorasi mandiri, tidak terintegrasi dengan backend Noto+Pente.
 
+> **Pembaruan platform dan topologi.** Kode sekarang menargetkan Zeto V1 (Paladin main + PR #1189) dan BI di node1. Bagian "Platform" dan
+> bagian 10 di bawah adalah sumber kebenaran untuk keadaan sekarang. Bagian 1 sampai 9 ditulis untuk **V0 / Paladin v1.0.0 dengan BI di node4**; isinya
+> dipertahankan sebagai riwayat temuan dan hanya ditandai, tidak dihapus. Bila ada perbedaan, bagian 10 yang berlaku.
+>
+> **V0 dipensiunkan (2026-10-21).** Config domain `zeto` hanya memuat `Zeto_Anon_V1`; deploy token V0 ditolak (`PD210000`). Kontrak v0.2.2 dan
+> token V0 lama tetap di chain tetapi tidak dipakai. Lensa sudah di-bootstrap ulang ke token V1. Backup dan rollback: `out/domain-v0-removal-backup-20261021/`.
+
+## Platform
+
+- Paladin: `main` 559567e38 digabung PR #1189 "Zeto V1 support with multi-version support" (merge 82fbd49ce), worktree `/home/ecs-user/eksplorasi-paladin/build-v1/paladin` (branch `build-main-zeto-v1`).
+- Zeto contracts v0.5.1, sumbu V1: token dideploy dengan `tokenName: "Zeto_Anon_V1"` (nama implementasi V1 di factory cluster; `Zeto_Anon` masih v0.2.2), `domainConfigSchema: "v1"`, `zetoVariant: 1`, `factoryVersion: 1` (`ZETO_V1`, `src/zeto-v1.ts`; `P@main:examples/swap/src/index.ts:136-143`).
+- Prover: rapidsnark `main` (thread-safe). Akar masalah "Invalid proof" konkuren sebelumnya (stress multi-token) adalah ThreadPool rapidsnark v0.0.7 yang tidak thread-safe.
+- Topologi: node1 = BI (`bi`, `cashIssuer`, `bondIssuer`, `bondCustodian` semuanya BI), node2-4 = bank (`investor2`, `investor3`, `investor4`). Node4 bukan BI lagi.
+
 Notasi rujukan:
 
 - `kode kita` = path relatif terhadap `besu/zeto/` (mis. `src/bi-report.ts:41`).
@@ -13,13 +27,13 @@ Notasi rujukan:
 - Nama fungsi dan nomor baris Solidity berasal dari source tersebut. Bytecode yang berjalan di cluster dibangun dari artefak yang sama,
   tetapi tidak dibandingkan byte-per-byte.
 
-Daftar isi: 1 Ringkasan, 2 C4 Level 1 System Context, 3 C4 Level 2 Container, 4 C4 Level 3 Component,
+Daftar isi: 10 Zeto V1 dan topologi BI di node1 (keadaan sekarang), 1 Ringkasan, 2 C4 Level 1 System Context, 3 C4 Level 2 Container, 4 C4 Level 3 Component,
 5 C4 Level 4 Code (katalog layanan dan fungsi, logika per kontrak), 6 Dynamic view, 7 Model privasi,
 8 Keamanan, keputusan desain dan batasan, 9 Pengujian dan bukti.
 
 ---
 
-## 1. Ringkasan
+## 1. Ringkasan (V0 / Paladin v1.0.0, BI di node4)
 
 1. Track ini menjalankan RD (kas) dan DFABI (obligasi) sebagai token `Zeto_Anon` di Paladin v1.0.0 (Alibaba ACK, 4 node) di atas
    Besu. Hanya komponen resmi Paladin v1.0.0 yang dipakai, tanpa patch image dan tanpa custom circuit (`docs/plans/2026-10-16-option-a-bi-reporting.md`).
@@ -70,7 +84,7 @@ flowchart TB
   class CHAIN,ICMA,K8S ext
 ```
 
-### 2.1 Aktor dan penempatan node
+### 2.1 Aktor dan penempatan node (V0, BI di node4; topologi sekarang di bagian 10.1)
 
 Identitas ini dipakai konsisten oleh skrip (`bootstrap-zeto.ts:41-48`, `spike-zeto-dvp-zz.ts:46-49`, `spike-zeto-bi.ts`, `spike-zeto-bi-offline.ts`).
 
@@ -278,7 +292,7 @@ Konvensi tabel di bawah: `Proof` = struct `(uint256[2] pA, uint256[2][2] pB, uin
 `handler_mint.go:156`, `handler_deposit.go:225`, `handler_withdraw.go:247`), sedangkan `transfer` biasa dan `lock` tanpa `RequiredSigner`, sehingga memakai kunci sekali pakai Paladin
 (`handler_transfer.go:271-281`, `src/bi-report.ts:70-73`).
 
-#### S1. Onboarding / KYC
+#### S1. Onboarding / KYC (V0 / Paladin v1.0.0; token V1 tanpa KYC)
 
 | Kontrak | Fungsi | Pemanggil dan jalur | Langkah | Event | Revert |
 |---|---|---|---|---|---|
@@ -318,7 +332,7 @@ Pre-check saldo di aplikasi adalah mitigasinya. `Insufficient funds` (`PD210033`
 **Burn tidak ada** pada `Zeto_Anon`: `_burn` (`lib/zeto_base.sol:213-225`) hanya dipanggil oleh varian burnable (`lib/zeto_fungible_burn.sol:84`) yang tidak dipakai.
 Event `UTXOBurn` ada di ABI tetapi tidak dipancarkan oleh token kita. Penebusan = `withdraw` (W1, W2).
 
-#### S7. DvP: lock, prepare, approve (delegateLock), execute, cancel
+#### S7. DvP: lock, prepare, approve (delegateLock), execute, cancel (V0 / Paladin v1.0.0; V1 di bagian 10.2)
 
 | Kontrak | Fungsi | Pemanggil dan jalur | Langkah | Event | Revert |
 |---|---|---|---|---|---|
@@ -430,7 +444,7 @@ stateDiagram-v2
   end note
 ```
 
-#### 5.2.2 `Zeto_AnonNullifierKyc` (baseline, `Z@v0.2.2:zeto_anon_nullifier_kyc.sol`)
+#### 5.2.2 `Zeto_AnonNullifierKyc` (V0 / Paladin v1.0.0, baseline, `Z@v0.2.2:zeto_anon_nullifier_kyc.sol`)
 
 Dipakai hanya untuk token baseline KYC (`bootstrap-zeto.ts`, K1). DvP tidak dijalankan di sini.
 
@@ -574,7 +588,7 @@ sequenceDiagram
   BI->>Z: verifikasi Poseidon dan event chain
 ```
 
-### 6.4 DvP Zeto_Anon + Atom
+### 6.4 DvP Zeto_Anon + Atom (V0 / Paladin v1.0.0; V1 di bagian 10.2)
 
 ```mermaid
 sequenceDiagram
@@ -659,7 +673,7 @@ tetapi BI tidak tercakup di sana sama sekali (hanya pemilik menerima state).
 
 ## 8. Keamanan, keputusan desain dan batasan
 
-### 8.1 N6: celah pemilihan input di Paladin v1.0.0 (upstream, FAIL by design)
+### 8.1 N6: celah pemilihan input di Paladin v1.0.0 (V0 / Paladin v1.0.0, upstream, FAIL by design)
 
 - **Gejala.** Transfer di atas saldo tak terkunci seharusnya ditolak saat assemble dengan `PD210033`. Pada N6 (saldo 9700, minta 9701) tx justru di-assemble, di-submit, revert di chain `UTXODuplicate(...)` empat kali (`revertCount=4`),
   dan meninggalkan empat state output 9701 tak terkonfirmasi di konteks pengirim. Run 1 dan 3 FAIL, run 2 PASS pada kode sama (intermiten).
@@ -676,7 +690,7 @@ Penjelasan tingkat kode ada di bagian 5.2.6. Ringkas: D9 = Atom tidak mengikat j
 X1 = `Atom.cancel()` oleh `investor4` (non-peserta) berhasil, kedua leg terkunci tanpa jalan keluar (X2-X5). Keduanya finding terdokumentasi, belum diperbaiki.
 Pembanding di repo yang sama: track Noto memakai `RestrictedAtom` dengan pembatalan terbatas peserta (`besu/noto+pente/contracts/src/RestrictedAtom.sol`). Kompatibilitasnya dengan lock Zeto belum diperiksa.
 
-### 8.3 Aturan transaksi PUBLIC ke kontrak Zeto (poison-pill)
+### 8.3 Aturan transaksi PUBLIC ke kontrak Zeto (poison-pill; V0 / Paladin v1.0.0, diperbaiki upstream di main)
 
 - **Mekanisme (v1.0.0).** Loop resume sequencer (`P@v1.0.0:core/go/internal/sequencer/sequencer.go:160-200`) berjalan saat start dan tiap 5 menit, mengambil semua tx tanpa receipt
   (`core/go/internal/txmgr/transaction_query.go:206-208` tidak memfilter tipe), lalu menyerahkannya ke `InitTransaction` domain. Fungsi `setERC20` ada di ABI fungsional (`IZetoFungible.sol:26`) tetapi tidak punya handler
@@ -782,3 +796,71 @@ Perintah (dari `besu/zeto/`, port-forward 31548/31648/31748/31848 aktif, skrip d
 ### 9.4 Tidak ada atau tidak diuji
 
 Burn (tidak ada), unlock (tidak ada di Paladin), DvP pada token KYC (circuit tidak ada), mint oleh BI (tidak ada), deposit tanpa allowance ERC20 (tidak diuji), outage BI lebih dari sekitar 56 detik (tidak diuji).
+
+---
+
+## 10. Zeto V1 dan topologi BI di node1 (keadaan sekarang)
+
+Semua fakta platform di bagian ini dibaca dari worktree `build-v1/paladin` (Paladin main 559567e38 + PR #1189, merge 82fbd49ce). `P@main:` = path di worktree itu.
+Belum ada hasil uji live di platform ini; yang tertulis adalah apa yang dikerjakan kode dan apa yang dibaca dari source.
+
+### 10.1 Penempatan node
+
+| Node (pod) | Identitas | Peran |
+|---|---|---|
+| node1 (`paladin-node1-0`) | `bi`, `cashIssuer`, `bondIssuer`, `bondCustodian` | **BI.** Menerbitkan RD dan DFABI, menjadi penjual obligasi, dan memverifikasi laporan |
+| node2 (`paladin-node2-0`) | `investor2` | Bank |
+| node3 (`paladin-node3-0`) | `investor3` | Bank |
+| node4 (`paladin-node4-0`) | `investor4` | Bank (tidak lagi BI). Dipakai tes `Atom.cancel()` oleh non-peserta (X1) |
+
+Konsekuensi: BI offline = node1 mati = penerbit dan leg BI ikut berhenti. Bank tetap bisa bertransaksi antar bank dengan saldo yang sudah dimiliki (tes `spike-zeto-bi-offline.ts`: node2 <-> node3, saldo diterbitkan sebelum pemadaman).
+
+### 10.2 DvP Zeto V1 (`src/zeto-v1.ts`, `src/flows.ts`, `spike-zeto-dvp-zz.ts`)
+
+Urutan panggilan per leg (disalin dari `P@main:examples/swap/src/index.ts:177-300`, PR #1189):
+
+1. `createLock` oleh pemilik leg: penerima dan jumlah **dikunci di sini** (`recipients`), bukan saat spend. Kontrak: `ILockableCapability.createLock(createArgs, spendCommitment, cancelCommitment, data)`; `lockId = keccak256(abi.encode(pool, msg.sender publik createLock, txId))` (`P@main:domains/zeto/pkg/types/lock_id.go`).
+2. Ambil `lockId` dari state lock-info di `ptx.getStateReceipt` tx itu.
+3. `prepareSpendLock(lockId, from, data)` (tx disiapkan, tidak dikirim), lalu enkode ulang `spendLock(lockId, spendArgs, data)` dengan ABI tersimpan (`getStoredABI`).
+4. Satu Atom berisi `spendLock` kedua leg.
+5. `delegateLockV1` di tiap pool, `newSpender = alamat Atom`, `delegateArgs = abi.encode(tuple(bytes32 txId))` dengan `txId` acak. Hanya spender saat ini (pengirim publik `createLock`) yang boleh memanggil (`zeto_lockable_lib.sol:_requireLockSpender`).
+6. `Atom.execute`: Atom memanggil `spendLock` di kedua pool secara atomik.
+
+Perbedaan dengan V0:
+
+| Hal | V0 / Paladin v1.0.0 | V1 |
+|---|---|---|
+| Kunci | `lock(amount, delegate)`, penerima dipilih saat prepare | `createLock(recipients, ...)`, penerima dan jumlah dikunci di awal |
+| Pegangan leg | UTXO terkunci | `lockId` |
+| Prepare | `prepareTransferLocked` | `prepareSpendLock` |
+| Delegasi | `delegateLock(utxos, address)` | `delegateLockV1(lockId, delegateArgs, newSpender, data)` |
+| Reclaim | `transferLocked` ke diri sendiri | `cancelLock` (hanya spender saat ini) |
+| Output dimanipulasi | revert `Invalid proof` | revert `InvalidUnlockHash` (hash output dicek terhadap `spendCommitment` sebelum proof) |
+| Tanpa delegasi ke Atom | `NotLockDelegate` | `LockUnauthorized` |
+| Reclaim setelah prepare | gagal `PD210134` (temuan V0) | mekanisme V0 hilang: handler V1 membaca coin terkunci lewat id (`P@main:domains/zeto/internal/zeto/fungible/states.go:234`). Apakah sequencer masih menahan coin belum diketahui dari source; tes F1b **mencatat** hasilnya |
+
+D9 (Atom tidak membandingkan jumlah dan penerima dengan kesepakatan) dan X1 (`Atom.cancel()` tanpa kontrol akses) tetap berlaku: Atom hanya memanggil `spendLock` hasil enkode, dan setelah leg didelegasikan ke Atom pemilik tidak bisa `cancelLock` lagi.
+
+### 10.3 Pelaporan Option A dengan BI di node1 (`src/bi-report.ts`)
+
+- Bank (node2-4) tetap melapor lewat grup Pente `{bank, bi@node1}` (topik `zeto-report-v1`). BI node1 tidak butuh grup.
+- Transaksi yang berasal dari BI (penerbitan oleh `cashIssuer`/`bondIssuer`, leg DvP `bondCustodian`, transfer dan withdraw `bondCustodian`) **tidak perlu laporan**: node1 sudah memegang state-nya.
+  `BiLedger.adoptOwnStates()` membaca state store node1, menghitung ulang commitment Poseidon, dan bila commitment itu adalah output on-chain menandainya `verified` dengan reporter `bi-own-state`. `scanChain()` memanggilnya.
+- Output antar bank (mis. investor2 -> investor3) hanya ada di node bank. Tanpa laporan bank, BI tidak bisa mengadopsinya, jadi tetap ditandai `unreported` setelah masa tenggang.
+- Event V1 dibaca dari `abis/ZetoV1Events.json`: `ZetoLockCreated` (inputs, outputs, lockedOutputs), `ZetoLockSpent` dan `ZetoLockCancelled` (lockedInputs, lockedOutputs, outputs). `UTXOsLocked` dan `LockDelegateChanged` (V0) tetap bisa didekode untuk token lama.
+- Tx `createLock`/`spendLock` ditandatangani key milik pemilik lock (`RequiredSigner`: `P@main:.../handler_create_lock.go:493`, `handler_spend_lock.go:377`), jadi signer base-ledger tx lock menyebut pihaknya. Tx `transfer`/`mint`/`deposit` tetap memakai key sekali pakai sequencer (`P@main:core/go/internal/sequencer/coordinator/coordinating.go:456`). Atribusi lewat input yang dibelanjakan tetap dipakai untuk semuanya.
+
+### 10.4 Pemeriksaan privasi
+
+- Dua pihak DvP (mis. node1 dan node2) melihat state swap. Bank non-pihak (node3 sebelum menerima sesuatu, node4) tidak melihat state apa pun dan tidak menerima pesan laporan (`spike-zeto-dvp-zz.ts` P, `spike-zeto-bi.ts` expectBlind, `spike-zeto-e2e.ts` P1/P2/B4).
+- Penerbitan oleh BI tidak membuat bank lain melihat apa pun: state mint hanya didistribusikan ke penerima.
+
+### 10.5 Tes BI-offline (rencana, `spike-zeto-bi-offline.ts`)
+
+Node yang dimatikan adalah node1. Saldo bank (DFABI untuk investor2, RD untuk investor3) dan seluruh persiapan DvP (createLock, prepareSpendLock, Atom, delegateLockV1) dilakukan **sebelum** pemadaman. Saat node1 mati: transfer RD investor3 -> investor2, transfer DFABI investor2 -> investor3, `Atom.execute` oleh investor3; bank mengirim laporan (antre). Saat node1 kembali, ledger BI baru (cursor 0) harus memverifikasi semua output. Skrip hanya menghapus pod bila dijalankan dengan `--delete-pod`; tanpa itu operator menghapus pod dan skrip hanya memantau HTTP. Dry-run mencetak rencana dan tidak mengirim apa pun.
+
+### 10.6 Hal yang berubah dan perlu diketahui
+
+- `heldStates` memakai status `confirmed` (kualifier `available` dihapus di main, `P@main:sdk/typescript/src/interfaces/states.ts`).
+- Poison-pill `setERC20` diperbaiki upstream di main; fase `setERC20` di muka dipertahankan dan sekarang opsional.
+- Token KYC (`Zeto_AnonNullifierKyc`) tidak dipakai lagi oleh `bootstrap-zeto.ts`; temuan "KYC tidak bisa DvP" berlaku untuk V0 / Paladin v1.0.0. Dukungan lock KYC di V1 tidak diuji di sini.

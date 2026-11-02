@@ -1,24 +1,30 @@
-// Option A reporting (docs/plans/2026-10-16-option-a-bi-reporting.md): a bank reports each Zeto
-// output it created or received to BI over a Pente privacy-group message; BI recomputes the coin
-// commitment and matches it against the official Zeto contract events on chain.
+// Option A reporting (docs/plans/2026-10-16-option-a-bi-reporting.md): a bank (node2-4) reports each
+// Zeto output it created or received to BI (bi@node1) over a Pente privacy-group message; BI recomputes
+// the coin commitment and matches it against the official Zeto contract events on chain.
+// BI lives on node1, together with the issuers, so it already holds every state it minted, owns, or
+// received: adoptOwnStates() verifies those from node1's own state store, no report needed. Only
+// outputs that exist solely on a bank's node (bank-to-bank flows) need a report, and are flagged
+// `unreported` without one.
 //
-// Commitment = Poseidon(amount, salt, owner.x, owner.y) (domains/zeto/pkg/types/states.go:66-80
-// at v1.0.0); the state id Paladin uses is that commitment. Chain outputs come from the v1.0.0
-// Zeto event ABIs (abis/IZeto.json, abis/IZetoLockable.json, the files the domain embeds in
-// domains/zeto/internal/zeto/events_abi.go): UTXOMint.outputs, UTXOTransfer.outputs,
+// Commitment = Poseidon(amount, salt, owner.x, owner.y) (domains/zeto/pkg/types/states.go:66-80);
+// the state id Paladin uses is that commitment. Chain outputs come from the Zeto V1 event ABIs
+// (zeto-contracts v0.5.1, abis/ZetoV1Events.json): UTXOMint.outputs, UTXOTransfer.outputs,
 // UTXOTransferWithEncryptedValues.outputs, UTXOWithdraw.output, UTXOBurn.output,
-// UTXOsLocked.outputs + lockedOutputs. LockDelegateChanged creates no outputs.
+// ZetoLockCreated.outputs + lockedOutputs (inputs = unlocked inputs), ZetoLockSpent / ZetoLockCancelled
+// .outputs + lockedOutputs (inputs = lockedInputs). ZetoLockDelegated / ZetoLockUpdated create nothing.
+// V0 events (UTXOsLocked, LockDelegateChanged, from abis/IZetoLockable.json) stay decodable for old tokens.
 import PaladinClient from "@lfdecentralizedtrust/paladin-sdk";
 import { ethers } from "ethers";
 import { buildBabyjub, buildPoseidon } from "circomlibjs";
-import zetoAbi from "../abis/IZeto.json";
-import lockableAbi from "../abis/IZetoLockable.json";
+import v1Abi from "../abis/ZetoV1Events.json";
+import lockableAbi from "../abis/IZetoLockable.json"; // V0 only: UTXOsLocked, LockDelegateChanged
 
 export const REPORT_TOPIC = "zeto-report-v1";
-export const ZETO_EVENTS = [...zetoAbi.abi, ...lockableAbi.abi].filter((e: any) => e.type === "event");
+export const ZETO_EVENTS = [...v1Abi.abi, ...lockableAbi.abi].filter((e: any) => e.type === "event");
 const iface = new ethers.Interface(ZETO_EVENTS as any);
 export const ZETO_EVENT_TOPICS = ZETO_EVENTS.map((e: any) => iface.getEvent(e.name)!.topicHash);
 
+export const BI_OWN_STATE = "bi-own-state";
 export type ReportOutput = { commitment: string; amount: string; salt: string; owner: string };
 export type Report = { v: 1; token: string; contract: string; txHash: string; reporter: string; outputs: ReportOutput[] };
 export type Status = { commitment: string; status: "verified" | "mismatch"; reason?: string };
@@ -46,14 +52,14 @@ export async function chainIO(c: PaladinClient, txHash: string, contract: string
     if (lower(e.address) !== lower(contract)) continue;
     const d = e.data ?? {};
     for (const v of [...(d.outputs ?? []), ...(d.lockedOutputs ?? []), ...(d.output !== undefined ? [d.output] : [])]) if (BigInt(v) !== 0n) outputs.push(BigInt(v));
-    for (const v of d.inputs ?? []) if (BigInt(v) !== 0n) inputs.push(BigInt(v));
+    for (const v of [...(d.inputs ?? []), ...(d.lockedInputs ?? [])]) if (BigInt(v) !== 0n) inputs.push(BigInt(v));
   }
   return { outputs, inputs };
 }
 export const chainOutputs = async (c: PaladinClient, txHash: string, contract: string) => (await chainIO(c, txHash, contract)).outputs;
 
 // Bank side: report every output of the tx that the bank's own node holds the plaintext for,
-// plus any states it already has in hand (e.g. from a prepared transferLocked).
+// plus any states it already has in hand (e.g. from a prepared spendLock).
 export async function buildReport(c: PaladinClient, reporter: string, token: string, contract: string, txHash: string, known: any[] = []): Promise<Report> {
   const ids = (await chainOutputs(c, txHash, contract)).map(hex32);
   const schema = (await c.pstate.listSchemas("zeto")).find((s: any) => /ZetoCoin/.test(s.signature ?? ""));
@@ -68,11 +74,11 @@ export async function buildReport(c: PaladinClient, reporter: string, token: str
 }
 
 // `from` is the base-ledger signer. Paladin signs Zeto txs with a one-time key
-// (core/go/internal/sequencer/coordinator/coordinating.go:411 at v1.0.0), so it never names the
-// bank; the sender is the owner of the inputs the tx spent (only the owner can spend a Zeto UTXO).
+// (core/go/internal/sequencer/coordinator/coordinating.go:456 on main), so it never names the
+// bank (V1 createLock/spendLock are the exception: the lock owner's own key signs, see README); the sender is the owner of the inputs the tx spent (only the owner can spend a Zeto UTXO).
 type ChainOutput = { token: string; txHash: string; from: string; inputs: string[]; firstSeen: number };
 
-// BI side. Reads only BI's own node: messages delivered to it, and its block indexer.
+// BI side. Reads only BI's own node: messages delivered to it, its block indexer and its state store.
 export class BiLedger {
   readonly verified = new Map<string, { report: Report; output: ReportOutput; reporters: Set<string> }>();
   readonly mismatches: { report: Report; status: Status }[] = [];
@@ -145,6 +151,36 @@ export class BiLedger {
         for (const o of io.outputs) this.chain.set(o.toString(), { token, txHash, from, inputs: io.inputs.map(String), firstSeen: Date.now() });
       }
     }
+    await this.adoptOwnStates();
+  }
+
+  // One BI refresh: reports delivered to node1, the chain, and BI's own states.
+  async sync() {
+    await this.pollReports();
+    await this.scanChain();
+  }
+
+  // BI's node1 holds the plaintext of every state minted by, owned by, or sent to a node1 identity.
+  // For each such state that is an output on chain, recompute the commitment from the stored data and
+  // mark it verified (reporter "bi-own-state"). No bank report is needed for those; everything else
+  // (bank-to-bank outputs) still needs one. scanChain() calls it.
+  async adoptOwnStates() {
+    const schema = (await this.c.pstate.listSchemas("zeto")).find((s: any) => /ZetoCoin/.test(s.signature ?? ""));
+    if (!schema) return 0;
+    let adopted = 0;
+    for (const [contract, token] of this.contracts) {
+      const held = (await this.c.pstate.queryContractStates("zeto", contract, schema.id, { limit: 1000 } as any, "all")) as any[];
+      for (const s of held) {
+        const commitment = BigInt(s.id).toString();
+        const onChain = this.chain.get(commitment);
+        if (!onChain || this.verified.has(commitment)) continue;
+        const o: ReportOutput = { commitment, amount: BigInt(s.data.amount).toString(), salt: s.data.salt, owner: s.data.owner };
+        if ((await commitmentOf(o).catch(() => -1n)).toString() !== commitment) continue;
+        this.verified.set(commitment, { report: { v: 1, token, contract, txHash: onChain.txHash, reporter: BI_OWN_STATE, outputs: [o] }, output: o, reporters: new Set([BI_OWN_STATE]) });
+        adopted++;
+      }
+    }
+    return adopted;
   }
 
   // Sender = owner(s) of the spent inputs BI already verified; deposits/mints have no inputs, so

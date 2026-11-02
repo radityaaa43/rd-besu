@@ -1,7 +1,7 @@
 /*
- * Smoke check for bootstrap-zeto.ts output: the template's private transfer + withdraw, on
- * both tokens, 1 unit each. RD: investor2 -> investor3 private, investor3 withdraws to ERC20.
- * DFABI: bondCustodian -> investor2 private, investor2 withdraws to ERC20. Asserts every
+ * Smoke check for bootstrap-zeto.ts output (V1-axis Zeto_Anon RD + DFABI): the template's private
+ * transfer + withdraw, on both tokens, 1 unit each. RD: investor2 -> investor3 private, investor3
+ * withdraws to ERC20. DFABI: bondCustodian (BI, node1) -> investor2 private, investor2 withdraws to ERC20. Asserts every
  * balance delta; exits 1 on any mismatch. Moves 1 real unit per token on the live ledger.
  *
  * Run from this directory (port-forwards up):

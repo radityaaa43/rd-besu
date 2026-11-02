@@ -1,0 +1,411 @@
+{
+  "_note": "Verified 2026-10-20 against the generated Zeto_Anon.json (v0.5.1): the 10 events here are identical; this file is a subset (no admin or generic Lock* events). Hand-written from zeto-contracts v0.5.1 solidity/contracts/lib/interfaces/IZeto.sol (IZetoConstants) and IZetoLockableCapability.sol; events only. The Paladin repo only generates the full ABI at gradle build time.",
+  "abi": [
+    {
+      "type": "event",
+      "name": "UTXOMint",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "submitter",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "UTXOBurn",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "uint256[]",
+          "name": "inputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "output",
+          "internalType": "uint256",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "submitter",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "UTXOTransfer",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "uint256[]",
+          "name": "inputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "submitter",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "UTXOTransferWithEncryptedValues",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "uint256[]",
+          "name": "inputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "encryptionNonce",
+          "internalType": "uint256",
+          "indexed": false
+        },
+        {
+          "type": "uint256[2]",
+          "name": "ecdhPublicKey",
+          "internalType": "uint256[2]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "encryptedValues",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "submitter",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "UTXOWithdraw",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "uint256",
+          "name": "amount",
+          "internalType": "uint256",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "inputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "output",
+          "internalType": "uint256",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "submitter",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ZetoLockCreated",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "txId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "bytes32",
+          "name": "lockId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "owner",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "uint256[]",
+          "name": "inputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "lockedOutputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "proof",
+          "internalType": "bytes",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ZetoLockUpdated",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "txId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "bytes32",
+          "name": "lockId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "owner",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ZetoLockDelegated",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "txId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "bytes32",
+          "name": "lockId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "from",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "to",
+          "internalType": "address",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ZetoLockSpent",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "txId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "bytes32",
+          "name": "lockId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "spender",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "uint256[]",
+          "name": "lockedInputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "lockedOutputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "proof",
+          "internalType": "bytes",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ZetoLockCancelled",
+      "anonymous": false,
+      "inputs": [
+        {
+          "type": "bytes32",
+          "name": "txId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "bytes32",
+          "name": "lockId",
+          "internalType": "bytes32",
+          "indexed": true
+        },
+        {
+          "type": "address",
+          "name": "spender",
+          "internalType": "address",
+          "indexed": true
+        },
+        {
+          "type": "uint256[]",
+          "name": "lockedInputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "lockedOutputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "uint256[]",
+          "name": "outputs",
+          "internalType": "uint256[]",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "proof",
+          "internalType": "bytes",
+          "indexed": false
+        },
+        {
+          "type": "bytes",
+          "name": "data",
+          "internalType": "bytes",
+          "indexed": false
+        }
+      ]
+    }
+  ]
+}

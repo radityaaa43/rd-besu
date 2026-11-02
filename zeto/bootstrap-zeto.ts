@@ -1,44 +1,39 @@
 /*
- * Zeto bootstrap: deploys the Zeto-based RD (cash) and DFABI (bond) tokens alongside the
- * existing Noto/Pente ones. Follows Paladin's examples/private-stablecoin template exactly:
- * Zeto_AnonNullifierKyc private token + public SampleERC20, linked with setERC20; the owner
- * KYC-registers every platform identity; supply enters the private side only via public ERC20
- * mint -> approve -> deposit (never a direct Zeto mint, so the ERC20 always backs it 1:1).
+ * Zeto bootstrap: deploys the Zeto-based RD (cash) and DFABI (bond) tokens alongside the existing
+ * Noto/Pente ones. Both are Zeto V1 `Zeto_Anon` tokens (Paladin main + PR #1189, zeto-contracts v0.5.1,
+ * V1 constructor params from examples/swap), each backed by a public SampleERC20 linked with setERC20.
+ * No KYC: the V0 KYC baseline (Zeto_AnonNullifierKyc) could not do DvP on Paladin v1.0.0, and the
+ * platform owner is BI, so BI (node1) owns both tokens. Supply enters the private side via public ERC20
+ * mint -> approve -> deposit (the ERC20 always backs it 1:1). Private `mint` by the owner is the other
+ * issuance path (src/flows.ts, stress-zeto-tps.ts) and is unbacked.
  *
- * - RD-Zeto: owner = cashIssuer@node1. Each investor gets --initial-cash, deposited private.
- * - DFABI-Zeto: owner = bondIssuer@node1. bondCustodian@node1 gets --bond-supply, deposited
- *   private (same role as the Noto tranche mint).
+ * - RD: owner = cashIssuer@node1 (= BI). Each bank (node2-4) gets --initial-cash, deposited private.
+ * - DFABI: owner = bondIssuer@node1 (= BI). bondCustodian@node1 (= BI, the bond seller) gets
+ *   --bond-supply, deposited private.
  *
  * Zeto has no name/symbol of its own (domain sets both to tokenName), so RD vs DFABI is only
  * recorded in the output file: out/zeto-contract-data.json.
  *
- * Requires the zeto domain on all 4 nodes (applied 2026-10-15 from ~/paladin-v1 CRs).
+ * Requires the zeto domain on all 4 nodes, installed with the Paladin main + PR #1189 image.
  *
  * IDEMPOTENT: skips if the output file exists. SAFE BY DEFAULT: dry-run unless --execute.
+ * (An out/zeto-contract-data.json from the old KYC baseline blocks this script: move it away first.)
  *
  * Run from this directory (port-forwards up):
  *   npx ts-node bootstrap-zeto.ts [--execute] [--initial-cash=1000000] [--bond-supply=1000000]
  */
 import * as fs from "fs";
 import * as path from "path";
-import PaladinClient, {
-  IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X,
-  PaladinVerifier,
-  TransactionType,
-  ZetoFactory,
-  ZetoInstance,
-  algorithmZetoSnarkBJJ,
-} from "@lfdecentralizedtrust/paladin-sdk";
+import PaladinClient, { PaladinVerifier, TransactionType, ZetoFactory, ZetoInstance } from "@lfdecentralizedtrust/paladin-sdk";
 import { DEFAULT_POLL_TIMEOUT, checkDeploy, checkReceipt, nodeConnections } from "./src/common";
-import { buildBabyjub } from "circomlibjs";
+import { ZETO_V1 } from "./src/zeto-v1";
 import erc20Artifact from "./abis/SampleERC20.json";
-import kycAbi from "./abis/IZetoKyc.json";
 
 const logger = console;
 const OUT_FILE = path.join(__dirname, "out", "zeto-contract-data.json");
-const TOKEN_NAME = "Zeto_AnonNullifierKyc";
+const TOKEN_NAME = ZETO_V1.tokenName;
 
-// Same identities as bootstrap-platform.ts; nodeIdx indexes nodeConnections.
+// nodeIdx indexes nodeConnections. node1 = BI (issuers + custodian), node2-4 = banks.
 const IDENTITIES = [
   { lookup: "cashIssuer@node1", nodeIdx: 0 },
   { lookup: "bondIssuer@node1", nodeIdx: 0 },
@@ -56,17 +51,6 @@ function parseArgs() {
   return { execute: args.includes("--execute"), initialCash: arg("initial-cash", "1000000"), bondSupply: arg("bond-supply", "1000000") };
 }
 
-// Template's getBabyjubPublicKey: the KYC registry wants the uncompressed [x, y] point.
-async function getBabyjubPublicKey(verifier: PaladinVerifier): Promise<string[]> {
-  const pubKeyStr = await verifier.resolve(algorithmZetoSnarkBJJ("zeto") as any, IDEN3_PUBKEY_BABYJUBJUB_COMPRESSED_0X as any);
-  const bytes = Buffer.from(pubKeyStr.replace(/^0x/, ""), "hex");
-  if (bytes.length !== 32) throw new Error(`Invalid babyjub key for ${verifier.lookup}: ${pubKeyStr}`);
-  const babyJub = await buildBabyjub();
-  const point = babyJub.unpackPoint(bytes);
-  if (!point) throw new Error(`Failed to unpack babyjub key for ${verifier.lookup}`);
-  return [babyJub.F.toString(point[0]), babyJub.F.toString(point[1])];
-}
-
 async function publicTx(p: Party, to: string, fn: string, data: Record<string, unknown>, abi: any[]) {
   const receipt = await p.client.pollForReceipt(
     await p.client.ptx.sendTransaction({ type: TransactionType.PUBLIC, from: p.lookup, to, function: fn, abi, data }),
@@ -75,9 +59,9 @@ async function publicTx(p: Party, to: string, fn: string, data: Record<string, u
   if (!checkReceipt(receipt)) throw new Error(`${fn} from ${p.lookup} failed`);
 }
 
-// Steps 1-4 of the template, for one token: deploy Zeto + ERC20, link them, KYC everyone.
-async function deployPrivateToken(owner: Party, kycParties: Party[], publicKeys: Record<string, string[]>) {
-  const zeto = await new ZetoFactory(owner.client, "zeto").newZeto(owner.verifier, { tokenName: TOKEN_NAME }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
+// Steps 1-2 of the template, for one token: deploy the V1 Zeto + ERC20, link them.
+async function deployPrivateToken(owner: Party) {
+  const zeto = await new ZetoFactory(owner.client, "zeto").newZeto(owner.verifier, { ...ZETO_V1 }).waitForDeploy(DEFAULT_POLL_TIMEOUT);
   if (!checkDeploy(zeto)) throw new Error("Zeto deploy failed");
 
   const erc20Receipt = await owner.client.pollForReceipt(
@@ -95,10 +79,8 @@ async function deployPrivateToken(owner: Party, kycParties: Party[], publicKeys:
   const erc20 = erc20Receipt.contractAddress;
 
   if (!checkReceipt(await zeto!.setERC20(owner.verifier, { erc20 }).waitForReceipt(DEFAULT_POLL_TIMEOUT))) throw new Error("setERC20 failed");
-
-  for (const p of kycParties) {
-    await publicTx(owner, zeto!.address, "register", { publicKey: publicKeys[p.lookup], data: "0x" }, kycAbi.abi);
-  }
+  // setERC20 is a PUBLIC tx to a Zeto contract; on Paladin v1.0.0 it could crash-loop a node (V0 poison pill).
+  // Fixed upstream on main, so awaiting it here is now optional but harmless.
   return { zeto: zeto!, erc20 };
 }
 
@@ -121,11 +103,11 @@ async function main(): Promise<boolean> {
   }
 
   logger.log("=== Zeto bootstrap plan (template: examples/private-stablecoin) ===");
-  logger.log(`  1. RD-Zeto: deploy ${TOKEN_NAME} + SampleERC20 + setERC20 + KYC register (owner cashIssuer@node1)`);
-  logger.log(`  2. DFABI-Zeto: deploy ${TOKEN_NAME} + SampleERC20 + setERC20 + KYC register (owner bondIssuer@node1)`);
-  logger.log(`     KYC set: ${IDENTITIES.map((i) => i.lookup).join(", ")}`);
-  logger.log(`  3. RD: mint+approve+deposit ${initialCash} for each investor`);
-  logger.log(`  4. DFABI: mint+approve+deposit ${bondSupply} for bondCustodian@node1`);
+  logger.log(`  1. RD-Zeto: deploy ${TOKEN_NAME} (V1 axis: ${JSON.stringify({ ...ZETO_V1, tokenName: undefined })}) + SampleERC20 + setERC20 (owner cashIssuer@node1 = BI)`);
+  logger.log(`  2. DFABI-Zeto: deploy ${TOKEN_NAME} (V1 axis) + SampleERC20 + setERC20 (owner bondIssuer@node1 = BI)`);
+  logger.log(`     identities: ${IDENTITIES.map((i) => i.lookup).join(", ")}; no KYC register`);
+  logger.log(`  3. RD: mint+approve+deposit ${initialCash} for each bank (node2-4)`);
+  logger.log(`  4. DFABI: mint+approve+deposit ${bondSupply} for bondCustodian@node1 (BI)`);
   logger.log(`Output: ${OUT_FILE}`);
   if (!execute) {
     logger.log("\nDRY RUN -- nothing sent. Pass --execute to deploy.");
@@ -141,14 +123,11 @@ async function main(): Promise<boolean> {
   const all = Object.values(parties);
   const investors = all.filter((p) => p.lookup.startsWith("investor"));
 
-  const publicKeys: Record<string, string[]> = {};
-  for (const p of all) publicKeys[p.lookup] = await getBabyjubPublicKey(p.verifier);
-
   logger.log("1. Deploying RD-Zeto...");
-  const rd = await deployPrivateToken(parties["cashIssuer@node1"], all, publicKeys);
+  const rd = await deployPrivateToken(parties["cashIssuer@node1"]);
   logger.log(`   zeto=${rd.zeto.address} erc20=${rd.erc20}`);
   logger.log("2. Deploying DFABI-Zeto...");
-  const dfabi = await deployPrivateToken(parties["bondIssuer@node1"], all, publicKeys);
+  const dfabi = await deployPrivateToken(parties["bondIssuer@node1"]);
   logger.log(`   zeto=${dfabi.zeto.address} erc20=${dfabi.erc20}`);
 
   logger.log("3. Seeding RD to investors...");
@@ -162,9 +141,9 @@ async function main(): Promise<boolean> {
     JSON.stringify(
       {
         tokenName: TOKEN_NAME,
+        axis: "v1",
         rd: { zetoAddress: rd.zeto.address, erc20Address: rd.erc20, owner: "cashIssuer@node1" },
         dfabi: { zetoAddress: dfabi.zeto.address, erc20Address: dfabi.erc20, owner: "bondIssuer@node1" },
-        kycPublicKeys: publicKeys,
       },
       null,
       2
