@@ -114,7 +114,7 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
   const seller = participantOf(p, params.seller);
   const buyer = p.investors.get(params.buyer);
   const known = [...p.investors.keys()].join(", ");
-  if (!seller) throw new TradeRejected(`unknown seller "${params.seller}" (known: ${known})`);
+  if (!seller) throw new TradeRejected(`unknown seller "${params.seller}" (known: ${CUSTODIAN_SELLER}, ${known})`);
   if (!buyer) throw new TradeRejected(`unknown buyer "${params.buyer}" (known: ${known})`);
   if (seller.name === buyer.name) throw new TradeRejected("seller and buyer must differ");
 
@@ -140,7 +140,9 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     buyerCash: await balance(notoCash, buyer),
   };
   if (before.sellerBond < units) {
-    throw new TradeRejected(`${seller.name} holds ${before.sellerBond} bond, cannot sell ${units}`);
+    throw new TradeRejected(seller.name === CUSTODIAN_SELLER
+      ? `Persediaan DFABI BI tidak cukup: ada ${before.sellerBond}, perlu ${units}`
+      : `${seller.name} holds ${before.sellerBond} bond, cannot sell ${units}`);
   }
   if (before.buyerCash < consideration) {
     throw new TradeRejected(`${buyer.name} holds ${before.buyerCash} cash, needs ${consideration}`);
