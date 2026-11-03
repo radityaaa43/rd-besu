@@ -16,7 +16,7 @@ import {
 } from "./platform";
 
 export interface OutrightParams {
-  seller: string;
+  seller: string; // an investor name, or CUSTODIAN_SELLER for the primary-market sale of the custodian's unsold supply
   buyer: string;
   units: string | number;
   price: string;
@@ -60,6 +60,11 @@ export interface TradeRecord {
   openLocks?: { leg: "bond" | "cash"; lockId: string; owner: string; cancelCall?: string; delegatedTo?: string }[];
   timestamp: string;
 }
+
+export const CUSTODIAN_SELLER = "bondCustodian";
+// BI's custodian on node1, built like issueBond does.
+export const custodianOf = (p: Platform): Participant => ({ name: CUSTODIAN_SELLER, node: "node1", client: p.node1, verifier: p.bondCustodian });
+const participantOf = (p: Platform, name: string) => (name === CUSTODIAN_SELLER ? custodianOf(p) : p.investors.get(name));
 
 // Raised for any problem found before the first lock: nothing was submitted on-chain.
 export class TradeRejected extends Error {}
@@ -106,7 +111,7 @@ export function executeOutright(
 
 async function runOutright(p: Platform, params: OutrightParams, log: (msg: string) => void): Promise<TradeRecord> {
   // --- Validation and pre-trade checks: reject before anything touches the chain ---
-  const seller = p.investors.get(params.seller);
+  const seller = participantOf(p, params.seller);
   const buyer = p.investors.get(params.buyer);
   const known = [...p.investors.keys()].join(", ");
   if (!seller) throw new TradeRejected(`unknown seller "${params.seller}" (known: ${known})`);
@@ -348,7 +353,7 @@ export async function recoverTrade(
 ): Promise<TradeRecord> {
   if (trade.status !== "FAILED") throw new TradeRejected(`trade ${trade.tradeId} is ${trade.status}, nothing to recover`);
   const legs: Leg[] = (trade.openLocks ?? []).map((l) => {
-    const owner = p.investors.get(l.owner);
+    const owner = participantOf(p, l.owner);
     if (!owner) throw new TradeRejected(`unknown lock owner ${l.owner}`);
     const token = (l.leg === "bond" ? p.notoBond : p.notoCash).using(owner.client);
     const amount = BigInt(l.leg === "bond" ? trade.units : trade.consideration);
