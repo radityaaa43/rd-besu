@@ -59,6 +59,17 @@ used_rows := [
 
 test_daily_limit_sum_denied if not with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 600000000)), 5000000000) with http.send as mock_used
 
+# The SDK sends no `domain`; the contract address still marks the tx as Zeto.
+test_daily_limit_applies_without_domain if {
+	i := send("node2", object.remove(transfer("bankA@node2", "bankB@node3", 600000000), ["domain"]))
+	not with_daily(i, 5000000000) with http.send as mock_used
+}
+
+test_daily_limit_within_allowed_without_domain if {
+	i := send("node2", object.remove(transfer("bankA@node2", "bankB@node3", 500000000), ["domain"]))
+	with_daily(i, 5000000000) with http.send as mock_used
+}
+
 test_daily_limit_within_allowed if with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 500000000)), 5000000000) with http.send as mock_used
 
 test_daily_limit_applies_to_create_lock if {

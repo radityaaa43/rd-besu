@@ -10,9 +10,15 @@ import data.bank.ident
 
 tx := input.parsed_body.params[0]
 
+# Zeto by domain or by BI's contract map (the SDK omits `domain` on writes).
+# The map is read as data, not through a BI function, so this bundle builds alone.
+is_zeto if tx.domain == "zeto"
+
+is_zeto if data.bi.config.zeto.contracts[lower(tx.to)]
+
 recipients contains o.to if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
-	tx.domain == "zeto"
+	is_zeto
 	some field in ["transfers", "recipients"]
 	some o in tx.data[field]
 }
@@ -20,13 +26,13 @@ recipients contains o.to if {
 # A DvP lock touches both tokens; mint and transfer only their own.
 gated_tokens contains data.bi.zeto.token if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
-	tx.domain == "zeto"
+	is_zeto
 	tx.function in {"mint", "transfer"}
 }
 
 gated_tokens contains token if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
-	tx.domain == "zeto"
+	is_zeto
 	tx.function == "createLock"
 	some token in ["RD", "DFABI"]
 }
@@ -61,7 +67,7 @@ allow := false if {
 # The token comes from BI's contract map (data, not a function call, so this bundle builds alone).
 allow := false if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
-	tx.domain == "zeto"
+	is_zeto
 	field := {"transfer": "transfers", "createLock": "recipients"}[tx.function]
 	cap := data.bank.config.max_per_tx[data.bi.config.zeto.contracts[lower(tx.to)]]
 	sum([to_number(o.amount) | some o in tx.data[field]]) > cap
@@ -78,7 +84,7 @@ daily_token := data.bi.config.zeto.contracts[lower(tx.to)]
 # Only a bank with a limit for the request's token queries Paladin.
 daily_gated if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
-	tx.domain == "zeto"
+	is_zeto
 	tx.function in {"transfer", "createLock"}
 	data.bank.config.daily_limit[daily_token]
 }

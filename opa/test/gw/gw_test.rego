@@ -235,6 +235,54 @@ test_noto_prepare_unlock_allowed if {
 
 test_pente_group_tx_allowed if allowed(rpc("node2", "pgroup_sendTransaction", [{"domain": "pente", "group": "0x01"}]))
 
+# --- Private txs without `domain` (the Paladin SDK omits it on writes; Paladin resolves it from `to`)
+
+# `domain` dropped: the shape the SDK really sends for Zeto and Noto writes.
+sdk(tx) := object.remove(tx, ["domain"])
+
+test_real_sdk_transfer_without_domain_allowed if {
+	tx := {"type": "private", "function": "transfer", "to": rd, "from": "bankA@node2", "data": {"transfers": [{"to": "bankB@node3", "amount": 1, "data": "0x"}]}}
+	allowed(send("node2", tx))
+}
+
+test_sdk_create_lock_without_domain_allowed if allowed(send("node2", sdk(lock("bankA@node2", "bankB@node3", 5))))
+
+test_sdk_mint_without_domain_by_bi_allowed if {
+	tx := zeto(rd, "bi@node1", "mint", {"mints": [{"to": "bankA@node2", "amount": 5000000000000}]})
+	allowed(send("node1", sdk(tx)))
+}
+
+test_sdk_spend_lock_prepare_without_domain_allowed if {
+	tx := zeto(dfabi, "bankA@node2", "spendLock", {"lockId": "0x01", "from": "bankA@node2", "data": "0x"})
+	allowed(rpc("node2", "ptx_prepareTransaction", [sdk(tx)]))
+}
+
+test_sdk_transfer_without_domain_over_limit_denied if not allowed(send("node2", sdk(transfer("bankA@node2", "bankB@node3", 1000000001))))
+
+test_sdk_transfer_without_domain_to_outsider_denied if not allowed(send("node2", sdk(transfer("bankA@node2", "eve@node9", 10))))
+
+test_sdk_transfer_without_domain_from_other_identity_denied if not allowed(send("node2", sdk(transfer("bankB@node3", "bankC@node4", 10))))
+
+test_sdk_mint_without_domain_by_bank_denied if {
+	tx := zeto(rd, "bankA@node2", "mint", {"mints": [{"to": "bankA@node2", "amount": 10}]})
+	not allowed(send("node2", sdk(tx)))
+}
+
+test_noto_transfer_without_domain_allowed if {
+	tx := {"type": "private", "to": "0xf4571ab32cbd61a7cfbf1d1647a39ec8744a7681", "from": "bankA@node2", "function": "transfer", "data": {"to": "bankB@node3", "amount": "10"}}
+	allowed(send("node2", tx))
+}
+
+# No `to` and no `domain`: not Zeto, so unscoped (a Zeto deploy carries domain "zeto" and stays denied).
+test_private_without_to_and_domain_not_zeto_allowed if allowed(send("node2", {"type": "private", "from": "bankA@node2", "function": "", "data": {}}))
+
+test_bank_counterparty_applies_without_domain if {
+	bank := object.union(fixtures.bank_a, {"counterparties": ["bi@node1"]})
+	not gw.allow with input as send("node2", sdk(transfer("bankA@node2", "bankB@node3", 10)))
+		with data.bi.config as fixtures.bi
+		with data.bank.config as bank
+}
+
 # --- BI reports
 
 report(group, topic) := rpc("node2", "pgroup_sendMessage", [{"domain": "pente", "group": group, "topic": topic, "data": {}}])
