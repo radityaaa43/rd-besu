@@ -1,7 +1,7 @@
 # Envoy for bank-gw-2 (Bank A, node2). Two doors, each checked by the OPA sidecar (gRPC 127.0.0.1:9191):
 #   :8548 -> paladin-node2:8548          context_extensions target=paladin
 #   :8545 -> besu-node-validator-2:8545  context_extensions target=besu
-# failure_mode_allow is true only while OPA runs in dry-run; set it false when enforcing.
+# failure_mode_allow false: if OPA does not answer, the request is refused (fail closed). Use true only with OPA dry-run.
 static_resources:
   listeners:
   - name: paladin
@@ -30,7 +30,7 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
               transport_api_version: V3
               with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
-              failure_mode_allow: true
+              failure_mode_allow: false
               # ext_authz timeout must exceed the Rego http.send timeout (2s) of the daily limit
               grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 3s}
           - name: envoy.filters.http.router
@@ -62,7 +62,7 @@ static_resources:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
               transport_api_version: V3
               with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
-              failure_mode_allow: true
+              failure_mode_allow: false
               grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 1s}
           - name: envoy.filters.http.router
             typed_config:

@@ -1,0 +1,100 @@
+# Envoy for bank-gw-3 (Bank B, node3). Two doors, each checked by the OPA sidecar (gRPC 127.0.0.1:9191):
+#   :8548 -> paladin-node3:8548          context_extensions target=paladin
+#   :8545 -> besu-node-validator-3:8545  context_extensions target=besu
+# failure_mode_allow false: if OPA does not answer, the request is refused (fail closed). Use true only with OPA dry-run.
+static_resources:
+  listeners:
+  - name: paladin
+    address: {socket_address: {address: 0.0.0.0, port_value: 8548}}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: paladin
+          route_config:
+            virtual_hosts:
+            - name: paladin
+              domains: ["*"]
+              routes:
+              - match: {prefix: "/"}
+                route: {cluster: paladin, timeout: 60s}
+                typed_per_filter_config:
+                  envoy.filters.http.ext_authz:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                    check_settings:
+                      context_extensions: {target: paladin, node: node3}
+          http_filters:
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
+              failure_mode_allow: false
+              # ext_authz timeout must exceed the Rego http.send timeout (2s) of the daily limit
+              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 3s}
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  - name: besu
+    address: {socket_address: {address: 0.0.0.0, port_value: 8545}}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: besu
+          route_config:
+            virtual_hosts:
+            - name: besu
+              domains: ["*"]
+              routes:
+              - match: {prefix: "/"}
+                route: {cluster: besu, timeout: 60s}
+                typed_per_filter_config:
+                  envoy.filters.http.ext_authz:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                    check_settings:
+                      context_extensions: {target: besu, node: node3}
+          http_filters:
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
+              failure_mode_allow: false
+              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 1s}
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+  - name: paladin
+    type: STRICT_DNS
+    connect_timeout: 2s
+    load_assignment:
+      cluster_name: paladin
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: paladin-node3.paladin.svc.cluster.local, port_value: 8548}}}
+  - name: besu
+    type: STRICT_DNS
+    connect_timeout: 2s
+    load_assignment:
+      cluster_name: besu
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: besu-node-validator-3.besu.svc.cluster.local, port_value: 8545}}}
+  - name: opa
+    type: STATIC
+    connect_timeout: 1s
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config: {http2_protocol_options: {}}
+    load_assignment:
+      cluster_name: opa
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: 127.0.0.1, port_value: 9191}}}
+admin:
+  address: {socket_address: {address: 127.0.0.1, port_value: 9901}}

@@ -1,8 +1,8 @@
-# OPA config for every bank-gw-N. dry-run: decisions are evaluated and logged, but Envoy is always told OK.
+# OPA config for every bank-gw-N. Enforcing: a deny is returned to Envoy as 403. Set dry-run: true to only log decisions.
 plugins:
   envoy_ext_authz_grpc:
     addr: 127.0.0.1:9191
     path: gw/allow
-    dry-run: true
+    dry-run: false
 decision_logs:
   console: true

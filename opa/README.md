@@ -48,7 +48,7 @@ plan: `docs/superpowers/plans/2026-11-05-halaman-kebijakan.md`; routes and state
   4. wait for the rollout (120 s). On failure the previous ConfigMap and annotations are put back and the change shows "Gagal diterbitkan" with "Terbitkan ulang".
 - **Guard:** the kube module refuses any name outside `bank-gw-[1-4]` and `bank-gw-[1-4]-bundles`.
 - **Build only, no cluster:** `npm run policy:build -w server -- <node> <outdir>` (from `frontend/`).
-- **Not done yet:** live publishing. It needs the approval of the node2 dry-run below first.
+- **Live:** first publishes ran 2026-11-05 (BI v3, v4) to all four gateways from the screen.
 
 ## Test
 
@@ -59,34 +59,35 @@ regal lint bundles test
 opa build -b bundles/bi -o /dev/null && opa build -b bundles/bank -o /dev/null   # each bundle must build alone
 ```
 
-## Deploy node2 in dry-run (needs approval: writes to the live cluster)
+## Live state (2026-11-05)
 
-`opa.yaml` has `dry-run: true` and `envoy/node2.yaml` has `failure_mode_allow: true`: every request passes and
-OPA logs what it would have decided. Keep `failure_mode_allow: true` only while dry-run: when enforcing it must be `false`.
-The Paladin `ext_authz` timeout (3s) must stay above the Rego `http.send` timeout of the daily limit (2s).
+All four gateways `bank-gw-1..4` run in namespace `paladin`, **enforcing** (`opa.yaml` `dry-run: false`,
+`envoy/nodeN.yaml` `failure_mode_allow: false`, fail closed). Lensa's Paladin forwards (`frontend/deploy/forwards.conf`)
+go through them. The Paladin `ext_authz` timeout (3s) must stay above the Rego `http.send` timeout of the daily limit (2s).
+Each gateway rollout drops that node's Lensa forward for about 5 s; systemd restarts it.
 
-```
-npm run policy:build -w server -- 2 <outdir>   # from frontend/; writes <outdir>/bi.tar.gz and bank.tar.gz with the current policy values
-kubectl -n paladin create configmap bank-gw-2-envoy --from-file=envoy.yaml=envoy/node2.yaml
-kubectl -n paladin create configmap bank-gw-opa --from-file=opa.yaml
-kubectl -n paladin create configmap bank-gw-2-bundles --from-file=<outdir>/bi.tar.gz --from-file=<outdir>/bank.tar.gz
-kubectl apply -f k8s/bank-gw-2.yaml
-```
-
-Then point `lensa-pf@paladin-node2` (`frontend/deploy/forwards.conf`) at `svc/bank-gw-2` and read would-deny decisions:
+Install or rebuild one node (N = 1..4; the screen's publish does the bundle part itself):
 
 ```
-kubectl -n paladin logs deploy/bank-gw-2 -c opa | grep '"result":false'
+npm run policy:build -w server -- N <outdir>   # from frontend/; current policy values
+kubectl -n paladin create configmap bank-gw-N-envoy --from-file=envoy.yaml=envoy/nodeN.yaml
+kubectl -n paladin create configmap bank-gw-opa --from-file=opa.yaml          # shared, once
+kubectl -n paladin create configmap bank-gw-N-bundles --from-file=<outdir>/bi.tar.gz --from-file=<outdir>/bank.tar.gz
+kubectl apply -f k8s/bank-gw-N.yaml
 ```
 
-Rollback: point the forward back at `svc/paladin-node2`, then
-`kubectl -n paladin delete -f k8s/bank-gw-2.yaml` and the three ConfigMaps.
+Read denials: `kubectl -n paladin logs deploy/bank-gw-N -c opa | grep '"result":false'`.
+Back to dry-run: set `dry-run: true` and `failure_mode_allow: true`, re-apply the ConfigMaps, `kubectl rollout restart`.
+Remove a gateway: point its forward back at `svc/paladin-nodeN`, `kubectl delete -f k8s/bank-gw-N.yaml` and its ConfigMaps.
 
-## Enforce (later, separate approval)
+Not in front of the gateway: Lensa's Besu forward on 127.0.0.1:8545 is held by another (non-Lensa) port-forward
+straight to `besu-node-validator-1`; the Besu door is live on every gateway (`svc/bank-gw-N:8545`) but Lensa's Besu
+traffic does not pass it until that forward is replaced.
 
-1. `dry-run: false` in `opa.yaml`, `failure_mode_allow: false` in `envoy/node2.yaml` (both ext_authz filters; keep the Paladin timeout 3s > 2s).
-2. mTLS for Lensa (Envoy `DownstreamTlsContext`, Lensa client cert via `PaladinConfig.requestConfig`).
-3. NetworkPolicy so `paladin-node2:8548/8549` and `besu-node-validator-2:8545/8546` are reachable only from the
+## Not done (production hardening)
+
+1. mTLS for Lensa (Envoy `DownstreamTlsContext`, Lensa client cert via `PaladinConfig.requestConfig`).
+2. NetworkPolicy so `paladin-node2:8548/8549` and `besu-node-validator-2:8545/8546` are reachable only from the
    gateway, Paladin itself and the operator. Allow the kubelet probe (`tcpSocket 8548`). Note that
    `kubectl port-forward` straight to a pod bypasses NetworkPolicy.
-4. Production: signed bundles from each owner's bundle server (`opa build --signing-key`, `persist: true`).
+3. Production: signed bundles from each owner's bundle server (`opa build --signing-key`, `persist: true`).
