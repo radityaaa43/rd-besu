@@ -1,0 +1,32 @@
+rules:
+  imports:
+    unresolved-reference:
+      # data.json documents, which Regal does not load
+      except-paths:
+        - data.bi.config
+        - data.bi.config.**
+        - data.bank.config
+        - data.bank.config.**
+  style:
+    line-length:
+      ignore:
+        files:
+          - "*_test.rego"
+    external-reference:
+      # the allowed(i) helper reads the fixtures and gw directly
+      ignore:
+        files:
+          - "*_test.rego"
+  performance:
+    with-outside-test-context:
+      # same helper: it is the one place that swaps in the fixture documents
+      ignore:
+        files:
+          - "*_test.rego"
+  idiomatic:
+    directory-package-mismatch:
+      exclude-test-suffix: true
+      # fixtures.rego sits next to the tests it feeds, not in a fixtures/ dir
+      ignore:
+        files:
+          - "fixtures.rego"

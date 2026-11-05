@@ -1,0 +1,68 @@
+# Gateway for Bank A (node2): Envoy + OPA in one pod, next to (not inside) the operator-owned STS.
+# ConfigMaps bank-gw-2-envoy, bank-gw-opa and bank-gw-2-bundles are created from files (see README).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bank-gw-2
+  namespace: paladin
+  labels: {app: bank-gw, node: node2}
+spec:
+  replicas: 1
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+  selector:
+    matchLabels: {app: bank-gw, node: node2}
+  template:
+    metadata:
+      labels: {app: bank-gw, node: node2}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.38.9
+        args: ["-c", "/config/envoy.yaml", "--log-level", "warn"]
+        ports:
+        - {name: paladin, containerPort: 8548}
+        - {name: besu, containerPort: 8545}
+        readinessProbe: {tcpSocket: {port: 8548}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts: [{name: envoy, mountPath: /config, readOnly: true}]
+      - name: opa
+        image: openpolicyagent/opa:1.21.1-envoy-1-static
+        args:
+        - run
+        - --server
+        - --addr=localhost:8181
+        - --diagnostic-addr=0.0.0.0:8282
+        - --authorization=basic
+        - --config-file=/config/opa.yaml
+        - --bundle
+        - /bundles/bi.tar.gz
+        - /bundles/bank.tar.gz
+        readinessProbe: {httpGet: {path: "/health?plugins&bundles", port: 8282}, periodSeconds: 5}
+        livenessProbe: {httpGet: {path: /health, port: 8282}, periodSeconds: 10}
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: opa, mountPath: /config, readOnly: true}
+        - {name: bundles, mountPath: /bundles, readOnly: true}
+      volumes:
+      - {name: envoy, configMap: {name: bank-gw-2-envoy}}
+      - {name: opa, configMap: {name: bank-gw-opa}}
+      - {name: bundles, configMap: {name: bank-gw-2-bundles}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bank-gw-2
+  namespace: paladin
+  labels: {app: bank-gw, node: node2}
+spec:
+  selector: {app: bank-gw, node: node2}
+  ports:
+  - {name: paladin, port: 8548, targetPort: 8548}
+  - {name: besu, port: 8545, targetPort: 8545}

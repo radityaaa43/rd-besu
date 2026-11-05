@@ -1,0 +1,7 @@
+{
+  "counterparties": [
+    "bi@node1",
+    "bankA@node2",
+    "bankB@node3"
+  ]
+}
