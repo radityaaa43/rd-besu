@@ -55,7 +55,36 @@ test_noto_unknown_contract_denied if not allowed(send("node2", object.union(noto
 
 test_noto_deploy_denied if not allowed(send("node1", {"type": "private", "domain": "noto", "from": "bi@node1", "function": "", "data": {}}))
 
-test_noto_burn_denied if not allowed(send("node2", noto(n_rd, "bankA@node2", "burn", {"amount": "1", "data": "0x"})))
+n_burn(contract, from, amount) := noto(contract, from, "burn", {"amount": amount, "data": "0x"})
+
+test_noto_burn_by_bank_denied if not allowed(send("node2", n_burn(n_rd, "bankA@node2", "1")))
+
+test_noto_burn_by_bi_allowed if allowed(send("node1", n_burn(n_rd, "cashIssuer@node1", "5000")))
+
+# No bank rule applies to a burn: it sends nothing out.
+test_noto_burn_by_bi_ignores_bank_rules if {
+	bank := object.union(fixtures.bank_a, {"counterparties": [], "max_per_tx": {"RD": 1}, "daily_limit": {"RD": 1}})
+	with_bank(send("node1", n_burn(n_rd, "cashIssuer@node1", "5000")), bank) with http.send as {"status_code": 500, "body": {}}
+}
+
+test_noto_burn_by_bi_zero_denied if not allowed(send("node1", n_burn(n_rd, "cashIssuer@node1", "0")))
+
+test_noto_burn_by_bi_over_mint_cap_denied if {
+	i := send("node1", n_burn(n_rd, "cashIssuer@node1", "101"))
+	not with_bi(i, object.union(fixtures.bi, {"max_mint_per_tx": {"RD": 100}}))
+	with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "100")), object.union(fixtures.bi, {"max_mint_per_tx": {"RD": 100}}))
+}
+
+test_noto_burn_by_bi_hours_closed_denied if not with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "5")), closed("RD"))
+
+test_noto_burn_unknown_contract_denied if not allowed(send("node1", object.union(n_burn("0x00000000000000000000000000000000000000cc", "cashIssuer@node1", "5"), {"domain": "noto"})))
+
+test_noto_burn_from_other_node_denied if not allowed(send("node1", n_burn(n_rd, "bankA@node2", "5")))
+
+test_noto_transfer_from_and_burn_from_denied if {
+	not allowed(send("node1", noto(n_rd, "cashIssuer@node1", "burnFrom", {"from": "bankA@node2", "amount": "5", "data": "0x"})))
+	not allowed(send("node1", noto(n_rd, "cashIssuer@node1", "transferFrom", {"from": "bankA@node2", "to": "bankB@node3", "amount": "5", "data": "0x"})))
+}
 
 # --- BI: DvP leg (lock, prepareUnlock, delegateLock) and its rollback
 
@@ -107,39 +136,37 @@ test_noto_bank_hours_on_lock_denied if {
 	not with_bank(send("node2", n_lock(n_dfabi, "bankA@node2", "1")), bank)
 }
 
-# --- Daily limit on the Noto rail (asks node2's Paladin for today's Noto txs)
+# --- Daily limit on the Noto rail (one limit per token with Zeto; node2's Paladin is asked for both domains)
 
-noto_query(req) if {
-	req.url == "http://paladin-node2.paladin.svc.cluster.local:8548"
-	q := req.body.params[0]
-	q.eq == [{"field": "domain", "value": "noto"}]
-	q.greaterThan == [{"field": "created", "value": "2026-11-04T17:00:00Z"}]
-}
-
-# 300 out (transfer 200 + prepareUnlock 100); the rollback, the lock, the other token and the mint do not count.
+# 400m out on RD (transfer 300m + prepareUnlock 100m); the rollback, the lock, the other token and the mint do not count.
 noto_rows := [
-	{"function": "transfer(string,uint256,bytes)", "to": n_rd, "data": {"to": "bankB@node3", "amount": "200", "data": "0x"}},
-	{"function": "prepareUnlock(bytes32,string,(string,uint256)[],bytes,bytes)", "to": n_rd, "from": "bankA@node2", "data": {"from": "bankA@node2", "recipients": [{"to": "bankB@node3", "amount": "100"}]}},
-	{"function": "prepareUnlock(bytes32,string,(string,uint256)[],bytes,bytes)", "to": n_rd, "from": "bankA@node2", "data": {"from": "bankA@node2", "recipients": [{"to": "bankA@node2", "amount": "900"}]}},
-	{"function": "lock(uint256,bytes)", "to": n_rd, "data": {"amount": "900"}},
-	{"function": "transfer(string,uint256,bytes)", "to": n_dfabi, "data": {"to": "bankB@node3", "amount": "900", "data": "0x"}},
-	{"function": "mint(string,uint256,bytes)", "to": n_rd, "data": {"to": "bankA@node2", "amount": "900", "data": "0x"}},
+	{"function": "transfer(string,uint256,bytes)", "to": n_rd, "data": {"to": "bankB@node3", "amount": "300000000", "data": "0x"}},
+	{"function": "prepareUnlock(bytes32,string,(string,uint256)[],bytes,bytes)", "to": n_rd, "from": "bankA@node2", "data": {"from": "bankA@node2", "recipients": [{"to": "bankB@node3", "amount": "100000000"}]}},
+	{"function": "prepareUnlock(bytes32,string,(string,uint256)[],bytes,bytes)", "to": n_rd, "from": "bankA@node2", "data": {"from": "bankA@node2", "recipients": [{"to": "bankA@node2", "amount": "9000000000"}]}},
+	{"function": "lock(uint256,bytes)", "to": n_rd, "data": {"amount": "9000000000"}},
+	{"function": "transfer(string,uint256,bytes)", "to": n_dfabi, "data": {"to": "bankB@node3", "amount": "9000000000", "data": "0x"}},
+	{"function": "mint(string,uint256,bytes)", "to": n_rd, "data": {"to": "bankA@node2", "amount": "9000000000", "data": "0x"}},
 ]
 
-mock_noto(req) := paladin_reply(noto_rows) if noto_query(req)
-
+# Zeto used 4.5bn (daily_test.rego) + Noto 400m = 4.9bn of 5bn.
 noto_daily(i) if {
 	gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 400}})
+		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 5000000000}})
 		with time.now_ns as now_ns
-		with http.send as mock_noto
 }
 
-test_noto_daily_within_allowed if noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100")))
+test_noto_daily_within_allowed if noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000000"))) with http.send as mock_both
 
-test_noto_daily_over_denied if not noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "101")))
+test_noto_daily_over_denied if not noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_both
 
-test_noto_daily_prepare_over_denied if not noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "101")))
+test_noto_daily_prepare_over_denied if not noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_both
 
-test_noto_daily_rollback_not_gated if noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "5000")))
+# Zeto spend alone leaves room for 500m; with the Noto spend counted it does not.
+test_noto_daily_counts_zeto_spend if {
+	i := send("node2", n_transfer("bankA@node2", "bankB@node3", "500000000"))
+	noto_daily(i) with http.send as mock_used
+	not noto_daily(i) with http.send as mock_both
+}
+
+test_noto_daily_rollback_not_gated if noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "5000000000"))) with http.send as mock_both

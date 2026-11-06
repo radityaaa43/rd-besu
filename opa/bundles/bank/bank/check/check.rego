@@ -98,7 +98,7 @@ errors contains $"Limit per transaksi {t}: tidak boleh lebih longgar dari batas 
 	some t in tokens
 	v := data.bank.config.max_per_tx[t]
 	pos_int(v)
-	v > data.bi.config.zeto.max_per_tx[t]
+	v > data.bi.config.max_per_tx[t]
 }
 
 errors contains $"Jam {t}: hari harus 1 (Senin) sampai 7 (Minggu)" if {

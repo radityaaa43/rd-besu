@@ -31,25 +31,25 @@ test_seed_documents_valid if {
 # BI document
 
 test_bi_amount_not_positive_integer if {
-	bi_errors({"zeto": {"max_per_tx": {"RD": 0}}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
-	bi_errors({"zeto": {"max_per_tx": {"DFABI": -5}}}) == {"Limit per transaksi DFABI: harus bilangan bulat positif"}
-	bi_errors({"zeto": {"max_per_tx": {"RD": 1.5}}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
-	bi_errors({"zeto": {"max_per_tx": {"RD": "100"}}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
-	bi_errors({"zeto": {"max_mint_per_tx": {"DFABI": 0}}}) == {"Limit penerbitan DFABI: harus bilangan bulat positif"}
+	bi_errors({"max_per_tx": {"RD": 0}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
+	bi_errors({"max_per_tx": {"DFABI": -5}}) == {"Limit per transaksi DFABI: harus bilangan bulat positif"}
+	bi_errors({"max_per_tx": {"RD": 1.5}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
+	bi_errors({"max_per_tx": {"RD": "100"}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
+	bi_errors({"max_mint_per_tx": {"DFABI": 0}}) == {"Limit penerbitan DFABI: harus bilangan bulat positif"}
 }
 
 test_bi_amount_missing if {
-	bi_errors_without(["zeto/max_mint_per_tx/RD"]) == {"Limit penerbitan RD: harus bilangan bulat positif"}
-	bi_errors_without(["zeto/max_per_tx"]) == {
+	bi_errors_without(["max_mint_per_tx/RD"]) == {"Limit penerbitan RD: harus bilangan bulat positif"}
+	bi_errors_without(["max_per_tx"]) == {
 		"Limit per transaksi RD: harus bilangan bulat positif",
 		"Limit per transaksi DFABI: harus bilangan bulat positif",
 	}
 }
 
 test_bi_amount_too_large if {
-	bi_errors({"zeto": {"max_per_tx": {"RD": 1000000000000001}}}) == {"Limit per transaksi RD: melebihi 1.000.000.000.000.000"}
-	bi_errors({"zeto": {"max_mint_per_tx": {"RD": 1000000000000001}}}) == {"Limit penerbitan RD: melebihi 1.000.000.000.000.000"}
-	count(bi_errors({"zeto": {"max_per_tx": {"RD": 1000000000000000}}})) == 0
+	bi_errors({"max_per_tx": {"RD": 1000000000000001}}) == {"Limit per transaksi RD: melebihi 1.000.000.000.000.000"}
+	bi_errors({"max_mint_per_tx": {"RD": 1000000000000001}}) == {"Limit penerbitan RD: melebihi 1.000.000.000.000.000"}
+	count(bi_errors({"max_per_tx": {"RD": 1000000000000000}})) == 0
 }
 
 test_bi_hours_format if {

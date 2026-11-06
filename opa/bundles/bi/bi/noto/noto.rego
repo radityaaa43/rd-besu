@@ -1,6 +1,6 @@
 # BI rules for Noto txs (shapes from paladin-sdk domains/noto.js and bond/src/lib/outright.ts). Same per-token
-# policy as Zeto (one RD and one DFABI policy, both rails): caps from data.bi.config.zeto, hours, frozen.
-# Mint and transfer send {to, amount}; a DvP leg is lock {amount} then prepareUnlock {recipients}, so the lock is
+# policy as Zeto (one RD and one DFABI policy, both rails): caps from data.bi.config, hours, frozen.
+# Mint and transfer send {to, amount}; burn sends {amount} (issuer node only); a DvP leg is lock {amount} then prepareUnlock {recipients}, so the lock is
 # capped and the recipients are checked at prepareUnlock. Lock and prepareUnlock need both tokens open.
 # Finishing or unwinding a DvP is never blocked: delegateLock, and a prepareUnlock that only returns the lock to
 # its owner (the rollback in outright.ts).
@@ -15,7 +15,7 @@ node := data.bi.config.nodes[input.attributes.contextExtensions.node]
 
 token := data.bi.config.noto.contracts[lower(tx.to)]
 
-caps := data.bi.config.zeto
+caps := data.bi.config
 
 single := [{"to": tx.data.to, "amount": tx.data.amount}]
 
@@ -36,6 +36,16 @@ allow if {
 	outputs_ok(single)
 	frozen_ok(single)
 	within_limit(single, caps.max_per_tx[token])
+}
+
+# Burn: the issuer node destroys its own holdings (tx.from is checked against the node in bi.paladin). Same cap as mint.
+allow if {
+	tx.function == "burn"
+	node.issuer
+	token
+	clock.token_open(token)
+	to_number(tx.data.amount) > 0
+	to_number(tx.data.amount) <= caps.max_mint_per_tx[token]
 }
 
 allow if {

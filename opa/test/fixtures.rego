@@ -44,18 +44,18 @@ bi := {
 		"bankB@node3",
 		"bankC@node4",
 	],
+	"max_per_tx": {
+		"RD": 1000000000,
+		"DFABI": 1000,
+	},
+	"max_mint_per_tx": {
+		"RD": 1000000000000000,
+		"DFABI": 1000000000000000,
+	},
 	"zeto": {
 		"contracts": {
 			"0xdef2e64a415fd95e5b2c9fa1d7bdbc1792c410a1": "RD",
 			"0x2ecc2fe5ff44b850b99607599abc3f6a23e223dc": "DFABI",
-		},
-		"max_per_tx": {
-			"RD": 1000000000,
-			"DFABI": 1000,
-		},
-		"max_mint_per_tx": {
-			"RD": 1000000000000000,
-			"DFABI": 1000000000000000,
 		},
 	},
 	"noto": {"contracts": {

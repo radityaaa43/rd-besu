@@ -1,4 +1,5 @@
-# Daily limit of the bank bundle: the gateway asks its own Paladin node (http.send, mocked here) for today's outgoing total.
+# Daily limit of the bank bundle: one limit per token for Zeto and Noto together. The gateway asks its own Paladin node
+# (http.send, mocked here) for today's outgoing total, once per domain.
 package gw_test
 
 import data.fixtures
@@ -20,8 +21,8 @@ lock_row(contract, amounts) := {
 
 xfer := "transfer((string,uint256,bytes)[])"
 
-# Answers only the expected query (node2's Paladin, the day start, zeto, no `from` filter); anything else is undefined.
-expected_query(req) if {
+# Answers only the expected queries (node2's Paladin, the day start, one domain, no `from` filter); anything else is undefined.
+expected_query(req, domain) if {
 	req.url == "http://paladin-node2.paladin.svc.cluster.local:8548"
 	req.method == "POST"
 	req.timeout == "2s"
@@ -30,16 +31,41 @@ expected_query(req) if {
 	req.body.method == "ptx_queryTransactionsFull"
 	q := req.body.params[0]
 	q.limit == 1000
-	q.eq == [{"field": "domain", "value": "zeto"}]
+	q.eq == [{"field": "domain", "value": domain}]
 	q.greaterThan == [{"field": "created", "value": "2026-11-04T17:00:00Z"}]
 }
 
-# One mock per row set, applied at the call site (`with http.send as mock_used`).
-mock_used(req) := paladin_reply(used_rows) if expected_query(req)
+# One mock per row set, applied at the call site (`with http.send as mock_used`). Each answers both domains.
+mock_used(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
 
-mock_page(req) := paladin_reply([row(xfer, rd, ["1"]) | some _ in numbers.range(1, 1000)]) if expected_query(req)
+mock_used(req) := paladin_reply([]) if expected_query(req, "noto")
 
-mock_almost_page(req) := paladin_reply([row(xfer, rd, ["1"]) | some _ in numbers.range(1, 999)]) if expected_query(req)
+# Zeto spend as above plus 400m out on Noto (noto_rows in noto_test.rego).
+mock_both(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
+
+mock_both(req) := paladin_reply(noto_rows) if expected_query(req, "noto")
+
+mock_noto_down(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
+
+mock_noto_down(req) := {"status_code": 500, "body": {"result": []}} if expected_query(req, "noto")
+
+mock_zeto_down(req) := {"status_code": 0, "error": {"code": "eof", "message": "connection refused"}} if expected_query(req, "zeto")
+
+mock_zeto_down(req) := paladin_reply([]) if expected_query(req, "noto")
+
+full_page := [row(xfer, rd, ["1"]) | some _ in numbers.range(1, 1000)]
+
+mock_page(req) := paladin_reply(full_page) if expected_query(req, "zeto")
+
+mock_page(req) := paladin_reply([]) if expected_query(req, "noto")
+
+mock_noto_page(req) := paladin_reply([]) if expected_query(req, "zeto")
+
+mock_noto_page(req) := paladin_reply(full_page) if expected_query(req, "noto")
+
+mock_almost_page(req) := paladin_reply([row(xfer, rd, ["1"]) | some _ in numbers.range(1, 999)]) if expected_query(req, "zeto")
+
+mock_almost_page(req) := paladin_reply([]) if expected_query(req, "noto")
 
 with_daily(i, limit) if {
 	gw.allow with input as i
@@ -107,7 +133,22 @@ test_daily_limit_rpc_error_denied if {
 test_daily_limit_full_page_denied if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not with_daily(i, 5000000000) with http.send as mock_page
+	not with_daily(i, 5000000000) with http.send as mock_noto_page
 	with_daily(i, 5000000000) with http.send as mock_almost_page
+}
+
+# Either query failing denies, even when the other answered.
+test_daily_limit_one_query_down_denied if {
+	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
+	not with_daily(i, 5000000000) with http.send as mock_noto_down
+	not with_daily(i, 5000000000) with http.send as mock_zeto_down
+}
+
+# Zeto and Noto spend of the same token add up: 4.5bn on Zeto + 400m on Noto = 4.9bn.
+test_daily_limit_counts_both_rails if {
+	not with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 200000000)), 5000000000) with http.send as mock_both
+	with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 100000000)), 5000000000) with http.send as mock_both
+	with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 200000000)), 5000000000) with http.send as mock_used
 }
 
 # The bank has no daily limit for RD: Paladin is not asked (the mock would fail the request if it were).

@@ -327,7 +327,7 @@ test_frozen_sender_cancel_lock_allowed if {
 test_mint_over_cap_denied if {
 	mint := {"mints": [{"to": "bankA@node2", "amount": 101}]}
 	i := send("node1", zeto(rd, "bi@node1", "mint", mint))
-	cap := {"zeto": object.union(fixtures.bi.zeto, {"max_mint_per_tx": {"RD": 100, "DFABI": 100}})}
+	cap := {"max_mint_per_tx": {"RD": 100, "DFABI": 100}}
 	not with_bi(i, cap)
 	with_bi(send("node1", zeto(rd, "bi@node1", "mint", {"mints": [{"to": "bankA@node2", "amount": 100}]})), cap)
 }

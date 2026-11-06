@@ -23,7 +23,7 @@ allow if {
 	clock.token_open(token)
 	outputs_ok(tx.data.mints)
 	frozen_ok(tx.data.mints)
-	within_limit(tx.data.mints, data.bi.config.zeto.max_mint_per_tx[token])
+	within_limit(tx.data.mints, data.bi.config.max_mint_per_tx[token])
 }
 
 allow if {
@@ -31,7 +31,7 @@ allow if {
 	clock.token_open(token)
 	outputs_ok(tx.data.transfers)
 	frozen_ok(tx.data.transfers)
-	within_limit(tx.data.transfers, data.bi.config.zeto.max_per_tx[token])
+	within_limit(tx.data.transfers, data.bi.config.max_per_tx[token])
 }
 
 allow if {
@@ -40,7 +40,7 @@ allow if {
 	clock.token_open("DFABI")
 	outputs_ok(tx.data.recipients)
 	frozen_ok(tx.data.recipients)
-	within_limit(tx.data.recipients, data.bi.config.zeto.max_per_tx[token])
+	within_limit(tx.data.recipients, data.bi.config.max_per_tx[token])
 }
 
 # Finishing or unwinding a DvP is never blocked by hours. The amounts were checked when the lock was created.

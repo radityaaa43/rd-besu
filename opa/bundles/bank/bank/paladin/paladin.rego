@@ -2,8 +2,8 @@
 # (compared by node, so every identity on a counterparty's node counts),
 # when the bank sets hours for a token, mint/transfer/createLock only fall inside them, and when it sets
 # max_per_tx for a token, the sum of a transfer's or lock's outputs stays under it (BI's cap applies too).
-# When it sets daily_limit for a token, today's outgoing total (from its own Paladin node) plus the request stays
-# under it.
+# When it sets daily_limit for a token, today's outgoing total (Zeto and Noto together, from its own Paladin node)
+# plus the request stays under it.
 package bank.paladin
 
 import data.bank.ident
@@ -121,20 +121,16 @@ allow := false if {
 
 allow := false if sum([to_number(o.amount) | some o in noto_outs]) > data.bank.config.max_per_tx[noto_token]
 
-# Daily limit (spec 6.3), per rail: the query asks only for the request's domain. OPA keeps no state and Zeto hides
-# amounts on chain, so the gateway asks its own Paladin
-# node for today's transactions (a node returns only the ones it submitted, any identity of the bank counts).
-# Fails closed: no answer, non-200, a JSON-RPC error, or a full page means deny. Counted on submit, no lock:
-# two requests in the same instant can both pass.
+# Daily limit (spec 6.3), one limit per token for both rails: Zeto and Noto spend of the same token add up.
+# OPA keeps no state and Zeto hides amounts on chain, so the gateway asks its own Paladin node for today's
+# transactions, one query per domain (a node returns only the ones it submitted, any identity of the bank counts).
+# Fails closed: for either query, no answer, non-200, a JSON-RPC error, or a full page means deny. Counted on
+# submit, no lock: two requests in the same instant can both pass.
 daily_page := 1000
 
 daily_token := data.bi.config.zeto.contracts[lower(tx.to)]
 
 daily_token := noto_token
-
-daily_domain := "zeto" if is_zeto
-
-daily_domain := "noto" if noto_token
 
 # Only a bank with a limit for the request's token queries Paladin.
 daily_gated if {
@@ -154,13 +150,13 @@ midnight_wib_ns := time.parse_ns("2006-01-02", data.bi.clock.today) - 2520000000
 
 day_start := time.format([midnight_wib_ns, "UTC", "2006-01-02T15:04:05Z"])
 
-daily_query := {
+daily_query(domain) := {
 	"method": "POST",
 	"url": data.bi.config.nodes[input.attributes.contextExtensions.node].paladin_url,
 	"headers": {"content-type": "application/json"},
 	"body": {"jsonrpc": "2.0", "id": 1, "method": "ptx_queryTransactionsFull", "params": [{
 		"limit": daily_page,
-		"eq": [{"field": "domain", "value": daily_domain}],
+		"eq": [{"field": "domain", "value": domain}],
 		"greaterThan": [{"field": "created", "value": day_start}],
 	}]},
 	"timeout": "2s",
@@ -168,13 +164,15 @@ daily_query := {
 	"raise_error": false,
 }
 
-# Complete rule, so http.send runs once per request. Undefined when the answer cannot be trusted.
-daily_rows := resp.body.result if {
-	resp := http.send(daily_query)
+# Undefined when the answer cannot be trusted. daily_rows is a complete rule, so each query runs once per request.
+domain_rows(domain) := resp.body.result if {
+	resp := http.send(daily_query(domain))
 	resp.status_code == 200
 	is_array(resp.body.result)
 	count(resp.body.result) < daily_page
 }
+
+daily_rows := array.concat(domain_rows("zeto"), domain_rows("noto"))
 
 daily_used := (sum([to_number(o.amount) |
 	some r in daily_rows

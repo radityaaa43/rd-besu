@@ -35,7 +35,7 @@ amounts[name] := v if {
 		{"key": "max_mint_per_tx", "label": "Limit penerbitan"},
 	]
 	name := $"{spec.label} {t}"
-	v := object.get(data.bi.config, ["zeto", spec.key, t], null)
+	v := object.get(data.bi.config, [spec.key, t], null)
 }
 
 # Hours: a missing day list, open or close is closed at runtime, so it is an error here.
