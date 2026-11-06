@@ -286,6 +286,34 @@ Rollback: remove `LENSA_GW_MTLS_DIR` from `lensa.env`; for N in 1..4 re-create `
 Not covered: the client cert is not bound to a party (one `lensa` cert for all four doors: it proves "this is Lensa", not
 "this is bank A"); cert rotation needs the rollout restart (Envoy reads files at start).
 
+## Redeploying Noto (runbook)
+
+Only for a Noto redeploy (new chain or new contracts). A full `npm run bootstrap noto` cannot finish through the
+gateways: its deploys pass on node1 (`bi.notosetup`), but the same run then mints, distributes, runs a DvP and the banks'
+purchase demo (each investor node creates its investor-custodian group and deploys `BondSubscription`) against
+contracts and groups the live bundle does not know yet. There is deliberately no two-phase bootstrap; the redeploy goes
+around the gateways instead. That is an operator bypass: do it only with the user's explicit approval, each time, and
+announce the window to the lead (no policy publish meanwhile).
+
+1. Stop Lensa's Paladin forwards: `systemctl --user stop lensa-pf@paladin-node{1,2,3,4}` (Lensa's Paladin models are
+   down until step 5).
+2. Forward each node directly on the same local ports (a kubelet port-forward; the NetworkPolicy does not apply):
+   `kubectl -n paladin port-forward pod/paladin-node1-0 31548:8548`, node2 `31648`, node3 `31748`, node4 `31848`.
+3. In `frontend/server`: `npm run bootstrap noto -- --force`, without `LENSA_GW_MTLS_DIR` (plain http to the direct
+   forwards). It writes `state/noto.json` and the new contract-data file, and rewrites `bundles/bi/bi/config/data.json`
+   (`noto.contracts`, `pente.groups`, the Noto atom factory).
+4. Stop the direct forwards.
+5. Start the Lensa forwards again: `systemctl --user start lensa-pf@paladin-node{1,2,3,4}`.
+6. Commit `data.json` before anything else: the Publisher ships the main checkout's working tree.
+7. Restart Lensa, so it loads the new contract data.
+8. BI republishes the Noto policy. A change with no effect is enough, e.g. a dummy holiday, then restore it. This puts
+   the new addresses into the bundles of bank-gw-1..4.
+9. Verify, then report to the lead:
+   - Lensa's Noto health is ready, with no missing-address message.
+   - The sink shows the new `bi-…` revision on bank-gw-1..4.
+   - Over mTLS on `:31648`, a Noto transfer probe to the new RD contract is allowed, and one to the old address is denied.
+   - One Noto transfer through Lensa succeeds.
+
 ## Not done (production hardening)
 
 1. The public ingress still bypasses the gateway until `k8s/ingress-via-gateway.yaml` is applied (decision above).
