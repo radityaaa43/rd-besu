@@ -1,7 +1,33 @@
 # Test documents for gw/allow: what the Lensa server would build from bundles/bi/bi/config/data.json plus
-# seeds/bi.json (the structural keys are copied from data.json, the limits, hours, holidays and frozen from the
+# seeds/bi.json (the structural keys are copied from data.json, the policy documents, one per platform, from the
 # seed). Kept in the test dir so tests do not depend on live values.
 package fixtures
+
+# One BI document per platform, with today's values for both.
+bi_doc := {
+	"max_per_tx": {
+		"RD": 1000000000,
+		"DFABI": 1000,
+	},
+	"max_mint_per_tx": {
+		"RD": 1000000000000000,
+		"DFABI": 1000000000000000,
+	},
+	"hours": {
+		"RD": {
+			"days": [1, 2, 3, 4, 5, 6, 7],
+			"open": "00:00",
+			"close": "24:00",
+		},
+		"DFABI": {
+			"days": [1, 2, 3, 4, 5, 6, 7],
+			"open": "00:00",
+			"close": "24:00",
+		},
+	},
+	"holidays": [],
+	"frozen": [],
+}
 
 bi := {
 	"nodes": {
@@ -44,14 +70,6 @@ bi := {
 		"bankB@node3",
 		"bankC@node4",
 	],
-	"max_per_tx": {
-		"RD": 1000000000,
-		"DFABI": 1000,
-	},
-	"max_mint_per_tx": {
-		"RD": 1000000000000000,
-		"DFABI": 1000000000000000,
-	},
 	"zeto": {
 		"contracts": {
 			"0xdef2e64a415fd95e5b2c9fa1d7bdbc1792c410a1": "RD",
@@ -157,42 +175,24 @@ bi := {
 			"web3_clientVersion",
 		],
 	},
-	"hours": {
-		"RD": {
-			"days": [
-				1,
-				2,
-				3,
-				4,
-				5,
-				6,
-				7,
-			],
-			"open": "00:00",
-			"close": "24:00",
-		},
-		"DFABI": {
-			"days": [
-				1,
-				2,
-				3,
-				4,
-				5,
-				6,
-				7,
-			],
-			"open": "00:00",
-			"close": "24:00",
-		},
+	"policy": {
+		"zeto": bi_doc,
+		"noto": bi_doc,
 	},
-	"holidays": [],
-	"frozen": [],
 }
 
-bank_a := {
-	"counterparties": [
-		"bi@node1",
-		"bankB@node3",
-		"bankC@node4",
-	],
-}
+bank_doc := {"counterparties": [
+	"bi@node1",
+	"bankB@node3",
+	"bankC@node4",
+]}
+
+bank_a := {"policy": {
+	"zeto": bank_doc,
+	"noto": bank_doc,
+}}
+
+# The fixture with one platform's document merged with a patch (arrays and scalars are replaced, objects merged).
+bi_with(platform, patch) := object.union(bi, {"policy": {platform: patch}})
+
+bank_with(platform, patch) := object.union(bank_a, {"policy": {platform: patch}})

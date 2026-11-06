@@ -1,9 +1,11 @@
-# Bank A's own rules, on top of BI's, for Zeto and Noto alike: outputs (transfers and DvP locks) go only to its counterparties
+# Bank A's own rules, on top of BI's, for Zeto and Noto alike. Each platform has its own bank document
+# (data.bank.config.policy.zeto or .noto), picked by the request's platform. Outputs (transfers and DvP locks) go
+# only to its counterparties
 # (compared by node, so every identity on a counterparty's node counts),
 # when the bank sets hours for a token, mint/transfer/createLock only fall inside them, and when it sets
 # max_per_tx for a token, the sum of a transfer's or lock's outputs stays under it (BI's cap applies too).
-# When it sets daily_limit for a token, today's outgoing total (Zeto and Noto together, from its own Paladin node)
-# plus the request stays under it.
+# When it sets daily_limit for a token, today's outgoing total on the request's platform (from its own Paladin
+# node) plus the request stays under it.
 package bank.paladin
 
 import data.bank.ident
@@ -34,6 +36,13 @@ noto_outs := tx.data.recipients if {
 	tx.function == "prepareUnlock"
 	not returns_lock(tx)
 }
+
+# The bank's document for the request's platform. Undefined for any other request, which these rules do not touch.
+platform := "zeto" if is_zeto
+
+platform := "noto" if noto_token
+
+policy := data.bank.config.policy[platform]
 
 returns_lock(t) if {
 	count(t.data.recipients) > 0
@@ -83,7 +92,7 @@ gated_tokens contains token if {
 	some token in ["RD", "DFABI"]
 }
 
-counterparty_nodes contains ident.node_of(c) if some c in data.bank.config.counterparties
+counterparty_nodes contains ident.node_of(c) if some c in policy.counterparties
 
 counterparty(id) if ident.node_of(id) in counterparty_nodes
 
@@ -96,7 +105,7 @@ allow := false if {
 
 allow := false if {
 	some t in gated_tokens
-	hours := data.bank.config.hours[t]
+	hours := policy.hours[t]
 	not bank_window_open(hours)
 }
 
@@ -107,7 +116,7 @@ allow := false if {
 
 allow := false if {
 	daily_gated
-	daily_used + daily_request > data.bank.config.daily_limit[daily_token]
+	daily_used + daily_request > policy.daily_limit[daily_token]
 }
 
 # The token comes from BI's contract map (data, not a function call, so this bundle builds alone).
@@ -115,17 +124,17 @@ allow := false if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
 	is_zeto
 	field := {"transfer": "transfers", "createLock": "recipients"}[tx.function]
-	cap := data.bank.config.max_per_tx[data.bi.config.zeto.contracts[lower(tx.to)]]
+	cap := policy.max_per_tx[data.bi.config.zeto.contracts[lower(tx.to)]]
 	sum([to_number(o.amount) | some o in tx.data[field]]) > cap
 }
 
-allow := false if sum([to_number(o.amount) | some o in noto_outs]) > data.bank.config.max_per_tx[noto_token]
+allow := false if sum([to_number(o.amount) | some o in noto_outs]) > policy.max_per_tx[noto_token]
 
-# Daily limit (spec 6.3), one limit per token for both rails: Zeto and Noto spend of the same token add up.
-# OPA keeps no state and Zeto hides amounts on chain, so the gateway asks its own Paladin node for today's
-# transactions, one query per domain (a node returns only the ones it submitted, any identity of the bank counts).
-# Fails closed: for either query, no answer, non-200, a JSON-RPC error, or a full page means deny. Counted on
-# submit, no lock: two requests in the same instant can both pass.
+# Daily limit (spec 6.3), per platform: the query asks only for the request's domain, and only that platform's
+# contracts are summed. OPA keeps no state and Zeto hides amounts on chain, so the gateway asks its own Paladin
+# node for today's transactions (a node returns only the ones it submitted, any identity of the bank counts).
+# Fails closed: no answer, non-200, a JSON-RPC error, or a full page means deny. Counted on submit, no lock:
+# two requests in the same instant can both pass.
 daily_page := 1000
 
 daily_token := data.bi.config.zeto.contracts[lower(tx.to)]
@@ -137,12 +146,12 @@ daily_gated if {
 	input.parsed_body.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
 	is_zeto
 	tx.function in {"transfer", "createLock"}
-	data.bank.config.daily_limit[daily_token]
+	policy.daily_limit[daily_token]
 }
 
 daily_gated if {
 	count(noto_outs) > 0
-	data.bank.config.daily_limit[noto_token]
+	policy.daily_limit[noto_token]
 }
 
 # Today 00:00 WIB as UTC (WIB is UTC+7, no DST): "2026-11-05" -> "2026-11-04T17:00:00Z". BI's clock is read as data.
@@ -164,33 +173,34 @@ daily_query(domain) := {
 	"raise_error": false,
 }
 
-# Undefined when the answer cannot be trusted. daily_rows is a complete rule, so each query runs once per request.
-domain_rows(domain) := resp.body.result if {
-	resp := http.send(daily_query(domain))
+# Undefined when the answer cannot be trusted. Complete rule, so http.send runs once per request.
+daily_rows := resp.body.result if {
+	resp := http.send(daily_query(platform))
 	resp.status_code == 200
 	is_array(resp.body.result)
 	count(resp.body.result) < daily_page
 }
 
-daily_rows := array.concat(domain_rows("zeto"), domain_rows("noto"))
-
-daily_used := (sum([to_number(o.amount) |
+daily_used := sum([to_number(o.amount) |
 	some r in daily_rows
 	split(r.function, "(")[0] in {"transfer", "createLock"}
 	data.bi.config.zeto.contracts[lower(r.to)] == daily_token
 	some field in ["transfers", "recipients"]
 	some o in r.data[field]
-]) + sum([to_number(r.data.amount) |
+]) if platform == "zeto"
+
+# Noto: a transfer, plus the recipients of a prepareUnlock unless it only returns the lock to its owner (rollback).
+daily_used := sum([to_number(r.data.amount) |
 	some r in daily_rows
 	split(r.function, "(")[0] == "transfer"
 	data.bi.config.noto.contracts[lower(r.to)] == daily_token
-])) + sum([to_number(o.amount) |
+]) + sum([to_number(o.amount) |
 	some r in daily_rows
 	split(r.function, "(")[0] == "prepareUnlock"
 	data.bi.config.noto.contracts[lower(r.to)] == daily_token
 	not returns_lock(r)
 	some o in r.data.recipients
-])
+]) if platform == "noto"
 
 daily_request := sum([to_number(o.amount) |
 	is_zeto

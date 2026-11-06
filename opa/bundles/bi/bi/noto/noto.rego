@@ -1,5 +1,5 @@
-# BI rules for Noto txs (shapes from paladin-sdk domains/noto.js and bond/src/lib/outright.ts). Same per-token
-# policy as Zeto (one RD and one DFABI policy, both rails): caps from data.bi.config, hours, frozen.
+# BI rules for Noto txs (shapes from paladin-sdk domains/noto.js and bond/src/lib/outright.ts). Its own per-token
+# policy (data.bi.config.policy.noto), independent of Zeto's: caps, hours, holidays, frozen.
 # Mint and transfer send {to, amount}; burn sends {amount} (issuer node only); a DvP leg is lock {amount} then prepareUnlock {recipients}, so the lock is
 # capped and the recipients are checked at prepareUnlock. Lock and prepareUnlock need both tokens open.
 # Finishing or unwinding a DvP is never blocked: delegateLock, and a prepareUnlock that only returns the lock to
@@ -15,7 +15,7 @@ node := data.bi.config.nodes[input.attributes.contextExtensions.node]
 
 token := data.bi.config.noto.contracts[lower(tx.to)]
 
-caps := data.bi.config
+caps := data.bi.config.policy.noto
 
 single := [{"to": tx.data.to, "amount": tx.data.amount}]
 
@@ -24,7 +24,7 @@ default allow := false
 allow if {
 	tx.function == "mint"
 	node.issuer
-	clock.token_open(token)
+	clock.token_open("noto", token)
 	outputs_ok(single)
 	frozen_ok(single)
 	within_limit(single, caps.max_mint_per_tx[token])
@@ -32,7 +32,7 @@ allow if {
 
 allow if {
 	tx.function == "transfer"
-	clock.token_open(token)
+	clock.token_open("noto", token)
 	outputs_ok(single)
 	frozen_ok(single)
 	within_limit(single, caps.max_per_tx[token])
@@ -43,15 +43,15 @@ allow if {
 	tx.function == "burn"
 	node.issuer
 	token
-	clock.token_open(token)
+	clock.token_open("noto", token)
 	to_number(tx.data.amount) > 0
 	to_number(tx.data.amount) <= caps.max_mint_per_tx[token]
 }
 
 allow if {
 	tx.function == "lock"
-	clock.token_open("RD")
-	clock.token_open("DFABI")
+	clock.token_open("noto", "RD")
+	clock.token_open("noto", "DFABI")
 	to_number(tx.data.amount) > 0
 	frozen_ok([])
 	to_number(tx.data.amount) <= caps.max_per_tx[token]
@@ -60,8 +60,8 @@ allow if {
 allow if {
 	tx.function == "prepareUnlock"
 	not to_self
-	clock.token_open("RD")
-	clock.token_open("DFABI")
+	clock.token_open("noto", "RD")
+	clock.token_open("noto", "DFABI")
 	outputs_ok(tx.data.recipients)
 	frozen_ok(tx.data.recipients)
 	within_limit(tx.data.recipients, caps.max_per_tx[token])
@@ -98,7 +98,7 @@ outputs_ok(outs) if {
 # No recipient's node is frozen, and neither is the requesting node.
 frozen_ok(outs) if {
 	own := input.attributes.contextExtensions.node
-	count(ident.frozen_nodes & ({ident.node_of(o.to) | some o in outs} | {own})) == 0
+	count(ident.frozen_nodes("noto") & ({ident.node_of(o.to) | some o in outs} | {own})) == 0
 }
 
 within_limit(outs, cap) if sum([to_number(o.amount) | some o in outs]) <= cap

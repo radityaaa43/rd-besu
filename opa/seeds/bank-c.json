@@ -1,7 +1,16 @@
 {
-  "counterparties": [
-    "bi@node1",
-    "bankA@node2",
-    "bankB@node3"
-  ]
+  "zeto": {
+    "counterparties": [
+      "bi@node1",
+      "bankA@node2",
+      "bankB@node3"
+    ]
+  },
+  "noto": {
+    "counterparties": [
+      "bi@node1",
+      "bankA@node2",
+      "bankB@node3"
+    ]
+  }
 }

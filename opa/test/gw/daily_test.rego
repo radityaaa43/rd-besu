@@ -1,5 +1,5 @@
-# Daily limit of the bank bundle: one limit per token for Zeto and Noto together. The gateway asks its own Paladin node
-# (http.send, mocked here) for today's outgoing total, once per domain.
+# Daily limit of the bank bundle, per platform: a request is counted against its own platform's document and spend only.
+# The gateway asks its own Paladin node (http.send, mocked here) for today's outgoing total, for the request's domain only.
 package gw_test
 
 import data.fixtures
@@ -21,7 +21,7 @@ lock_row(contract, amounts) := {
 
 xfer := "transfer((string,uint256,bytes)[])"
 
-# Answers only the expected queries (node2's Paladin, the day start, one domain, no `from` filter); anything else is undefined.
+# Answers only the expected queries (node2's Paladin, the day start, the request's domain, no `from` filter); anything else is undefined.
 expected_query(req, domain) if {
 	req.url == "http://paladin-node2.paladin.svc.cluster.local:8548"
 	req.method == "POST"
@@ -35,15 +35,16 @@ expected_query(req, domain) if {
 	q.greaterThan == [{"field": "created", "value": "2026-11-04T17:00:00Z"}]
 }
 
-# One mock per row set, applied at the call site (`with http.send as mock_used`). Each answers both domains.
+# One mock per row set, applied at the call site (`with http.send as mock_used`). A mock answers only the domains it
+# names; the other domain is undefined, so a request that asked for it would be denied.
 mock_used(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
 
-mock_used(req) := paladin_reply([]) if expected_query(req, "noto")
+mock_noto_used(req) := paladin_reply(noto_rows) if expected_query(req, "noto")
 
-# Zeto spend as above plus 400m out on Noto (noto_rows in noto_test.rego).
-mock_both(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
+# Zeto spend as above and 400m out on Noto (noto_rows in noto_test.rego), each on its own domain.
+mock_both(req) := mock_used(req)
 
-mock_both(req) := paladin_reply(noto_rows) if expected_query(req, "noto")
+mock_both(req) := mock_noto_used(req)
 
 mock_noto_down(req) := paladin_reply(used_rows) if expected_query(req, "zeto")
 
@@ -51,26 +52,18 @@ mock_noto_down(req) := {"status_code": 500, "body": {"result": []}} if expected_
 
 mock_zeto_down(req) := {"status_code": 0, "error": {"code": "eof", "message": "connection refused"}} if expected_query(req, "zeto")
 
-mock_zeto_down(req) := paladin_reply([]) if expected_query(req, "noto")
+mock_zeto_down(req) := paladin_reply(noto_rows) if expected_query(req, "noto")
 
 full_page := [row(xfer, rd, ["1"]) | some _ in numbers.range(1, 1000)]
 
 mock_page(req) := paladin_reply(full_page) if expected_query(req, "zeto")
 
-mock_page(req) := paladin_reply([]) if expected_query(req, "noto")
-
-mock_noto_page(req) := paladin_reply([]) if expected_query(req, "zeto")
-
-mock_noto_page(req) := paladin_reply(full_page) if expected_query(req, "noto")
-
 mock_almost_page(req) := paladin_reply([row(xfer, rd, ["1"]) | some _ in numbers.range(1, 999)]) if expected_query(req, "zeto")
-
-mock_almost_page(req) := paladin_reply([]) if expected_query(req, "noto")
 
 with_daily(i, limit) if {
 	gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": limit}})
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"RD": limit}})
 		with time.now_ns as now_ns
 }
 
@@ -107,7 +100,7 @@ test_daily_limit_paladin_down_denied if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 5000000000}})
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"RD": 5000000000}})
 		with http.send as {"status_code": 0, "error": {"code": "eof", "message": "connection refused"}}
 		with time.now_ns as now_ns
 }
@@ -116,7 +109,7 @@ test_daily_limit_non_200_denied if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 5000000000}})
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"RD": 5000000000}})
 		with http.send as {"status_code": 500, "body": {"result": []}}
 		with time.now_ns as now_ns
 }
@@ -125,7 +118,7 @@ test_daily_limit_rpc_error_denied if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 5000000000}})
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"RD": 5000000000}})
 		with http.send as {"status_code": 200, "body": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "boom"}}}
 		with time.now_ns as now_ns
 }
@@ -133,22 +126,30 @@ test_daily_limit_rpc_error_denied if {
 test_daily_limit_full_page_denied if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not with_daily(i, 5000000000) with http.send as mock_page
-	not with_daily(i, 5000000000) with http.send as mock_noto_page
 	with_daily(i, 5000000000) with http.send as mock_almost_page
 }
 
-# Either query failing denies, even when the other answered.
-test_daily_limit_one_query_down_denied if {
+# A Zeto request asks only the Zeto domain: a Noto query failing does not matter, its own failing denies.
+test_daily_limit_zeto_independent_of_noto_query if {
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
-	not with_daily(i, 5000000000) with http.send as mock_noto_down
+	with_daily(i, 5000000000) with http.send as mock_noto_down
 	not with_daily(i, 5000000000) with http.send as mock_zeto_down
 }
 
-# Zeto and Noto spend of the same token add up: 4.5bn on Zeto + 400m on Noto = 4.9bn.
-test_daily_limit_counts_both_rails if {
-	not with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 200000000)), 5000000000) with http.send as mock_both
-	with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 100000000)), 5000000000) with http.send as mock_both
-	with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 200000000)), 5000000000) with http.send as mock_used
+# Zeto counts only Zeto spend: 4.5bn on Zeto + 400m on Noto would be 4.9bn, but the 200m request sees 4.5bn.
+test_daily_limit_counts_only_zeto if {
+	with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 200000000)), 5000000000) with http.send as mock_both
+	not with_daily(send("node2", transfer("bankA@node2", "bankB@node3", 600000000)), 5000000000) with http.send as mock_both
+}
+
+# A limit in the Noto document does not apply to Zeto (and the other way round): Paladin is not asked.
+test_daily_limit_other_platform_not_applied if {
+	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
+	gw.allow with input as i
+		with data.bi.config as fixtures.bi
+		with data.bank.config as fixtures.bank_with("noto", {"daily_limit": {"RD": 1}})
+		with http.send as {"status_code": 500, "body": {}}
+		with time.now_ns as now_ns
 }
 
 # The bank has no daily limit for RD: Paladin is not asked (the mock would fail the request if it were).
@@ -161,7 +162,7 @@ test_no_daily_limit_no_query if {
 		with time.now_ns as now_ns
 	gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"DFABI": 5}})
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"DFABI": 5}})
 		with http.send as {"status_code": 500, "body": {}}
 		with time.now_ns as now_ns
 }

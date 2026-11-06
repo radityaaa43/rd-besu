@@ -14,8 +14,8 @@ package bi.balance
 
 tx := input.parsed_body.params[0]
 
-# BI's three controls live under data.bi.config.noto; repoint here if they move.
-controls := object.get(data.bi.config, "noto", {})
+# BI's three controls live in the Noto document, data.bi.config.policy.noto; repoint here if they move.
+controls := object.get(data.bi.config, ["policy", "noto"], {})
 
 max_balance := object.get(controls, "max_balance", {})
 

@@ -1,4 +1,4 @@
-# Checks on BI's optional Noto balance controls (noto.max_balance, noto.min_balance, noto.max_supply, per token; absent = off).
+# Checks on BI's optional Noto balance controls (max_balance, min_balance, max_supply in policy.noto, per token; absent = off).
 # Same package as check.rego: errors, tokens, pos_int and max_amount are its.
 package bi.check
 
@@ -10,7 +10,7 @@ noto_controls[name] := v if {
 		{"key": "max_supply", "label": "Suplai maksimal"},
 	]
 	name := $"{spec.label} {t}"
-	v := data.bi.config.noto[spec.key][t]
+	v := data.bi.config.policy.noto[spec.key][t]
 }
 
 errors contains $"{name}: harus bilangan bulat positif" if {
@@ -26,8 +26,8 @@ errors contains $"{name}: melebihi 1.000.000.000.000.000" if {
 
 errors contains $"Saldo minimal {t}: harus lebih kecil dari saldo maksimal" if {
 	some t in tokens
-	lo := data.bi.config.noto.min_balance[t]
-	hi := data.bi.config.noto.max_balance[t]
+	lo := data.bi.config.policy.noto.min_balance[t]
+	hi := data.bi.config.policy.noto.max_balance[t]
 	pos_int(lo)
 	pos_int(hi)
 	lo >= hi

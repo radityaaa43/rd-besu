@@ -58,21 +58,21 @@ mock_full_page(req) := rpc_ok(state_rows([sprintf("%d", [1]) | some _ in numbers
 # One helper per mock: a function cannot be passed as an argument.
 controlled(i, controls) if {
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"noto": controls})
+		with data.bi.config as fixtures.bi_with("noto", controls)
 		with data.bank.config as fixtures.bank_a
 		with http.send as mock_node1
 }
 
 with_down(i, controls, reply) if {
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"noto": controls})
+		with data.bi.config as fixtures.bi_with("noto", controls)
 		with data.bank.config as fixtures.bank_a
 		with http.send as reply
 }
 
 with_full_page(i, controls) if {
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"noto": controls})
+		with data.bi.config as fixtures.bi_with("noto", controls)
 		with data.bank.config as fixtures.bank_a
 		with http.send as mock_full_page
 }

@@ -19,13 +19,13 @@ n_prepare(contract, from, to, amount) := noto(contract, from, "prepareUnlock", {
 	"lockId": "0x01", "from": from, "recipients": [{"to": to, "amount": amount}], "unlockData": "0x", "data": "0x",
 })
 
-closed(token) := object.union(fixtures.bi, {"hours": {token: {"days": [], "open": "00:00", "close": "24:00"}}})
+closed(token) := fixtures.bi_with("noto", {"hours": {token: {"days": [], "open": "00:00", "close": "24:00"}}})
 
-frozen(id) := object.union(fixtures.bi, {"frozen": [id]})
+frozen(id) := fixtures.bi_with("noto", {"frozen": [id]})
 
-with_bi(i, bi) if gw.allow with input as i with data.bi.config as bi with data.bank.config as fixtures.bank_a
+n_with_bi(i, bi) if gw.allow with input as i with data.bi.config as bi with data.bank.config as fixtures.bank_a
 
-with_bank(i, bank) if gw.allow with input as i with data.bi.config as fixtures.bi with data.bank.config as bank
+n_with_bank(i, bank) if gw.allow with input as i with data.bi.config as fixtures.bi with data.bank.config as bank
 
 # --- BI: transfer and mint
 
@@ -41,11 +41,11 @@ test_noto_transfer_from_other_node_denied if not allowed(send("node2", n_transfe
 
 test_noto_transfer_zero_denied if not allowed(send("node2", n_transfer("bankA@node2", "bankB@node3", "0")))
 
-test_noto_transfer_hours_closed_denied if not with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), closed("RD"))
+test_noto_transfer_hours_closed_denied if not n_with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), closed("RD"))
 
-test_noto_transfer_to_frozen_denied if not with_bi(send("node2", n_transfer("bankA@node2", "bankC@node4", "10")), frozen("bankC@node4"))
+test_noto_transfer_to_frozen_denied if not n_with_bi(send("node2", n_transfer("bankA@node2", "bankC@node4", "10")), frozen("bankC@node4"))
 
-test_noto_transfer_from_frozen_denied if not with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), frozen("bankA@node2"))
+test_noto_transfer_from_frozen_denied if not n_with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), frozen("bankA@node2"))
 
 test_noto_mint_by_bi_allowed if allowed(send("node1", noto(n_rd, "cashIssuer@node1", "mint", {"to": "investor1@node2", "amount": "5000", "data": "0x"})))
 
@@ -63,19 +63,19 @@ test_noto_burn_by_bi_allowed if allowed(send("node1", n_burn(n_rd, "cashIssuer@n
 
 # No bank rule applies to a burn: it sends nothing out.
 test_noto_burn_by_bi_ignores_bank_rules if {
-	bank := object.union(fixtures.bank_a, {"counterparties": [], "max_per_tx": {"RD": 1}, "daily_limit": {"RD": 1}})
-	with_bank(send("node1", n_burn(n_rd, "cashIssuer@node1", "5000")), bank) with http.send as {"status_code": 500, "body": {}}
+	bank := fixtures.bank_with("noto", {"counterparties": [], "max_per_tx": {"RD": 1}, "daily_limit": {"RD": 1}})
+	n_with_bank(send("node1", n_burn(n_rd, "cashIssuer@node1", "5000")), bank) with http.send as {"status_code": 500, "body": {}}
 }
 
 test_noto_burn_by_bi_zero_denied if not allowed(send("node1", n_burn(n_rd, "cashIssuer@node1", "0")))
 
 test_noto_burn_by_bi_over_mint_cap_denied if {
 	i := send("node1", n_burn(n_rd, "cashIssuer@node1", "101"))
-	not with_bi(i, object.union(fixtures.bi, {"max_mint_per_tx": {"RD": 100}}))
-	with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "100")), object.union(fixtures.bi, {"max_mint_per_tx": {"RD": 100}}))
+	not n_with_bi(i, fixtures.bi_with("noto", {"max_mint_per_tx": {"RD": 100}}))
+	n_with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "100")), fixtures.bi_with("noto", {"max_mint_per_tx": {"RD": 100}}))
 }
 
-test_noto_burn_by_bi_hours_closed_denied if not with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "5")), closed("RD"))
+test_noto_burn_by_bi_hours_closed_denied if not n_with_bi(send("node1", n_burn(n_rd, "cashIssuer@node1", "5")), closed("RD"))
 
 test_noto_burn_unknown_contract_denied if not allowed(send("node1", object.union(n_burn("0x00000000000000000000000000000000000000cc", "cashIssuer@node1", "5"), {"domain": "noto"})))
 
@@ -92,7 +92,7 @@ test_noto_lock_allowed if allowed(send("node2", n_lock(n_dfabi, "investor1@node2
 
 test_noto_lock_over_cap_denied if not allowed(send("node2", n_lock(n_dfabi, "investor1@node2", "1001")))
 
-test_noto_lock_other_token_closed_denied if not with_bi(send("node2", n_lock(n_dfabi, "bankA@node2", "1")), closed("RD"))
+test_noto_lock_other_token_closed_denied if not n_with_bi(send("node2", n_lock(n_dfabi, "bankA@node2", "1")), closed("RD"))
 
 test_noto_prepare_unlock_allowed if allowed(rpc("node2", "ptx_sendTransaction", [n_prepare(n_dfabi, "investor1@node2", "investor2@node3", "100")]))
 
@@ -100,17 +100,17 @@ test_noto_prepare_unlock_prepare_method_allowed if allowed(rpc("node2", "ptx_pre
 
 test_noto_prepare_unlock_to_outsider_denied if not allowed(send("node2", n_prepare(n_rd, "bankA@node2", "eve@node9", "10")))
 
-test_noto_prepare_unlock_to_frozen_denied if not with_bi(send("node2", n_prepare(n_rd, "bankA@node2", "bankC@node4", "10")), frozen("bankC@node4"))
+test_noto_prepare_unlock_to_frozen_denied if not n_with_bi(send("node2", n_prepare(n_rd, "bankA@node2", "bankC@node4", "10")), frozen("bankC@node4"))
 
 # Rollback returns the lock to its owner: never blocked by hours or freezing.
 test_noto_rollback_prepare_allowed_when_closed_and_frozen if {
-	bi := object.union(closed("RD"), {"frozen": ["bankA@node2"]})
-	with_bi(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "10")), bi)
+	bi := object.union(closed("RD"), {"policy": {"noto": {"frozen": ["bankA@node2"]}}})
+	n_with_bi(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "10")), bi)
 }
 
 test_noto_delegate_lock_allowed_when_closed if {
 	tx := noto(n_rd, "bankA@node2", "delegateLock", {"lockId": "0x01", "delegate": "0x00000000000000000000000000000000000000bb", "data": "0x"})
-	with_bi(send("node2", tx), closed("RD"))
+	n_with_bi(send("node2", tx), closed("RD"))
 }
 
 # --- Pente: only the groups BI knows
@@ -121,22 +121,22 @@ test_pente_unknown_group_denied if not allowed(rpc("node2", "pgroup_sendTransact
 
 # --- The bank's own rules
 
-test_noto_bank_non_counterparty_denied if not with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), {"counterparties": ["bankC@node4"]})
+test_noto_bank_non_counterparty_denied if not n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), {"policy": {"noto": {"counterparties": ["bankC@node4"]}}})
 
-test_noto_bank_prepare_non_counterparty_denied if not with_bank(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "10")), {"counterparties": ["bankC@node4"]})
+test_noto_bank_prepare_non_counterparty_denied if not n_with_bank(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "10")), {"policy": {"noto": {"counterparties": ["bankC@node4"]}}})
 
-test_noto_bank_rollback_to_self_allowed if with_bank(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "10")), {"counterparties": ["bankC@node4"]})
+test_noto_bank_rollback_to_self_allowed if n_with_bank(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "10")), {"policy": {"noto": {"counterparties": ["bankC@node4"]}}})
 
-test_noto_bank_max_per_tx_denied if not with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "11")), object.union(fixtures.bank_a, {"max_per_tx": {"RD": 10}}))
+test_noto_bank_max_per_tx_denied if not n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "11")), fixtures.bank_with("noto", {"max_per_tx": {"RD": 10}}))
 
-test_noto_bank_max_per_tx_within_allowed if with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), object.union(fixtures.bank_a, {"max_per_tx": {"RD": 10}}))
+test_noto_bank_max_per_tx_within_allowed if n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), fixtures.bank_with("noto", {"max_per_tx": {"RD": 10}}))
 
 test_noto_bank_hours_on_lock_denied if {
-	bank := object.union(fixtures.bank_a, {"hours": {"RD": {"days": [], "open": "00:00", "close": "24:00"}}})
-	not with_bank(send("node2", n_lock(n_dfabi, "bankA@node2", "1")), bank)
+	bank := fixtures.bank_with("noto", {"hours": {"RD": {"days": [], "open": "00:00", "close": "24:00"}}})
+	not n_with_bank(send("node2", n_lock(n_dfabi, "bankA@node2", "1")), bank)
 }
 
-# --- Daily limit on the Noto rail (one limit per token with Zeto; node2's Paladin is asked for both domains)
+# --- Daily limit on the Noto rail (its own limit and spend; node2's Paladin is asked for the noto domain only)
 
 # 400m out on RD (transfer 300m + prepareUnlock 100m); the rollback, the lock, the other token and the mint do not count.
 noto_rows := [
@@ -148,25 +148,103 @@ noto_rows := [
 	{"function": "mint(string,uint256,bytes)", "to": n_rd, "data": {"to": "bankA@node2", "amount": "9000000000", "data": "0x"}},
 ]
 
-# Zeto used 4.5bn (daily_test.rego) + Noto 400m = 4.9bn of 5bn.
+# Limit 500m, 400m used.
 noto_daily(i) if {
 	gw.allow with input as i
 		with data.bi.config as fixtures.bi
-		with data.bank.config as object.union(fixtures.bank_a, {"daily_limit": {"RD": 5000000000}})
+		with data.bank.config as fixtures.bank_with("noto", {"daily_limit": {"RD": 500000000}})
 		with time.now_ns as now_ns
 }
 
-test_noto_daily_within_allowed if noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000000"))) with http.send as mock_both
+test_noto_daily_within_allowed if noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000000"))) with http.send as mock_noto_used
 
-test_noto_daily_over_denied if not noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_both
+test_noto_daily_over_denied if not noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_noto_used
 
-test_noto_daily_prepare_over_denied if not noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_both
+test_noto_daily_prepare_over_denied if not noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_noto_used
 
-# Zeto spend alone leaves room for 500m; with the Noto spend counted it does not.
-test_noto_daily_counts_zeto_spend if {
-	i := send("node2", n_transfer("bankA@node2", "bankB@node3", "500000000"))
-	noto_daily(i) with http.send as mock_used
-	not noto_daily(i) with http.send as mock_both
+# Zeto spent 4.5bn today (used_rows), far over the Noto limit, and it does not count: only the noto domain is asked.
+test_noto_daily_ignores_zeto_spend if {
+	i := send("node2", n_transfer("bankA@node2", "bankB@node3", "100000000"))
+	noto_daily(i) with http.send as mock_both
+	not noto_daily(send("node2", n_transfer("bankA@node2", "bankB@node3", "100000001"))) with http.send as mock_both
+}
+
+# Fails closed on its own query, but a failing Zeto query does not matter to Noto.
+test_noto_daily_own_query_down_denied if {
+	i := send("node2", n_transfer("bankA@node2", "bankB@node3", "100000000"))
+	not noto_daily(i) with http.send as mock_noto_down
+	noto_daily(i) with http.send as mock_zeto_down
 }
 
 test_noto_daily_rollback_not_gated if noto_daily(send("node2", n_prepare(n_rd, "bankA@node2", "bankA@node2", "5000000000"))) with http.send as mock_both
+
+# A limit in the Zeto document does not apply to Noto: Paladin is not asked.
+test_noto_daily_zeto_limit_not_applied if {
+	gw.allow with input as send("node2", n_transfer("bankA@node2", "bankB@node3", "10"))
+		with data.bi.config as fixtures.bi
+		with data.bank.config as fixtures.bank_with("zeto", {"daily_limit": {"RD": 1}})
+		with http.send as {"status_code": 500, "body": {}}
+		with time.now_ns as now_ns
+}
+
+# --- The two platforms are independent
+
+# A freeze in the Noto document blocks Noto and leaves Zeto alone.
+test_noto_freeze_does_not_block_zeto if {
+	zt := send("node2", transfer("bankA@node2", "bankC@node4", 10))
+	nt := send("node2", n_transfer("bankA@node2", "bankC@node4", "10"))
+	bi := frozen("bankC@node4")
+	n_with_bi(zt, bi)
+	not n_with_bi(nt, bi)
+}
+
+# A freeze in the Zeto document blocks Zeto and leaves Noto alone.
+test_zeto_freeze_does_not_block_noto if {
+	zt := send("node2", transfer("bankA@node2", "bankC@node4", 10))
+	nt := send("node2", n_transfer("bankA@node2", "bankC@node4", "10"))
+	bi := fixtures.bi_with("zeto", {"frozen": ["bankC@node4"]})
+	n_with_bi(nt, bi)
+	not n_with_bi(zt, bi)
+}
+
+# Zeto hours closed (RD) do not close Noto RD, and Noto closed does not close Zeto.
+test_zeto_hours_closed_does_not_block_noto if {
+	zeto_closed := fixtures.bi_with("zeto", {"hours": {"RD": {"days": [], "open": "00:00", "close": "24:00"}}})
+	n_with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), zeto_closed)
+	not n_with_bi(send("node2", transfer("bankA@node2", "bankB@node3", 10)), zeto_closed)
+	n_with_bi(send("node2", transfer("bankA@node2", "bankB@node3", 10)), closed("RD"))
+}
+
+# Caps are per platform too.
+test_zeto_cap_does_not_limit_noto if {
+	bi := fixtures.bi_with("zeto", {"max_per_tx": {"RD": 5}})
+	n_with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), bi)
+	not n_with_bi(send("node2", transfer("bankA@node2", "bankB@node3", 10)), bi)
+}
+
+# Holidays too: a holiday in the Zeto document (2026-11-05) closes Zeto only.
+test_zeto_holiday_does_not_close_noto if {
+	bi := fixtures.bi_with("zeto", {"holidays": [{"date": "2026-11-05", "name": "Libur"}]})
+	n_with_bi(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), bi) with time.now_ns as now_ns
+	not n_with_bi(send("node2", transfer("bankA@node2", "bankB@node3", 10)), bi) with time.now_ns as now_ns
+}
+
+# Removing a counterparty from the bank's Zeto document leaves Noto alone, and the other way round.
+test_zeto_counterparty_removal_does_not_block_noto if {
+	bank := fixtures.bank_with("zeto", {"counterparties": ["bi@node1", "bankC@node4"]})
+	n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), bank)
+	not n_with_bank(send("node2", transfer("bankA@node2", "bankB@node3", 10)), bank)
+}
+
+test_noto_counterparty_removal_does_not_block_zeto if {
+	bank := fixtures.bank_with("noto", {"counterparties": ["bi@node1", "bankC@node4"]})
+	n_with_bank(send("node2", transfer("bankA@node2", "bankB@node3", 10)), bank)
+	not n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), bank)
+}
+
+# The bank's per-tx limit and hours are per platform as well.
+test_bank_noto_limit_does_not_limit_zeto if {
+	bank := fixtures.bank_with("noto", {"max_per_tx": {"RD": 5}, "hours": {"RD": {"days": [], "open": "00:00", "close": "24:00"}}})
+	n_with_bank(send("node2", transfer("bankA@node2", "bankB@node3", 10)), bank)
+	not n_with_bank(send("node2", n_transfer("bankA@node2", "bankB@node3", "10")), bank)
+}

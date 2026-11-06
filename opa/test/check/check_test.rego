@@ -4,22 +4,34 @@ import data.bank.check as bank_check
 import data.bi.check as bi_check
 import data.fixtures
 
+# The helpers patch the Zeto document; the Noto ones (bi_errors_noto, bank_errors_noto) patch the Noto document and leave
+# the Zeto one valid, the way the Lensa server composes a draft of one platform with the current document of the other.
 bi_errors(patch) := e if {
-	e := bi_check.errors with data.bi.config as object.union(fixtures.bi, patch)
+	e := bi_check.errors with data.bi.config as fixtures.bi_with("zeto", patch)
 }
 
+bi_errors_noto(patch) := e if {
+	e := bi_check.errors with data.bi.config as fixtures.bi_with("noto", patch)
+}
+
+# paths are relative to the Zeto document
 bi_errors_without(paths) := e if {
-	e := bi_check.errors with data.bi.config as json.remove(fixtures.bi, paths)
+	e := bi_check.errors with data.bi.config as json.remove(fixtures.bi, [concat("/", ["policy/zeto", x]) | some x in paths])
 }
 
 bank_errors(patch) := e if {
-	e := bank_check.errors with data.bank.config as object.union(fixtures.bank_a, patch)
+	e := bank_check.errors with data.bank.config as fixtures.bank_with("zeto", patch)
+		with data.bi.config as fixtures.bi
+}
+
+bank_errors_noto(patch) := e if {
+	e := bank_check.errors with data.bank.config as fixtures.bank_with("noto", patch)
 		with data.bi.config as fixtures.bi
 }
 
 bank_errors_with_bi(patch, bi_patch) := e if {
-	e := bank_check.errors with data.bank.config as object.union(fixtures.bank_a, patch)
-		with data.bi.config as object.union(fixtures.bi, bi_patch)
+	e := bank_check.errors with data.bank.config as fixtures.bank_with("zeto", patch)
+		with data.bi.config as fixtures.bi_with("zeto", bi_patch)
 }
 
 test_seed_documents_valid if {
@@ -137,7 +149,7 @@ test_counterparty_unknown_node_error if {
 }
 
 test_bank_counterparties_missing if {
-	bank_check.errors == {"Counterparty: harus berupa daftar"} with data.bank.config as {}
+	bank_check.errors == {"Counterparty: harus berupa daftar"} with data.bank.config as {"policy": {"zeto": {}, "noto": fixtures.bank_doc}}
 		with data.bi.config as fixtures.bi
 }
 
@@ -179,4 +191,44 @@ test_bank_hours_inside_bi if {
 
 test_bank_hours_full_day_default_bi if {
 	count(bank_errors({"hours": {"DFABI": {"days": [1, 7], "open": "00:00", "close": "24:00"}}})) == 0
+}
+
+# Per platform: every document is checked, a missing one is an error, and a bank document is compared with BI's document
+# of the same platform.
+
+test_bi_checks_every_platform if {
+	bi_errors({"max_per_tx": {"RD": 0}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
+	bi_errors_noto({"max_per_tx": {"RD": 0}}) == {"Limit per transaksi RD: harus bilangan bulat positif"}
+	bi_errors_noto({"frozen": ["bankZ@node9"]}) == {"Pembekuan: bankZ@node9 bukan peserta"}
+	bi_errors_noto({"hours": {"RD": {"open": "9:00"}}}) == {"Jam RD: format harus JJ:MM"}
+	bi_errors_noto({"holidays": [{"date": "2026-02-30", "name": "x"}]}) == {"Hari libur 2026-02-30: tanggal tidak valid"}
+}
+
+test_bi_missing_platform_document if {
+	bi_check.errors == {"Kebijakan noto: dokumen tidak ada"} with data.bi.config as json.remove(fixtures.bi, ["policy/noto"])
+	bi_check.errors == {"Kebijakan zeto: dokumen tidak ada"} with data.bi.config as json.remove(fixtures.bi, ["policy/zeto"])
+}
+
+test_bank_checks_every_platform if {
+	bank_errors_noto({"counterparties": ["bankZ@node9"]}) == {"Counterparty: bankZ@node9 bukan peserta"}
+	bank_errors_noto({"daily_limit": {"RD": 0}}) == {"Limit harian RD: harus bilangan bulat positif"}
+	bank_errors_noto({"hours": {"RD": {"days": [1], "open": "9:00", "close": "17:00"}}}) == {"Jam RD: format harus JJ:MM"}
+}
+
+test_bank_missing_platform_document if {
+	bank_check.errors == {"Kebijakan noto: dokumen tidak ada"} with data.bank.config as json.remove(fixtures.bank_a, ["policy/noto"])
+		with data.bi.config as fixtures.bi
+}
+
+# The bank's Noto document is compared with BI's Noto document, not the Zeto one.
+test_bank_compares_with_same_platform if {
+	bi := fixtures.bi_with("noto", {"max_per_tx": {"RD": 500}, "hours": {"RD": {"days": [1], "open": "06:00", "close": "18:00"}}})
+	bank_check.errors == {"Limit per transaksi RD: tidak boleh lebih longgar dari batas BI"} with data.bank.config as fixtures.bank_with("noto", {"max_per_tx": {"RD": 501}})
+		with data.bi.config as bi
+	bank_check.errors == {"Jam RD: harus di dalam jam operasional BI"} with data.bank.config as fixtures.bank_with("noto", {"hours": {"RD": {"days": [1, 2], "open": "08:00", "close": "17:00"}}})
+		with data.bi.config as bi
+
+	# the same values are fine for Zeto, where BI's cap is 1bn and hours are all day
+	count(bank_check.errors) == 0 with data.bank.config as fixtures.bank_with("zeto", {"max_per_tx": {"RD": 501}, "hours": {"RD": {"days": [1, 2], "open": "08:00", "close": "17:00"}}})
+		with data.bi.config as bi
 }

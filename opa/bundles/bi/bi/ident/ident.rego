@@ -16,5 +16,6 @@ participant(id) if node_of(id) in participant_nodes
 # Nodes of BI's participants.
 participant_nodes contains node_of(p) if some p in data.bi.config.participants
 
-# Nodes of the frozen entries: freezing bankC@node4 freezes every identity on node4.
-frozen_nodes contains node_of(f) if some f in data.bi.config.frozen
+# Nodes of the frozen entries of one platform's document ("zeto" or "noto"): freezing bankC@node4 in the Zeto
+# document freezes every identity on node4 for Zeto only. No document = undefined, so the caller denies.
+frozen_nodes(platform) := {node_of(f) | some f in frozen} if frozen := data.bi.config.policy[platform].frozen

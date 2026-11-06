@@ -137,7 +137,7 @@ test_cancel_lock_allowed if allowed(send("node2", zeto(rd, "bankA@node2", "cance
 
 # RD Mon-Fri 06:30-18:00, DFABI Mon-Fri 08:00-16:00. Thursday 2026-11-05: 03:00Z = 10:00 WIB (both open),
 # 10:00Z = 17:00 WIB (RD open, DFABI closed), 11:00Z = 18:00 WIB (both closed).
-office_bi := object.union(fixtures.bi, {"hours": {
+office_bi := fixtures.bi_with("zeto", {"hours": {
 	"RD": {"days": [1, 2, 3, 4, 5], "open": "06:30", "close": "18:00"},
 	"DFABI": {"days": [1, 2, 3, 4, 5], "open": "08:00", "close": "16:00"},
 }})
@@ -182,7 +182,7 @@ test_delegate_and_cancel_lock_after_hours_allowed if {
 test_atom_execute_after_hours_allowed if at_hours(send("node2", public("0x00000000000000000000000000000000000000bb", "execute")), "2026-11-05T11:00:00Z")
 
 test_bank_hours_narrower_denied if {
-	bank := object.union(fixtures.bank_a, {"hours": {"RD": {"days": [1, 2, 3, 4, 5], "open": "07:00", "close": "17:00"}}})
+	bank := fixtures.bank_with("zeto", {"hours": {"RD": {"days": [1, 2, 3, 4, 5], "open": "07:00", "close": "17:00"}}})
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not gw.allow with input as i
 		with data.bi.config as office_bi
@@ -192,7 +192,7 @@ test_bank_hours_narrower_denied if {
 
 # The bank window narrows BI's, never widens it: BI closed at 18:00 WIB, bank still "open" until 19:00.
 test_bank_hours_cannot_widen_bi if {
-	bank := object.union(fixtures.bank_a, {"hours": {"RD": {"days": [1, 2, 3, 4, 5], "open": "07:00", "close": "19:00"}}})
+	bank := fixtures.bank_with("zeto", {"hours": {"RD": {"days": [1, 2, 3, 4, 5], "open": "07:00", "close": "19:00"}}})
 	i := send("node2", transfer("bankA@node2", "bankB@node3", 10))
 	not gw.allow with input as i
 		with data.bi.config as office_bi
@@ -258,7 +258,7 @@ test_sdk_mint_without_domain_by_bank_denied if {
 test_private_without_to_and_domain_denied if not allowed(send("node2", {"type": "private", "from": "bankA@node2", "function": "", "data": {}}))
 
 test_bank_counterparty_applies_without_domain if {
-	bank := object.union(fixtures.bank_a, {"counterparties": ["bi@node1"]})
+	bank := fixtures.bank_with("zeto", {"counterparties": ["bi@node1"]})
 	not gw.allow with input as send("node2", sdk(transfer("bankA@node2", "bankB@node3", 10)))
 		with data.bi.config as fixtures.bi
 		with data.bank.config as bank
@@ -279,7 +279,7 @@ test_report_wrong_topic_denied if not allowed(report(group_a, "chat"))
 test_bank_denies_transfer_to_self if not allowed(send("node2", transfer("bankA@node2", "bankA@node2", 10)))
 
 test_bank_denies_non_counterparty if {
-	bank := object.union(fixtures.bank_a, {"counterparties": ["bi@node1"]})
+	bank := fixtures.bank_with("zeto", {"counterparties": ["bi@node1"]})
 	not gw.allow with input as send("node2", transfer("bankA@node2", "bankB@node3", 10))
 		with data.bi.config as fixtures.bi
 		with data.bank.config as bank
@@ -289,14 +289,14 @@ test_bank_denies_non_counterparty if {
 
 with_bi(i, patch) if {
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, patch)
+		with data.bi.config as fixtures.bi_with("zeto", patch)
 		with data.bank.config as fixtures.bank_a
 }
 
 with_cfg(i, bi_patch, bank_patch) if {
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, bi_patch)
-		with data.bank.config as object.union(fixtures.bank_a, bank_patch)
+		with data.bi.config as fixtures.bi_with("zeto", bi_patch)
+		with data.bank.config as fixtures.bank_with("zeto", bank_patch)
 }
 
 test_transfer_to_frozen_denied if {
@@ -311,17 +311,17 @@ test_create_lock_to_frozen_denied if {
 
 test_frozen_sender_own_gateway_denied if {
 	i := send("node4", transfer("bankC@node4", "bankB@node3", 10))
-	gw.allow with input as i with data.bi.config as fixtures.bi with data.bank.config as {"counterparties": ["bankB@node3"]}
+	gw.allow with input as i with data.bi.config as fixtures.bi with data.bank.config as {"policy": {"zeto": {"counterparties": ["bankB@node3"]}}}
 	not gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"frozen": ["bankC@node4"]})
-		with data.bank.config as {"counterparties": ["bankB@node3"]}
+		with data.bi.config as fixtures.bi_with("zeto", {"frozen": ["bankC@node4"]})
+		with data.bank.config as {"policy": {"zeto": {"counterparties": ["bankB@node3"]}}}
 }
 
 test_frozen_sender_cancel_lock_allowed if {
 	i := send("node4", zeto(rd, "bankC@node4", "cancelLock", {"lockId": "0x01"}))
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"frozen": ["bankC@node4"]})
-		with data.bank.config as {"counterparties": ["bankB@node3"]}
+		with data.bi.config as fixtures.bi_with("zeto", {"frozen": ["bankC@node4"]})
+		with data.bank.config as {"policy": {"zeto": {"counterparties": ["bankB@node3"]}}}
 }
 
 test_mint_over_cap_denied if {
@@ -377,15 +377,15 @@ test_frozen_node_blocks_all_identities if {
 
 test_frozen_own_node_any_identity_denied if {
 	i := send("node4", transfer("stress-n4-00@node4", "bankB@node3", 10))
-	bank := {"counterparties": ["bankB@node3"]}
+	bank := {"policy": {"zeto": {"counterparties": ["bankB@node3"]}}}
 	gw.allow with input as i with data.bi.config as fixtures.bi with data.bank.config as bank
 	not gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"frozen": ["bankC@node4"]})
+		with data.bi.config as fixtures.bi_with("zeto", {"frozen": ["bankC@node4"]})
 		with data.bank.config as bank
 }
 
 test_counterparty_by_node if {
-	bank := {"counterparties": ["bi@node1", "bankB@node3"]}
+	bank := {"policy": {"zeto": {"counterparties": ["bi@node1", "bankB@node3"]}}}
 	gw.allow with input as send("node2", transfer("bankA@node2", "stress-n3-02@node3", 10))
 		with data.bi.config as fixtures.bi
 		with data.bank.config as bank
@@ -409,8 +409,8 @@ test_identity_empty_part_denied if {
 test_frozen_own_node_cancel_lock_allowed if {
 	i := send("node4", zeto(rd, "stress-n4-00@node4", "cancelLock", {"lockId": "0x01"}))
 	gw.allow with input as i
-		with data.bi.config as object.union(fixtures.bi, {"frozen": ["bankC@node4"]})
-		with data.bank.config as {"counterparties": ["bankB@node3"]}
+		with data.bi.config as fixtures.bi_with("zeto", {"frozen": ["bankC@node4"]})
+		with data.bank.config as {"policy": {"zeto": {"counterparties": ["bankB@node3"]}}}
 }
 
 # --- Besu door

@@ -1,6 +1,7 @@
-# Checks on a draft of a bank document (data.bank.config), run by the Lensa server with `opa eval` before
-# the draft can be submitted for approval. Messages are shown to users as they are.
-# BI's values are read as data (data.bi.config); this bundle never calls a function of the BI bundle, so it
+# Checks on a draft of a bank's documents (data.bank.config.policy.zeto and .noto, one per platform), run by the Lensa
+# server with `opa eval` before the draft can be submitted for approval. Messages are shown to users as they are, and
+# do not name the platform (the server composes the config so that only the draft can fail).
+# Each document is compared with BI's document of the same platform. BI's values are read as data (data.bi.config); this bundle never calls a function of the BI bundle, so it
 # builds alone. The small helpers below are copies of those in bi.check.
 package bank.check
 
@@ -23,21 +24,29 @@ valid_time(t) if {
 	regex.match(time_re, t)
 }
 
-# Amounts: optional, an absent token follows BI.
-amounts[name] := v if {
+# Both platforms need a document (a missing one denies everything on that platform at runtime).
+errors contains $"Kebijakan {p}: dokumen tidak ada" if {
+	some p in ["zeto", "noto"]
+	not data.bank.config.policy[p]
+}
+
+# Amounts: optional, an absent token follows BI. Keyed by [platform, name].
+amounts[[p, name]] := v if {
+	some p, doc in data.bank.config.policy
 	some t in tokens
 	some spec in [
 		{"key": "max_per_tx", "label": "Limit per transaksi"},
 		{"key": "daily_limit", "label": "Limit harian"},
 	]
 	name := $"{spec.label} {t}"
-	v := data.bank.config[spec.key][t]
+	v := doc[spec.key][t]
 }
 
 # Hours: optional (absent follows BI); present, they need days, open and close, as in bi.check.
-bank_hours[t] := h if {
+bank_hours[[p, t]] := h if {
+	some p, doc in data.bank.config.policy
 	some t in tokens
-	h := data.bank.config.hours[t]
+	h := doc.hours[t]
 }
 
 valid_days(h) if {
@@ -75,56 +84,66 @@ inside(h, bi) if {
 }
 
 errors contains "Counterparty: harus berupa daftar" if {
-	not is_array(object.get(data.bank.config, "counterparties", null))
+	some _, doc in data.bank.config.policy
+	not is_array(object.get(doc, "counterparties", null))
 }
 
 errors contains $"Counterparty: {id} bukan peserta" if {
-	some id in data.bank.config.counterparties
+	some _, doc in data.bank.config.policy
+	some id in doc.counterparties
 	not ident.participant(id)
 }
 
 errors contains $"{name}: harus bilangan bulat positif" if {
-	some name, v in amounts
+	some k, v in amounts
+	name := k[1]
 	not pos_int(v)
 }
 
 errors contains $"{name}: melebihi 1.000.000.000.000.000" if {
-	some name, v in amounts
+	some k, v in amounts
+	name := k[1]
 	pos_int(v)
 	v > max_amount
 }
 
 errors contains $"Limit per transaksi {t}: tidak boleh lebih longgar dari batas BI" if {
+	some p, doc in data.bank.config.policy
 	some t in tokens
-	v := data.bank.config.max_per_tx[t]
+	v := doc.max_per_tx[t]
 	pos_int(v)
-	v > data.bi.config.max_per_tx[t]
+	v > data.bi.config.policy[p].max_per_tx[t]
 }
 
 errors contains $"Jam {t}: hari harus 1 (Senin) sampai 7 (Minggu)" if {
-	some t, h in bank_hours
+	some k, h in bank_hours
+	t := k[1]
 	not valid_days(h)
 }
 
 errors contains $"Jam {t}: format harus JJ:MM" if {
-	some t, h in bank_hours
+	some k, h in bank_hours
+	t := k[1]
 	not valid_open(h)
 }
 
 errors contains $"Jam {t}: format harus JJ:MM" if {
-	some t, h in bank_hours
+	some k, h in bank_hours
+	t := k[1]
 	not valid_close(h)
 }
 
 errors contains $"Jam {t}: jam buka harus sebelum jam tutup" if {
-	some t, h in bank_hours
+	some k, h in bank_hours
+	t := k[1]
 	valid_open(h)
 	valid_close(h)
 	h.open >= h.close
 }
 
 errors contains $"Jam {t}: harus di dalam jam operasional BI" if {
-	some t, h in bank_hours
+	some k, h in bank_hours
+	t := k[1]
 	well_formed(h)
-	not inside(h, data.bi.config.hours[t])
+	not inside(h, data.bi.config.policy[k[0]].hours[t])
 }

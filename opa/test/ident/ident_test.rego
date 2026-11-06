@@ -59,3 +59,11 @@ test_participant_table if {
 	not bi.participant("bankA@Node2") with data.bi.config.participants as participants
 	not bi.participant("x@a@node2") with data.bi.config.participants as participants
 }
+
+# Frozen nodes come from the platform's own document.
+test_frozen_nodes_per_platform if {
+	cfg := {"policy": {"zeto": {"frozen": ["bankC@node4"]}, "noto": {"frozen": ["bankA@node2", "x@node3"]}}}
+	bi.frozen_nodes("zeto") == {"node4"} with data.bi.config as cfg
+	bi.frozen_nodes("noto") == {"node2", "node3"} with data.bi.config as cfg
+	not bi.frozen_nodes("pente") with data.bi.config as cfg
+}
