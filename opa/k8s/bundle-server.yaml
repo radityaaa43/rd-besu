@@ -1,0 +1,70 @@
+# Bundle server for the gateways: nginx serves the signed bundles that Lensa puts in ConfigMaps bank-gw-N-bundles,
+# the sink (python, standard library) takes the gateways' decision logs and bundle status.
+# ConfigMaps bundle-server-conf (nginx.conf) and bundle-server-sink (sink.py) are created from files (see README).
+# No PVC; the bundle ConfigMaps are optional so a node that is not installed yet does not block the pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bundle-server
+  namespace: paladin
+  labels: {app: bundle-server}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: bundle-server}
+  template:
+    metadata:
+      labels: {app: bundle-server}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: nginx
+        image: nginx:1.27-alpine
+        command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/conf/nginx.conf"]
+        ports:
+        - {name: bundles, containerPort: 8080}
+        readinessProbe: {tcpSocket: {port: 8080}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {memory: 64Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: conf, mountPath: /etc/nginx/conf, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+        - {name: bundles-1, mountPath: /srv/1, readOnly: true}
+        - {name: bundles-2, mountPath: /srv/2, readOnly: true}
+        - {name: bundles-3, mountPath: /srv/3, readOnly: true}
+        - {name: bundles-4, mountPath: /srv/4, readOnly: true}
+      - name: sink
+        image: python:3.12-alpine
+        command: ["python", "-u", "/sink/sink.py", "8081"]
+        env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+        ports:
+        - {name: sink, containerPort: 8081}
+        readinessProbe: {tcpSocket: {port: 8081}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 10m, memory: 24Mi}
+          limits: {memory: 96Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: sink, mountPath: /sink, readOnly: true}
+      volumes:
+      - {name: conf, configMap: {name: bundle-server-conf}}
+      - {name: sink, configMap: {name: bundle-server-sink}}
+      - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+      - {name: bundles-1, configMap: {name: bank-gw-1-bundles, optional: true}}
+      - {name: bundles-2, configMap: {name: bank-gw-2-bundles, optional: true}}
+      - {name: bundles-3, configMap: {name: bank-gw-3-bundles, optional: true}}
+      - {name: bundles-4, configMap: {name: bank-gw-4-bundles, optional: true}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bundle-server
+  namespace: paladin
+  labels: {app: bundle-server}
+spec:
+  selector: {app: bundle-server}
+  ports:
+  - {name: bundles, port: 80, targetPort: 8080}
+  - {name: sink, port: 8081, targetPort: 8081}

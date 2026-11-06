@@ -1,5 +1,6 @@
 # Gateway for Bank Indonesia (node1): Envoy + OPA in one pod, next to (not inside) the operator-owned STS.
-# ConfigMaps bank-gw-1-envoy, bank-gw-opa and bank-gw-1-bundles are created from files (see README).
+# ConfigMaps bank-gw-1-envoy and bank-gw-opa-v2 are created from files (see README). OPA pulls its signed bundles from
+# bundle-server (ConfigMap bank-gw-1-bundles is mounted there, not here); --set below is what differs per gateway.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,9 +39,10 @@ spec:
         - --diagnostic-addr=0.0.0.0:8282
         - --authorization=basic
         - --config-file=/config/opa.yaml
-        - --bundle
-        - /bundles/bi.tar.gz
-        - /bundles/bank.tar.gz
+        - --set=labels.gateway=bank-gw-1
+        - --set=bundles.bi.resource=1/bi.tar.gz
+        - --set=bundles.bank.resource=1/bank.tar.gz
+        - --set=bundles.bank.signing.keyid=bi
         readinessProbe: {httpGet: {path: "/health?plugins&bundles", port: 8282}, periodSeconds: 5}
         livenessProbe: {httpGet: {path: /health, port: 8282}, periodSeconds: 10}
         resources:
@@ -49,11 +51,9 @@ spec:
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         volumeMounts:
         - {name: opa, mountPath: /config, readOnly: true}
-        - {name: bundles, mountPath: /bundles, readOnly: true}
       volumes:
       - {name: envoy, configMap: {name: bank-gw-1-envoy}}
-      - {name: opa, configMap: {name: bank-gw-opa}}
-      - {name: bundles, configMap: {name: bank-gw-1-bundles}}
+      - {name: opa, configMap: {name: bank-gw-opa-v2}}
 ---
 apiVersion: v1
 kind: Service

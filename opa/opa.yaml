@@ -1,8 +1,30 @@
-# OPA config for every bank-gw-N. Enforcing: a deny is returned to Envoy as 403. Set dry-run: true to only log decisions.
+# OPA config for every bank-gw-N, in ConfigMap bank-gw-opa-v2. keys.sh appends the `keys:` block (public keys of the
+# bundle owners) and writes the result to ~/.opa-keys/opa-config.yaml. What differs per gateway (bundle paths, the key
+# that must verify the bank bundle, the gateway label) is set with --set in k8s/bank-gw-N.yaml.
+# Enforcing: a deny is returned to Envoy as 403. Set dry-run: true to only log decisions.
 plugins:
   envoy_ext_authz_grpc:
     addr: 127.0.0.1:9191
     path: gw/allow
     dry-run: false
+services:
+  bundle-server:
+    url: http://bundle-server
+  sink:
+    url: http://bundle-server:8081
+# A bundle is only activated when its signature verifies with the key named here; a bad one keeps the old bundle.
+bundles:
+  bi:
+    service: bundle-server
+    polling: {min_delay_seconds: 5, max_delay_seconds: 15}
+    signing: {keyid: bi}
+  bank:
+    service: bundle-server
+    polling: {min_delay_seconds: 5, max_delay_seconds: 15}
 decision_logs:
   console: true
+  service: sink
+  reporting: {min_delay_seconds: 5, max_delay_seconds: 10}
+# bundle status (active revision per bundle) goes to the sink; Lensa reads it to confirm a publish
+status:
+  service: sink
