@@ -195,7 +195,7 @@ probe waits 180 s then runs every 60 s with 3 failures to restart: if a validato
 **Public ingress bypass.** `paladin-rpc-from-ingress-nginx` keeps the existing public route working. To put the public route
 behind OPA, apply `k8s/ingress-via-gateway.yaml` (same hosts, annotations, TLS secrets; backend `bank-gw-N:8548`), check one
 call through `https://paladin-node2.apse5.kld.bi-sandbox.com`, then `kubectl -n paladin delete networkpolicy paladin-rpc-from-ingress-nginx`.
-That changes what external callers may do (OPA rules apply, Zeto only). It cannot be combined with step 3 (mTLS) unless the
+That changes what external callers may do (OPA rules apply: Zeto, and Noto and Pente scoped as in the rules table). It cannot be combined with step 3 (mTLS) unless the
 Ingress also gets `backend-protocol: HTTPS` and a client cert (`nginx.ingress.kubernetes.io/proxy-ssl-secret`). Rollback: re-apply the old Ingress
 (`kubectl -n paladin get ingress paladin-nodeN -o yaml` saved before, backend `paladin-nodeN:8548`).
 
