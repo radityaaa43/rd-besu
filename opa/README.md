@@ -73,15 +73,17 @@ for f in k8s/*.yaml; do kubectl apply --dry-run=client -f $f; done              
 (cd ../../frontend/server && npx vitest run test/gateway-mtls.test.ts)            # mTLS client paths against a cert-requiring server
 ```
 
-## Live state (2026-11-05)
+## Live state (2026-11-06)
 
 All four gateways `bank-gw-1..4` run in namespace `paladin`, **enforcing** (`opa.yaml` `dry-run: false`,
 `envoy/nodeN.yaml` `failure_mode_allow: false`, fail closed). Lensa's Paladin forwards (`frontend/deploy/forwards.conf`)
 go through them. The Paladin `ext_authz` timeout (3s) must stay above the Rego `http.send` timeout of the daily limit (2s).
-Each gateway rollout drops that node's Lensa forward for about 5 s; systemd restarts it.
+A gateway rollout drops that node's Lensa forward for 1 to 2 minutes; systemd restarts it.
 
-**Status of the signed-bundle change:** in git only. The cluster still runs the file-mounted, unsigned gateways (`bank-gw-opa`, publish by
-annotation and rollout) until the steps below are done.
+Deployed 2026-11-06 (every step below was run): signed bundles from `bundle-server` (`bank-gw-opa-v2`; a BI publish reaches all
+four gateways in about a minute, no rollout), NetworkPolicy on node1..4 plus `paladin-rpc-from-ingress-nginx` (the public
+Ingress still points at the nodes, by decision), mTLS on both doors (`bank-gw-N-mtls`, Lensa `LENSA_GW_MTLS_DIR`), and Lensa's
+Besu traffic through bank-gw-1 on 38545 (`LENSA_BESU_RPC`). Scenarios S1 to S6 passed (44/44) before the deploy.
 
 ### Deploy the bundle server and signed bundles (ordered; one-time migration of the live gateways)
 
@@ -122,7 +124,7 @@ Remove a gateway: point its forward back at `svc/paladin-nodeN`, `kubectl delete
 ## Closing the bypasses (three steps, each opt-in and reversible)
 
 Written 2026-11-06 from a read-only look at the live cluster. Order: **1 (Besu route), then 2 (NetworkPolicy), then 3 (mTLS)**.
-None of them is applied yet. The files are in the repo; the cluster and Lensa change only when you run the steps.
+All three are applied live since 2026-11-06 (see Live state); the steps stay here for a rebuild and the rollbacks.
 
 ### 1. Lensa's Besu traffic through the gateway
 
