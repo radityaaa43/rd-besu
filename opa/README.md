@@ -58,6 +58,8 @@ opa check --strict bundles/bi bundles/bank test
 opa test --coverage bundles/bi bundles/bank test
 regal lint bundles test
 opa build -b bundles/bi -o /dev/null && opa build -b bundles/bank -o /dev/null   # each bundle must build alone
+for f in k8s/*.yaml; do kubectl apply --dry-run=client -f $f; done                # manifests (client side only)
+(cd ../../frontend/server && npx vitest run test/gateway-mtls.test.ts)            # mTLS client paths against a cert-requiring server
 ```
 
 ## Live state (2026-11-05)
@@ -81,14 +83,127 @@ Read denials: `kubectl -n paladin logs deploy/bank-gw-N -c opa | grep '"result":
 Back to dry-run: set `dry-run: true` and `failure_mode_allow: true`, re-apply the ConfigMaps, `kubectl rollout restart`.
 Remove a gateway: point its forward back at `svc/paladin-nodeN`, `kubectl delete -f k8s/bank-gw-N.yaml` and its ConfigMaps.
 
-Not in front of the gateway: Lensa's Besu forward on 127.0.0.1:8545 is held by another (non-Lensa) port-forward
-straight to `besu-node-validator-1`; the Besu door is live on every gateway (`svc/bank-gw-N:8545`) but Lensa's Besu
-traffic does not pass it until that forward is replaced.
+## Closing the bypasses (three steps, each opt-in and reversible)
+
+Written 2026-11-06 from a read-only look at the live cluster. Order: **1 (Besu route), then 2 (NetworkPolicy), then 3 (mTLS)**.
+None of them is applied yet. The files are in the repo; the cluster and Lensa change only when you run the steps.
+
+### 1. Lensa's Besu traffic through the gateway
+
+Before: the `besu` forward ran `127.0.0.1:8545` straight to `besu-node-validator-1`, and `127.0.0.1:8545` is held by a foreign
+port-forward (never kill it). Now the `besu` line of `frontend/deploy/forwards.conf` is `besu paladin bank-gw-1 38545:8545`.
+
+- Lensa has **one** Besu URL (`BESU_RPC`, the Stealth adapter's provider, the health probe), so all parties go through
+  **bank-gw-1's Besu door**. The Besu rules are BI's and identical on every gateway (`bi.besu`: a method allowlist, no party or
+  node in it), so routing through one gateway changes no verdict. The only consequence is availability: if bank-gw-1 or
+  validator-1 is down, Stealth is down (before: same, validator-1 was the target).
+- The env var `LENSA_BESU_RPC` picks the URL; it wins over the URL stored in `state/stealth.json` (`rpcUrl`). Unset, Lensa keeps `127.0.0.1:8545`.
+- Rego needed no change. Everything Lensa sends is already allowed (ethers: `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`,
+  `eth_getLogs`, `eth_call`, `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_getTransactionCount`,
+  `eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getCode`, `eth_sendRawTransaction`; WebSocket and filters are not used).
+  `test/gw/gw_test.rego` now pins this set on all four gateways, and that `eth_subscribe`, filters, `eth_sendTransaction`,
+  `eth_accounts`, `txpool_*` stay denied. A request body over 1 MiB is refused by Envoy (`max_request_bytes`); a contract deploy is far below it.
+- `bootstrap-stealth` (operator CLI) still takes its own `RPC_URL`; it is not routed.
+
+Live steps:
+
+1. Merge/pull on the Lensa host (no restart yet; `forwards.conf` is read when a forward starts).
+2. `systemctl --user restart lensa-pf@besu` (it was waiting on 8545; it now forwards `38545` to `svc/bank-gw-1:8545`).
+3. Check: `curl -s -XPOST 127.0.0.1:38545 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'` answers a block number; `eth_getBlockByNumber` works; `admin_peers` answers 403.
+4. Add `LENSA_BESU_RPC=http://127.0.0.1:38545` to `~/.config/lensa/lensa.env`, `systemctl --user restart lensa.service`.
+5. Check Stealth in Lensa (a read, then a payment). Denials: `kubectl -n paladin logs deploy/bank-gw-1 -c opa | grep '"result":false'`.
+
+Rollback: remove `LENSA_BESU_RPC` from `lensa.env`, restart `lensa.service` (back on 8545). The forward on 38545 can stay.
+
+### 2. NetworkPolicy (`k8s/networkpolicy.yaml`)
+
+**The CNI enforces it.** The cluster runs Terway v1.15.0 (`terway-eniip` DaemonSet, containers `terway` + `policy` on all 21 nodes;
+`kube-system/eni-config`: `network_policy_provider: ebpf`, `disable_network_policy: "false"`), not Flannel. Namespaces
+`fabricx-*`, `iroha3` and `kaleido` already carry policies, including `default-deny-all` (Ingress+Egress) next to Ready pods with
+kubelet probes, so node-to-pod probe traffic is not cut by policy here. Namespaces `paladin` and `besu` had **no** policy before.
+
+Ingress only, no egress rule, selects the Paladin and Besu pods only. Every allowed flow and where it comes from:
+
+| To | Port | From | Evidence |
+|---|---|---|---|
+| `paladin-nodeN` (label `app=paladin`, `app.kubernetes.io/instance=nodeN`) | 8548 | `bank-gw-N` pods (`app=bank-gw,node=nodeN`) | `bank-gw-N-envoy` cluster `paladin-nodeN:8548`; OPA sidecar daily-limit `http.send` to `data.nodes.nodeN.paladin_url` runs in the same pod |
+| same | 8548, 8549 | `paladin-operator` | operator in ns `paladin` reconciles the `Paladin` CRs against the node RPC |
+| same | 8548, 8549 | ns `dfabi` pods `app=bankN-backend` only | `deploy/bankN-backend` env `PALADIN_NODE_URL=http://paladin-nodeN.paladin.svc.cluster.local:8548`, `PALADIN_WS_URL=ws://...:8549`. The gateway has no WS door, so DFABI cannot be moved behind it |
+| same | 9000 | pods `app=paladin` in ns `paladin` | Paladin gRPC transport: `Paladin` CR `transports[grpc]` port 9000, `externalHostname paladin-nodeN.paladin.svc.cluster.local` |
+| same | 6100 | anyone | metrics, unchanged |
+| `paladin-*` (object `paladin-rpc-from-ingress-nginx`) | 8548 | ns `kube-system`, pods `app=ingress-nginx` and `app.kubernetes.io/name=ack-ingress-nginx-v1` | `Ingress paladin-nodeN` (nginx, basic auth, `paladin-nodeN.apse5.kld.bi-sandbox.com`, public LB 8.215.48.50) points at `svc/paladin-nodeN:8548`. **This is a live bypass of the gateway**; kept so nothing is cut, see below |
+| `besu-node-validator-N` (label `app.kubernetes.io/part-of=besu-node-validator-N`) | 8545 | `bank-gw-N` pods (ns `paladin`) | `bank-gw-N-envoy` cluster `besu-node-validator-N.besu.svc.cluster.local:8545` |
+| same | 8545, 8546 | `paladin-nodeN` pod (ns `paladin`) | ConfigMap `paladin-nodeN` `blockchain.http.url`/`ws.url` = `besu-node-validator-N...:8545`/`:8546`; `Paladin` CR `baseLedgerEndpoint` |
+| same | 30303 TCP+UDP | any pod in ns `besu` | QBFT P2P: ConfigMap `besu-peers` (`static-nodes.json`, `...besu-node-validator-M-0...besu.svc...:30303`), `discovery-enabled=true` |
+| same | 9545 | anyone | Besu metrics, unchanged |
+
+Nothing else was found: no workload, Job, CronJob, ConfigMap, Secret or Ingress in any other namespace names these hosts
+(searched all namespaces; `kaleido` runs its own nodes). 8547 (GraphQL) is off in `config.toml`. No NodePort or LoadBalancer
+exposes Paladin or Besu. Kubelet probes (`tcpSocket 8548` on Paladin, `httpGet /liveness :8545` on Besu) come from the node itself.
+Things the policy **cannot** see: `kubectl port-forward` (the kubelet dials the pod from its node, so it bypasses
+NetworkPolicy; that is how Lensa and the foreign 8545 forward still reach pods) and anything running as `hostNetwork`.
+
+Live steps (one node at a time, node 4 first; the flows are the same for every node):
+
+1. `kubectl apply -f k8s/networkpolicy.yaml -l node=node4` (two objects: `paladin-node4-ingress`, `besu-node-validator-4-ingress`).
+2. Check, one minute apart:
+   - `kubectl -n paladin get pods` and `kubectl -n besu get pods`: no restarts, `READY` unchanged (probes).
+   - Lensa: a Zeto read and a transfer on node 4 (through `bank-gw-4`); Besu still gives new blocks (`eth_blockNumber` twice on `127.0.0.1:38545`).
+   - `kubectl -n dfabi logs deploy/bank4-backend --tail=20`: no connection errors. `kubectl -n paladin get paladin`: the operator still sees the node.
+   - Negative, only when you decide to test (it creates a pod): `kubectl -n paladin run np-probe --rm -it --image=busybox:1.36 --restart=Never -- wget -qO- -T3 http://paladin-node4:8548` must time out.
+3. Repeat with `-l node=node3`, `node2`, `node1`, then `-l node=all` (the ingress-nginx allowance, needed as long as the public Ingress points at the nodes).
+
+Rollback: `kubectl delete -f k8s/networkpolicy.yaml -l node=node4` (or without `-l` for all); traffic is open again immediately. The Besu liveness
+probe waits 180 s then runs every 60 s with 3 failures to restart: if a validator restarts after step 2, delete its object first.
+
+**Public ingress bypass.** `paladin-rpc-from-ingress-nginx` keeps the existing public route working. To put the public route
+behind OPA, apply `k8s/ingress-via-gateway.yaml` (same hosts, annotations, TLS secrets; backend `bank-gw-N:8548`), check one
+call through `https://paladin-node2.apse5.kld.bi-sandbox.com`, then `kubectl -n paladin delete networkpolicy paladin-rpc-from-ingress-nginx`.
+That changes what external callers may do (OPA rules apply, Zeto only). It cannot be combined with step 3 (mTLS) unless the
+Ingress also gets `backend-protocol: HTTPS` and a client cert (`nginx.ingress.kubernetes.io/proxy-ssl-secret`). Rollback: re-apply the old Ingress
+(`kubectl -n paladin get ingress paladin-nodeN -o yaml` saved before, backend `paladin-nodeN:8548`).
+
+### 3. mTLS Lensa to the gateway (`mtls/`)
+
+Envoy requires a client certificate on **both doors** (8548 Paladin, 8545 Besu): `DownstreamTlsContext` with
+`require_client_certificate: true`, TLS 1.2+, trusted CA `/mtls/ca.crt`. `mtls/envoy-mtls.sh envoy/nodeN.yaml` prints the
+plain `envoy/nodeN.yaml` with that inserted; the plain file stays the source of truth. The readiness probe stays
+`tcpSocket 8548` (a TCP connect needs no handshake, verified against a live Envoy). `k8s/bank-gw-N.yaml` mounts the optional Secret
+`bank-gw-N-mtls` at `/mtls`; while the Secret does not exist the volume is empty and nothing changes.
+
+Lensa side, opt-in with `LENSA_GW_MTLS_DIR=<dir with ca.crt, lensa.crt, lensa.key>`: gateway URLs turn into `https://`, the Paladin
+SDK client gets `requestConfig.httpsAgent` (`besu/zeto/src/common.ts`, `besu/noto+pente/common/src/config.ts`), JSON-RPC calls,
+the health probe and the ethers provider use the same agent (`frontend/server/src/gateway.ts`). Set but unreadable: Lensa does
+not start (no silent downgrade). Unset: plain http, as now. The server cert has SANs `bank-gw-N[.paladin[.svc[.cluster.local]]]`,
+`localhost`, `127.0.0.1`, so the port-forwarded `https://127.0.0.1:315x8` verifies.
+
+Keys are made on the host, outside the repo, and never committed: `mtls/gen-certs.sh` writes `~/.opa-mtls/` (dir 700, files 600;
+it refuses a directory inside the repo). CA 5 years, leaf certs 1 year (re-issue with `FORCE=1 mtls/gen-certs.sh`, then redo step 2 and 3 below).
+
+Live steps (the flip is all-or-nothing for Lensa: its env switches every gateway at once, so expect Lensa to be down while the four
+rollouts run, about 10 s each plus the forward restart; do it when no stress run is going):
+
+1. `mtls/gen-certs.sh`
+2. For N in 1..4: `D=~/.opa-mtls; kubectl -n paladin create secret generic bank-gw-N-mtls --from-file=tls.crt=$D/gw-N.crt --from-file=tls.key=$D/gw-N.key --from-file=ca.crt=$D/ca.crt`
+3. For N in 1..4: `kubectl apply -f k8s/bank-gw-N.yaml` (mounts the Secret; envoy config still plain; wait for the rollout).
+4. For N in 1..4, one at a time: `mtls/envoy-mtls.sh envoy/nodeN.yaml > /tmp/nodeN.mtls.yaml`; then
+   `kubectl -n paladin create configmap bank-gw-N-envoy --from-file=envoy.yaml=/tmp/nodeN.mtls.yaml --dry-run=client -o yaml | kubectl apply -f -`;
+   `kubectl -n paladin rollout restart deploy/bank-gw-N`; wait; `rm /tmp/nodeN.mtls.yaml`.
+   Direct check through a forward: `curl -s -o /dev/null -w '%{http_code}\n' --cacert ~/.opa-mtls/ca.crt --cert ~/.opa-mtls/lensa.crt --key ~/.opa-mtls/lensa.key https://127.0.0.1:31648/ -d '{"jsonrpc":"2.0","id":1,"method":"transport_nodeName","params":[]}'`
+   answers 200; the same without `--cert/--key` fails the handshake.
+5. Add `LENSA_GW_MTLS_DIR=/home/ecs-user/.opa-mtls` to `~/.config/lensa/lensa.env`; `systemctl --user restart lensa.service`.
+   Step 4 breaks plain-http Lensa, so do 4 and 5 back to back.
+6. Check Lensa: network screen shows all Paladin nodes and Besu up, a Zeto transfer, a Stealth read.
+
+Rollback: remove `LENSA_GW_MTLS_DIR` from `lensa.env`; for N in 1..4 re-create `bank-gw-N-envoy` from plain `envoy/nodeN.yaml`
+(`kubectl -n paladin create configmap bank-gw-N-envoy --from-file=envoy.yaml=envoy/nodeN.yaml --dry-run=client -o yaml | kubectl apply -f -`),
+`rollout restart deploy/bank-gw-N`, restart `lensa.service`. The Secrets can stay.
+
+Not covered: the client cert is not bound to a party (one `lensa` cert for all four doors: it proves "this is Lensa", not
+"this is bank A"); cert rotation needs the rollout restart (Envoy reads files at start).
 
 ## Not done (production hardening)
 
-1. mTLS for Lensa (Envoy `DownstreamTlsContext`, Lensa client cert via `PaladinConfig.requestConfig`).
-2. NetworkPolicy so `paladin-node2:8548/8549` and `besu-node-validator-2:8545/8546` are reachable only from the
-   gateway, Paladin itself and the operator. Allow the kubelet probe (`tcpSocket 8548`). Note that
-   `kubectl port-forward` straight to a pod bypasses NetworkPolicy.
-3. Production: signed bundles from each owner's bundle server (`opa build --signing-key`, `persist: true`).
+1. Production: signed bundles from each owner's bundle server (`opa build --signing-key`, `persist: true`).
+2. The public ingress still bypasses the gateway until `k8s/ingress-via-gateway.yaml` is applied (decision above).
+3. DFABI `bankN-backend` talks to Paladin directly (needs the WebSocket port, which the gateway does not proxy).

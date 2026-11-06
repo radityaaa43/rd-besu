@@ -1,0 +1,104 @@
+# OPTIONAL. The public ingress of each Paladin node (basic auth, TLS, letsencrypt) now sends to paladin-nodeN:8548 and skips
+# the OPA gateway. These four replace it with the same host, annotations and TLS secret, backend bank-gw-N:8548.
+# Callers of the public URL then meet the OPA rules (Zeto only; other methods and tx kinds are denied). Decide first,
+# then apply, then delete k8s/networkpolicy.yaml object paladin-rpc-from-ingress-nginx. Rollback: README, "NetworkPolicy".
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paladin-node1
+  namespace: paladin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-realm: Paladin
+    nginx.ingress.kubernetes.io/auth-secret: paladin-basic-auth
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: paladin-node1.apse5.kld.bi-sandbox.com
+    http:
+      paths:
+      - backend: {service: {name: bank-gw-1, port: {number: 8548}}}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts: [paladin-node1.apse5.kld.bi-sandbox.com]
+    secretName: paladin-node1-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paladin-node2
+  namespace: paladin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-realm: Paladin
+    nginx.ingress.kubernetes.io/auth-secret: paladin-basic-auth
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: paladin-node2.apse5.kld.bi-sandbox.com
+    http:
+      paths:
+      - backend: {service: {name: bank-gw-2, port: {number: 8548}}}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts: [paladin-node2.apse5.kld.bi-sandbox.com]
+    secretName: paladin-node2-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paladin-node3
+  namespace: paladin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-realm: Paladin
+    nginx.ingress.kubernetes.io/auth-secret: paladin-basic-auth
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: paladin-node3.apse5.kld.bi-sandbox.com
+    http:
+      paths:
+      - backend: {service: {name: bank-gw-3, port: {number: 8548}}}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts: [paladin-node3.apse5.kld.bi-sandbox.com]
+    secretName: paladin-node3-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paladin-node4
+  namespace: paladin
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-realm: Paladin
+    nginx.ingress.kubernetes.io/auth-secret: paladin-basic-auth
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: paladin-node4.apse5.kld.bi-sandbox.com
+    http:
+      paths:
+      - backend: {service: {name: bank-gw-4, port: {number: 8548}}}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts: [paladin-node4.apse5.kld.bi-sandbox.com]
+    secretName: paladin-node4-tls

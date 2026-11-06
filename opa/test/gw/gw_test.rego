@@ -428,3 +428,26 @@ test_besu_empty_batch_denied if not allowed(besu([]))
 test_besu_qbft_vote_denied if not allowed(besu(call("qbft_proposeValidatorVote")))
 
 test_besu_debug_denied if not allowed(besu(call("debug_traceTransaction")))
+
+# Lensa reaches Besu through bank-gw-1's door (one URL for every party): everything ethers' JsonRpcProvider sends for the
+# Stealth adapter (reads, fee data, eth_sendRawTransaction, receipt polling, deploy) plus the trace and health probes.
+lensa_besu_methods := [
+	"eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBlockByHash", "eth_getLogs", "eth_getTransactionByHash",
+	"eth_getTransactionReceipt", "eth_getTransactionCount", "eth_getBalance", "eth_getCode", "eth_call", "eth_estimateGas",
+	"eth_gasPrice", "eth_maxPriorityFeePerGas", "eth_sendRawTransaction",
+]
+
+test_besu_lensa_calls_allowed_on_every_gateway if {
+	every node in ["node1", "node2", "node3", "node4"] {
+		every m in lensa_besu_methods {
+			allowed(door("besu", node, call(m)))
+		}
+		allowed(door("besu", node, [call(m) | some m in lensa_besu_methods]))
+	}
+}
+
+test_besu_subscribe_and_filters_denied if {
+	every m in ["eth_subscribe", "eth_newFilter", "eth_getFilterChanges", "eth_sendTransaction", "eth_accounts", "txpool_content"] {
+		not allowed(door("besu", "node1", call(m)))
+	}
+}

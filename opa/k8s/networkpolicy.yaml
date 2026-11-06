@@ -1,0 +1,226 @@
+# Ingress NetworkPolicies for the Paladin and Besu RPC doors. In-cluster, only the OPA gateways reach the RPC ports,
+# plus the flows listed in README "NetworkPolicy". Ingress only: no egress rule anywhere here.
+# The cluster CNI is Terway v1.15.0 (eBPF policy provider, eni-config disable_network_policy=false): these are enforced.
+# Not covered: `kubectl port-forward` (the kubelet dials the pod from its node; policy does not apply).
+# Apply one node at a time: kubectl apply -f networkpolicy.yaml -l node=node4 (README, "NetworkPolicy"). Deleting an object opens that node again.
+---
+# paladin-node1: RPC 8548 from bank-gw-1; 8548+8549 from the operator and DFABI bank1-backend; transport 9000 from Paladin nodes; metrics 6100 open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-node1-ingress
+  namespace: paladin
+  labels: {node: node1}
+spec:
+  podSelector:
+    matchLabels: {app: paladin, app.kubernetes.io/instance: node1}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: bank-gw, node: node1}}
+    ports: [{protocol: TCP, port: 8548}]
+  - from:
+    - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: dfabi}}
+      podSelector: {matchLabels: {app: bank1-backend}}
+    ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8549}]
+  - from:
+    - podSelector: {matchLabels: {app: paladin}}
+    ports: [{protocol: TCP, port: 9000}]
+  - ports: [{protocol: TCP, port: 6100}]
+---
+# paladin-node2: RPC 8548 from bank-gw-2; 8548+8549 from the operator and DFABI bank2-backend; transport 9000 from Paladin nodes; metrics 6100 open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-node2-ingress
+  namespace: paladin
+  labels: {node: node2}
+spec:
+  podSelector:
+    matchLabels: {app: paladin, app.kubernetes.io/instance: node2}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: bank-gw, node: node2}}
+    ports: [{protocol: TCP, port: 8548}]
+  - from:
+    - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: dfabi}}
+      podSelector: {matchLabels: {app: bank2-backend}}
+    ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8549}]
+  - from:
+    - podSelector: {matchLabels: {app: paladin}}
+    ports: [{protocol: TCP, port: 9000}]
+  - ports: [{protocol: TCP, port: 6100}]
+---
+# paladin-node3: RPC 8548 from bank-gw-3; 8548+8549 from the operator and DFABI bank3-backend; transport 9000 from Paladin nodes; metrics 6100 open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-node3-ingress
+  namespace: paladin
+  labels: {node: node3}
+spec:
+  podSelector:
+    matchLabels: {app: paladin, app.kubernetes.io/instance: node3}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: bank-gw, node: node3}}
+    ports: [{protocol: TCP, port: 8548}]
+  - from:
+    - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: dfabi}}
+      podSelector: {matchLabels: {app: bank3-backend}}
+    ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8549}]
+  - from:
+    - podSelector: {matchLabels: {app: paladin}}
+    ports: [{protocol: TCP, port: 9000}]
+  - ports: [{protocol: TCP, port: 6100}]
+---
+# paladin-node4: RPC 8548 from bank-gw-4; 8548+8549 from the operator and DFABI bank4-backend; transport 9000 from Paladin nodes; metrics 6100 open.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-node4-ingress
+  namespace: paladin
+  labels: {node: node4}
+spec:
+  podSelector:
+    matchLabels: {app: paladin, app.kubernetes.io/instance: node4}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: bank-gw, node: node4}}
+    ports: [{protocol: TCP, port: 8548}]
+  - from:
+    - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: dfabi}}
+      podSelector: {matchLabels: {app: bank4-backend}}
+    ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8549}]
+  - from:
+    - podSelector: {matchLabels: {app: paladin}}
+    ports: [{protocol: TCP, port: 9000}]
+  - ports: [{protocol: TCP, port: 6100}]
+---
+# The public ingress (nginx, basic auth) of paladin-node1..4.apse5.kld.bi-sandbox.com goes straight to paladin-nodeN:8548
+# and skips the gateway. Kept open so nothing is cut. Delete this object once the ingress backends point at bank-gw-N
+# (k8s/ingress-via-gateway.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-rpc-from-ingress-nginx
+  namespace: paladin
+  labels: {node: all}
+spec:
+  podSelector:
+    matchLabels: {app: paladin}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      podSelector: {matchLabels: {app: ingress-nginx}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: ack-ingress-nginx-v1}}
+    ports: [{protocol: TCP, port: 8548}]
+---
+# besu-node-validator-1: 8545 from bank-gw-1 and paladin-node1; WS 8546 from paladin-node1; P2P 30303 from the besu namespace; metrics 9545 open. 8547 (GraphQL, off) closed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: besu-node-validator-1-ingress
+  namespace: besu
+  labels: {node: node1}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: besu-node-validator-1}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: bank-gw, node: node1}}
+    ports: [{protocol: TCP, port: 8545}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: paladin, app.kubernetes.io/instance: node1}}
+    ports: [{protocol: TCP, port: 8545}, {protocol: TCP, port: 8546}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: besu}}
+    ports: [{protocol: TCP, port: 30303}, {protocol: UDP, port: 30303}]
+  - ports: [{protocol: TCP, port: 9545}]
+---
+# besu-node-validator-2: 8545 from bank-gw-2 and paladin-node2; WS 8546 from paladin-node2; P2P 30303 from the besu namespace; metrics 9545 open. 8547 (GraphQL, off) closed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: besu-node-validator-2-ingress
+  namespace: besu
+  labels: {node: node2}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: besu-node-validator-2}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: bank-gw, node: node2}}
+    ports: [{protocol: TCP, port: 8545}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: paladin, app.kubernetes.io/instance: node2}}
+    ports: [{protocol: TCP, port: 8545}, {protocol: TCP, port: 8546}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: besu}}
+    ports: [{protocol: TCP, port: 30303}, {protocol: UDP, port: 30303}]
+  - ports: [{protocol: TCP, port: 9545}]
+---
+# besu-node-validator-3: 8545 from bank-gw-3 and paladin-node3; WS 8546 from paladin-node3; P2P 30303 from the besu namespace; metrics 9545 open. 8547 (GraphQL, off) closed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: besu-node-validator-3-ingress
+  namespace: besu
+  labels: {node: node3}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: besu-node-validator-3}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: bank-gw, node: node3}}
+    ports: [{protocol: TCP, port: 8545}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: paladin, app.kubernetes.io/instance: node3}}
+    ports: [{protocol: TCP, port: 8545}, {protocol: TCP, port: 8546}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: besu}}
+    ports: [{protocol: TCP, port: 30303}, {protocol: UDP, port: 30303}]
+  - ports: [{protocol: TCP, port: 9545}]
+---
+# besu-node-validator-4: 8545 from bank-gw-4 and paladin-node4; WS 8546 from paladin-node4; P2P 30303 from the besu namespace; metrics 9545 open. 8547 (GraphQL, off) closed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: besu-node-validator-4-ingress
+  namespace: besu
+  labels: {node: node4}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/part-of: besu-node-validator-4}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: bank-gw, node: node4}}
+    ports: [{protocol: TCP, port: 8545}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: paladin}}
+      podSelector: {matchLabels: {app: paladin, app.kubernetes.io/instance: node4}}
+    ports: [{protocol: TCP, port: 8545}, {protocol: TCP, port: 8546}]
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: besu}}
+    ports: [{protocol: TCP, port: 30303}, {protocol: UDP, port: 30303}]
+  - ports: [{protocol: TCP, port: 9545}]

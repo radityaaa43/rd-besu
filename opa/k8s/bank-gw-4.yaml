@@ -28,7 +28,9 @@ spec:
           requests: {cpu: 20m, memory: 32Mi}
           limits: {memory: 128Mi}
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
-        volumeMounts: [{name: envoy, mountPath: /config, readOnly: true}]
+        volumeMounts:
+        - {name: envoy, mountPath: /config, readOnly: true}
+        - {name: mtls, mountPath: /mtls, readOnly: true} # empty until Secret bank-gw-4-mtls exists (README, mTLS)
       - name: opa
         image: openpolicyagent/opa:1.21.1-envoy-1-static
         args:
@@ -52,6 +54,7 @@ spec:
         - {name: bundles, mountPath: /bundles, readOnly: true}
       volumes:
       - {name: envoy, configMap: {name: bank-gw-4-envoy}}
+      - {name: mtls, secret: {secretName: bank-gw-4-mtls, optional: true, defaultMode: 292}} # 0444: envoy runs as uid 10001
       - {name: opa, configMap: {name: bank-gw-opa}}
       - {name: bundles, configMap: {name: bank-gw-4-bundles}}
 ---

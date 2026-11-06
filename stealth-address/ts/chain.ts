@@ -8,7 +8,7 @@ import { deriveStealth, scanAll, type Announcement, type ViewKeyHolder } from '.
 import { parseTokenMetadata } from './token.ts';
 
 // Server code must not import ethers itself: it takes what it needs from here, so one ethers copy is in play.
-export { Contract, Interface, JsonRpcProvider, Wallet } from 'ethers';
+export { Contract, FetchRequest, Interface, JsonRpcProvider, Wallet } from 'ethers';
 export type { Provider } from 'ethers';
 
 export const TRANCHE_A = encodeBytes32String('TRANCHE-A');

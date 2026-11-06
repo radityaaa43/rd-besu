@@ -58,6 +58,21 @@ function convertJsonToNodeConnection(jsonNode: NodeConnectionJson): NodeConnecti
     };
   }
 
+  // Opt-in mTLS to the OPA gateways (besu/opa/README.md): LENSA_GW_MTLS_DIR holds ca.crt, lensa.crt, lensa.key.
+  const mtlsDir = process.env.LENSA_GW_MTLS_DIR;
+  if (mtlsDir) {
+    clientOptions.url = clientOptions.url.replace(/^http:/, 'https:');
+    clientOptions.requestConfig = {
+      ...clientOptions.requestConfig,
+      httpsAgent: new https.Agent({
+        ca: fs.readFileSync(path.join(mtlsDir, 'ca.crt')),
+        cert: fs.readFileSync(path.join(mtlsDir, 'lensa.crt')),
+        key: fs.readFileSync(path.join(mtlsDir, 'lensa.key')),
+        keepAlive: true,
+      }),
+    };
+  }
+
   // Add TLS configuration if tlsInsecure is true
   if (jsonNode.client.tlsInsecure) {
     clientOptions.requestConfig = {
