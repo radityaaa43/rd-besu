@@ -6,6 +6,7 @@ package fabricx_test
 import data.bank.platform.fabricx as bank
 import data.bi.platform.fabricx as bi
 import data.fixtures
+import data.gw
 
 # Thursday 2026-11-05 10:00 WIB; the day starts 2026-11-04T17:00:00Z.
 now_ns := time.parse_rfc3339_ns("2026-11-05T03:00:00Z")
@@ -236,4 +237,19 @@ test_daily_limit_fails_closed if {
 test_daily_limit_other_token_no_query if {
 	allowed_with("node2", object.union(transfer("bank2", "bank3", "1"), {"type": "DFABI-2027A"}), {}, limit) with http.send as down
 	allowed_with("node2", swap("bank2", "bank3"), {}, limit) with http.send as down
+}
+
+# --- through gw.allow (noto's dispatch): target only from Envoy's context_extensions
+
+test_gw_dispatch if {
+	i := door("node2", transfer("bank2", "bank3", "1"))
+	gw.allow with input as i with data.bi.config as bi_cfg({}) with data.bank.config as bank_cfg({}) with time.now_ns as now_ns
+	not gw.allow with input as i with data.bi.config as bi_cfg({"frozen": ["bankB@node3"]})
+		with data.bank.config as bank_cfg({}) with time.now_ns as now_ns
+	not gw.allow with input as i with data.bi.config as bi_cfg({})
+		with data.bank.config as bank_cfg({"counterparties": ["bi@node1"]}) with time.now_ns as now_ns
+
+	# a Fabric-X body on the Paladin door is not a Fabric-X request
+	p := object.union(i, {"attributes": {"contextExtensions": {"target": "paladin"}}})
+	not gw.allow with input as p with data.bi.config as bi_cfg({}) with data.bank.config as bank_cfg({}) with time.now_ns as now_ns
 }
