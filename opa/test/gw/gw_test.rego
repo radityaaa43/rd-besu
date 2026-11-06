@@ -221,20 +221,6 @@ test_public_deploy_denied if not allowed(send("node2", {"type": "public", "from"
 
 test_public_other_function_denied if not allowed(send("node2", public("0x00000000000000000000000000000000000000bb", "transfer")))
 
-# --- Noto and Pente pass unscoped
-
-test_noto_transfer_allowed if {
-	tx := {"type": "private", "domain": "noto", "to": "0xf4571ab32cbd61a7cfbf1d1647a39ec8744a7681", "from": "bankA@node2", "function": "transfer", "data": {"to": "bankB@node3", "amount": "10"}}
-	allowed(send("node2", tx))
-}
-
-test_noto_prepare_unlock_allowed if {
-	tx := {"type": "private", "domain": "noto", "to": "0xf4571ab32cbd61a7cfbf1d1647a39ec8744a7681", "from": "bankA@node2", "function": "prepareUnlock", "data": {}}
-	allowed(rpc("node2", "ptx_prepareTransaction", [tx]))
-}
-
-test_pente_group_tx_allowed if allowed(rpc("node2", "pgroup_sendTransaction", [{"domain": "pente", "group": "0x01"}]))
-
 # --- Private txs without `domain` (the Paladin SDK omits it on writes; Paladin resolves it from `to`)
 
 # `domain` dropped: the shape the SDK really sends for Zeto and Noto writes.
@@ -268,13 +254,8 @@ test_sdk_mint_without_domain_by_bank_denied if {
 	not allowed(send("node2", sdk(tx)))
 }
 
-test_noto_transfer_without_domain_allowed if {
-	tx := {"type": "private", "to": "0xf4571ab32cbd61a7cfbf1d1647a39ec8744a7681", "from": "bankA@node2", "function": "transfer", "data": {"to": "bankB@node3", "amount": "10"}}
-	allowed(send("node2", tx))
-}
-
-# No `to` and no `domain`: not Zeto, so unscoped (a Zeto deploy carries domain "zeto" and stays denied).
-test_private_without_to_and_domain_not_zeto_allowed if allowed(send("node2", {"type": "private", "from": "bankA@node2", "function": "", "data": {}}))
+# No `to` and no `domain`: neither Zeto nor Noto, so denied.
+test_private_without_to_and_domain_denied if not allowed(send("node2", {"type": "private", "from": "bankA@node2", "function": "", "data": {}}))
 
 test_bank_counterparty_applies_without_domain if {
 	bank := object.union(fixtures.bank_a, {"counterparties": ["bi@node1"]})

@@ -23,7 +23,8 @@ paladin-nodeN ──direct──▶ besu-node-validator-N   (not through the gat
 | Paladin, Zeto, limits | BI: `max_per_tx`, `max_mint_per_tx`, `hours` per token, `holidays`, `frozen`; bank: `max_per_tx`, `hours`, `daily_limit` (never looser than BI) | the daily limit asks the bank's own Paladin node for today's total (`ptx_queryTransactionsFull`, domain `zeto`, `created` from 00:00 WIB as UTC, no `from` filter, functions `transfer` and `createLock`), `http.send` timeout 2s, fails closed (no answer, a JSON-RPC error, non-200 or a full page of 1000 denies); counted on submit and without a lock |
 | Identities | compared by node (`name@node`, exactly one `@`, both parts non-empty) | a bank is its node: `stress-n2-00@node2` is bank A; freezing `bankC@node4` freezes every `*@node4`; counterparties and participants match by node |
 | Paladin, reports | `pgroup_sendMessage` topic `zeto-report-v1` on the node's own {bank, BI} group | |
-| Paladin, Noto/Pente | any private tx that is not Zeto passes unscoped | not ruled yet, so the gateway does not break those flows |
+| Paladin, Noto | a private tx is Noto when `domain` is `noto` or `to` is in `noto.contracts` (Zeto wins if both). `mint` (issuer node only), `transfer` ({to, amount}), `lock` ({amount}), `prepareUnlock` (recipients), `delegateLock`; `from` must be the node's own identity; anything else (burn, deploys, unknown contract) is denied | same per-token policy as Zeto (caps in `zeto.max_per_tx`/`max_mint_per_tx`, hours, frozen, the bank's counterparties, `max_per_tx`, `daily_limit`); `lock` and `prepareUnlock` need both tokens open; a `prepareUnlock` whose recipients are only the sender (DvP rollback) and `delegateLock` are never blocked; the daily limit is per rail (domain `noto`, counts `transfer` and `prepareUnlock` except rollbacks) |
+| Paladin, Pente | `pgroup_sendTransaction` only into a group in `pente.groups` (the Noto hooks' cash and issuer-custodian groups) | membership itself is Paladin's; any other private domain is denied |
 | Besu | method allowlist, every call in a batch | `admin_*`, `qbft_*`, `perm_*`, `debug_*`, `txpool_*` denied |
 
 Not covered: the duty to report to BI after a bank-to-bank transfer (BI's reconciliation flags `unreported`),
@@ -34,7 +35,7 @@ and whether `delegateLock` hands a lock to a legitimate Atom.
 ## Lensa: Halaman Kebijakan
 
 Lensa edits the two kinds of document (BI's `bi`, each bank's `bank-a|b|c`) on the screen **Kebijakan**
-(`/besu/zeto/kebijakan`, Zeto only; disabled with a reason on Noto, Stealth, Fabric-X and Iroha 3). A change is drafted by one
+(`/besu/zeto/kebijakan` and `/besu/noto/kebijakan`, one policy for both rails; disabled with a reason on Stealth, Fabric-X and Iroha 3). A change is drafted by one
 person, approved by a different one, then published to the gateways. Design: `docs/superpowers/specs/2026-11-05-halaman-kebijakan-design.md`;
 plan: `docs/superpowers/plans/2026-11-05-halaman-kebijakan.md`; routes and state: `frontend/ARCHITECTURE.md` section 8.
 

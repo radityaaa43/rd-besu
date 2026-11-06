@@ -16,6 +16,17 @@ is_zeto if tx.domain == "zeto"
 
 is_zeto if data.bi.config.zeto.contracts[lower(tx.to)]
 
+# Noto the same way. Never both: a tx is Zeto first.
+is_noto if {
+	not is_zeto
+	tx.domain == "noto"
+}
+
+is_noto if {
+	not is_zeto
+	data.bi.config.noto.contracts[lower(tx.to)]
+}
+
 default allow := false
 
 allow if rpc.method in data.bi.config.paladin.read_methods
@@ -34,14 +45,21 @@ allow if {
 	data.bi.atom.allow
 }
 
-# Noto and Pente are not scoped yet: any private tx that is not Zeto passes so the gateway does not break their flows.
 allow if {
 	rpc.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
 	tx.type == "private"
-	not is_zeto
+	is_noto
+	ident.node_of(tx.from) == input.attributes.contextExtensions.node
+	data.bi.noto.allow
 }
 
-allow if rpc.method == "pgroup_sendTransaction"
+# Pente txs only into the groups BI knows (the Noto hooks' cash and issuer-custodian groups).
+# Group membership itself is enforced by Paladin.
+allow if {
+	rpc.method == "pgroup_sendTransaction"
+	tx.domain == "pente"
+	tx.group in data.bi.config.pente.groups
+}
 
 # A bank reports its Zeto outputs to BI only over its own {bank, BI} group.
 allow if {

@@ -58,6 +58,14 @@ bi := {
 			"DFABI": 1000000000000000,
 		},
 	},
+	"noto": {"contracts": {
+		"0xf4571ab32cbd61a7cfbf1d1647a39ec8744a7681": "RD",
+		"0xf0735bed31247f52d54e6bc5ed6603c98aec8a63": "DFABI",
+	}},
+	"pente": {"groups": [
+		"0x692f11b9945ff03bd52a0552854dbc51b51c3eefe47fc51a78132af671a96682",
+		"0x90c28c12c7333c548e02550f7c5a709267880ce87badd26e137ece965c739c68",
+	]},
 	"atom": {
 		"factories": [
 			"0xeca568aaf1edd02004aa85562087f8057deb465f",
