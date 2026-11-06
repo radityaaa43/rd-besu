@@ -4,7 +4,7 @@
 # Not covered: `kubectl port-forward` (the kubelet dials the pod from its node; policy does not apply).
 # Apply one node at a time: kubectl apply -f networkpolicy.yaml -l node=node4 (README, "NetworkPolicy"). Deleting an object opens that node again.
 ---
-# paladin-node1: RPC 8548 from bank-gw-1; 8548+8549 from the operator and DFABI bank1-backend; transport 9000 from Paladin nodes; metrics 6100 open.
+# paladin-node1: RPC 8548 from every bank-gw (BI's Noto balance controls: gateways 2-4 ask node1, the notary, for balances and supply, bundles/bi/bi/noto/balance.rego); 8548+8549 from the operator and DFABI bank1-backend; transport 9000 from Paladin nodes; metrics 6100 open.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -17,7 +17,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
   - from:
-    - podSelector: {matchLabels: {app: bank-gw, node: node1}}
+    - podSelector: {matchLabels: {app: bank-gw}}
     ports: [{protocol: TCP, port: 8548}]
   - from:
     - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
