@@ -89,6 +89,25 @@ their screens work today. Putting a platform behind the gateway needs only the p
 
 Revisions: a bundle is built with `--revision <bundle>-zeto.<n>-noto.<n>-fabricx.<n>-iroha3.<n>` (platforms in registry order; bundle = `bi`, `bank-a|b|c`, or `bank-bi` for node 1). The Publisher also reads the older `bi-z<n>-n<m>` that gateways report until the first publish in the new format (fabricx and iroha3 read as not reported) and logs that fallback once per process.
 
+## Fabric-X rules (`fabricx`)
+
+Gateways `fx-gw-1..4` (ns `fabricx`) are designed in `fabric-x/opa/DESIGN.md`. Envoy :8443 requires mTLS. Behind it, OPA and fxapi (`rdbi-driver serve`) hold only that party's view-client key. The body is one fxapi request, and `node` is `node1..4` (= `issuer`, `bank2..4`). Rules: `bundles/bi/bi/platform/fabricx`, `bundles/bank/bank/platform/fabricx`; tests: `test/fabricx`.
+
+| Op | Where | BI (`policy.fabricx`) | Bank (`policy.fabricx` of the gateway's bank) |
+|---|---|---|---|
+| `issue` | node1 only | `max_mint_per_tx`, hours, recipient not frozen | counterparty, hours, `max_per_tx` |
+| `award` | node1 only, prechecked at the bank | DFABI ≤ `max_mint_per_tx`, RD ≤ `max_per_tx`, both tokens open, bank not frozen | DFABI leg: counterparty, hours of both tokens, `max_per_tx` |
+| `transfer` | sender's gateway | `max_per_tx`, hours, sender and recipient not frozen | counterparty, hours, `max_per_tx`, `daily_limit` |
+| `swap` (DvP) | seller's gateway, prechecked at the buyer's | both legs ≤ `max_per_tx`, both tokens open, neither bank frozen | seller's leg: counterparty, both tokens' hours, `max_per_tx`, `daily_limit` |
+| `precheck` | the gateway of the party that gives the leg | the same checks as the initiator's side | buyer's leg: counterparty, both tokens' hours, `max_per_tx`, `daily_limit` |
+| `redeem` | holder's gateway (a bank) | `max_per_tx`, hours, holidays, holder not frozen | hours, `max_per_tx`, `daily_limit` |
+| reads | own node only | `balance`, `history`, `records`, `finality`, `report`, `usage` | none |
+
+- Anything else is denied: other ops, unknown tokens or nodes, a non-POST request, or an amount that is not a positive uint64 decimal string.
+- **Redeem differs from Noto's burn.** Noto's burn is issuer-only. In Fabric-X the holder redeems and BI co-signs on chain (the issuer node has no redeem view), so BI keeps control on the ledger. Redeem counts toward `daily_limit` like a transfer. An amount above the holder's balance is rejected by the view ("insufficient funds").
+- `daily_limit` comes from the party's own token records (`rd_dfabi_v2`) via fxapi `usage` on 127.0.0.1:8080 (2s, fail closed). Counted are transfers, DvP legs and redeems since 00:00 WIB; change is excluded.
+- **Known gap (DvP and award precheck):** it is enforced by the gateways, not by the buyer's node. A modified initiator that bypasses its own gateway can skip the precheck.
+
 ## Test
 
 ```
