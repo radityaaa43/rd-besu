@@ -6,3 +6,6 @@ mask contains "/input/attributes/request/http/body"
 mask contains "/input/attributes/request/http/headers/authorization"
 
 mask contains "/input/parsed_body/params/0/data"
+
+# Envoy with pack_as_bytes (iroha3 gateways) delivers the binary Norito body here instead of `body`.
+mask contains "/input/attributes/request/http/rawBody"
