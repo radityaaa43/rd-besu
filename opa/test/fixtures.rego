@@ -3,7 +3,7 @@
 # seed). Kept in the test dir so tests do not depend on live values.
 package fixtures
 
-# One BI document per platform, with today's values for both.
+# One BI document per platform, with today's values (all registered platforms start from the same values).
 bi_doc := {
 	"max_per_tx": {
 		"RD": 1000000000,
@@ -175,9 +175,12 @@ bi := {
 			"web3_clientVersion",
 		],
 	},
+	"platforms": ["zeto", "noto", "fabricx", "iroha3"],
 	"policy": {
 		"zeto": bi_doc,
 		"noto": bi_doc,
+		"fabricx": bi_doc,
+		"iroha3": bi_doc,
 	},
 }
 
@@ -190,6 +193,8 @@ bank_doc := {"counterparties": [
 bank_a := {"policy": {
 	"zeto": bank_doc,
 	"noto": bank_doc,
+	"fabricx": bank_doc,
+	"iroha3": bank_doc,
 }}
 
 # The fixture with one platform's document merged with a patch (arrays and scalars are replaced, objects merged).

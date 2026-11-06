@@ -149,7 +149,7 @@ test_counterparty_unknown_node_error if {
 }
 
 test_bank_counterparties_missing if {
-	bank_check.errors == {"Counterparty: harus berupa daftar"} with data.bank.config as {"policy": {"zeto": {}, "noto": fixtures.bank_doc}}
+	bank_check.errors == {"Counterparty: harus berupa daftar"} with data.bank.config as {"policy": {"zeto": {}, "noto": fixtures.bank_doc, "fabricx": fixtures.bank_doc, "iroha3": fixtures.bank_doc}}
 		with data.bi.config as fixtures.bi
 }
 
@@ -231,4 +231,34 @@ test_bank_compares_with_same_platform if {
 	# the same values are fine for Zeto, where BI's cap is 1bn and hours are all day
 	count(bank_check.errors) == 0 with data.bank.config as fixtures.bank_with("zeto", {"max_per_tx": {"RD": 501}, "hours": {"RD": {"days": [1, 2], "open": "08:00", "close": "17:00"}}})
 		with data.bi.config as bi
+}
+
+# Every registered platform is validated like zeto and noto, and a missing document is named for each of them.
+test_bi_missing_document_for_every_registered_platform if {
+	bi_check.errors == {"Kebijakan fabricx: dokumen tidak ada"} with data.bi.config as json.remove(fixtures.bi, ["policy/fabricx"])
+	bi_check.errors == {"Kebijakan iroha3: dokumen tidak ada"} with data.bi.config as json.remove(fixtures.bi, ["policy/iroha3"])
+}
+
+test_bank_missing_document_for_every_registered_platform if {
+	bank_check.errors == {"Kebijakan fabricx: dokumen tidak ada"} with data.bank.config as json.remove(fixtures.bank_a, ["policy/fabricx"])
+		with data.bi.config as fixtures.bi
+	bank_check.errors == {"Kebijakan iroha3: dokumen tidak ada"} with data.bank.config as json.remove(fixtures.bank_a, ["policy/iroha3"])
+		with data.bi.config as fixtures.bi
+}
+
+test_bi_and_bank_check_fabricx_and_iroha3_documents if {
+	bi_check.errors == {"Limit per transaksi RD: harus bilangan bulat positif"} with data.bi.config as fixtures.bi_with("fabricx", {"max_per_tx": {"RD": 0}})
+	bi_check.errors == {"Pembekuan: bankZ@node9 bukan peserta"} with data.bi.config as fixtures.bi_with("iroha3", {"frozen": ["bankZ@node9"]})
+	bank_check.errors == {"Counterparty: bankZ@node9 bukan peserta"} with data.bank.config as fixtures.bank_with("fabricx", {"counterparties": ["bankZ@node9"]})
+		with data.bi.config as fixtures.bi
+	bank_check.errors == {"Limit harian RD: harus bilangan bulat positif"} with data.bank.config as fixtures.bank_with("iroha3", {"daily_limit": {"RD": 0}})
+		with data.bi.config as fixtures.bi
+}
+
+# The list of platforms is data: a platform the registry adds later needs a document without any change to the rules.
+test_registered_platforms_come_from_data if {
+	bi_check.errors == {"Kebijakan baru: dokumen tidak ada"} with data.bi.config as object.union(fixtures.bi, {"platforms": ["zeto", "baru"]})
+	bank_check.errors == {"Kebijakan baru: dokumen tidak ada"} with data.bank.config as fixtures.bank_a
+		with data.bi.config as object.union(fixtures.bi, {"platforms": ["zeto", "baru"]})
+	count(bi_check.errors) == 0 with data.bi.config as object.union(fixtures.bi, {"platforms": ["zeto"]})
 }

@@ -12,5 +12,19 @@
       "bankB@node3",
       "bankC@node4"
     ]
+  },
+  "fabricx": {
+    "counterparties": [
+      "bankA@node2",
+      "bankB@node3",
+      "bankC@node4"
+    ]
+  },
+  "iroha3": {
+    "counterparties": [
+      "bankA@node2",
+      "bankB@node3",
+      "bankC@node4"
+    ]
   }
 }

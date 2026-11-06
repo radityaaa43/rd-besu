@@ -1,9 +1,6 @@
 # gw/allow for deploying a Noto platform (bi.notosetup): shapes as bond/src/index.ts sends them, issuer node only.
 package gw_test
 
-import data.fixtures
-import data.gw
-
 ns_ctor := {"type": "constructor", "inputs": []}
 
 ns_group(members) := {"domain": "pente", "name": "g", "members": members, "configuration": {"evmVersion": "shanghai", "externalCallsEnabled": "true"}}

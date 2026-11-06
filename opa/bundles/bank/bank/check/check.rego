@@ -1,4 +1,4 @@
-# Checks on a draft of a bank's documents (data.bank.config.policy.zeto and .noto, one per platform), run by the Lensa
+# Checks on a draft of a bank's documents (data.bank.config.policy.<platform>, one per registered platform), run by the Lensa
 # server with `opa eval` before the draft can be submitted for approval. Messages are shown to users as they are, and
 # do not name the platform (the server composes the config so that only the draft can fail).
 # Each document is compared with BI's document of the same platform. BI's values are read as data (data.bi.config); this bundle never calls a function of the BI bundle, so it
@@ -24,9 +24,10 @@ valid_time(t) if {
 	regex.match(time_re, t)
 }
 
-# Both platforms need a document (a missing one denies everything on that platform at runtime).
+# Every registered platform needs a document (a missing one denies everything on that platform at runtime). The registered
+# platforms are data too (data.bi.config.platforms, like BI's limits it is read, not called).
 errors contains $"Kebijakan {p}: dokumen tidak ada" if {
-	some p in ["zeto", "noto"]
+	some p in data.bi.config.platforms
 	not data.bank.config.policy[p]
 }
 
