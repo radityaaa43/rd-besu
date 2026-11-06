@@ -61,6 +61,9 @@ allow if {
 	tx.group in data.bi.config.pente.groups
 }
 
+# Deploying a Noto platform (contracts and groups data.json does not know yet): issuer node only, see bi.notosetup.
+allow if data.bi.notosetup.allow
+
 # A bank reports its Zeto outputs to BI only over its own {bank, BI} group.
 allow if {
 	rpc.method == "pgroup_sendMessage"
