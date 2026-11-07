@@ -4,6 +4,7 @@
 #   gw-N.crt / gw-N.key      server cert of bank-gw-N (1 year); SAN: the service names, localhost, 127.0.0.1
 #   lensa.crt / lensa.key    Lensa's client cert (1 year), clientAuth only
 #   fx-gw-N.crt / fx-gw-N.key  Fabric-X gateway fx-gw-N (1 year), serverAuth + clientAuth
+#   ir-gw-N.crt / ir-gw-N.key  Iroha 3 gateway ir-gw-N (1 year), serverAuth
 # Idempotent: an existing file is kept. FORCE=1 re-issues the leaf certs (not the CA); delete ca.* by hand to rotate the CA.
 # The Secret per gateway is created from these files (README, "mTLS"); Lensa reads LENSA_GW_MTLS_DIR=<this dir>.
 set -euo pipefail
@@ -39,6 +40,11 @@ done
 for n in 1 2 3 4; do
   leaf "fx-gw-$n" "fx-gw-$n" serverAuth,clientAuth \
     "DNS:fx-gw-$n,DNS:fx-gw-$n.fabricx,DNS:fx-gw-$n.fabricx.svc,DNS:fx-gw-$n.fabricx.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+done
+# Iroha 3 gateways (ns iroha3): server cert only, they call no other gateway.
+for n in 1 2 3 4; do
+  leaf "ir-gw-$n" "ir-gw-$n" serverAuth \
+    "DNS:ir-gw-$n,DNS:ir-gw-$n.iroha3,DNS:ir-gw-$n.iroha3.svc,DNS:ir-gw-$n.iroha3.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 done
 leaf lensa lensa clientAuth ""
 chmod 600 ./*.key ./*.crt

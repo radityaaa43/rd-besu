@@ -1,0 +1,193 @@
+# Gateway ir-gw-1 for Iroha 3 party bi (node1): Envoy + OPA + txdec in one pod, next to (not inside) the validator
+# StatefulSet. Generated from one template for N = 1..4; edit all four together. Design: design-d-opa-iroha3.md, plan: plan-d-step1.md.
+# Step 1 is DENY-ALL: the signed bundles carry no bi.platform.iroha3 / bank.platform.iroha3 package, so gw.allow is false for
+# target iroha3 and every request gets 403 before it reaches Torii or txdec. Lensa still talks to the validators directly.
+# Needs before apply: Secret ir-gw-1-mtls, ConfigMap ir-gw-opa, Secret ghcr-pull (all in ns iroha3), and TXDEC_IMAGE
+# (digest of the private rd-dfabi-decode image):  envsubst '${TXDEC_IMAGE}' < ir-gw-1.yaml | kubectl apply -f -
+# The pod must NOT carry app.kubernetes.io/part-of: iroha3-rd (no P2P rights, never selected by the validator Services).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ir-gw-1-envoy
+  namespace: iroha3
+  labels: {app.kubernetes.io/name: ir-gw, app.kubernetes.io/part-of: iroha3-gw, iroha3-rd/party: bi, node: node1}
+data:
+  envoy.yaml: |
+    # One door :8443 (mTLS, client cert required). Every request, any route, is checked by OPA first (gRPC 127.0.0.1:9191),
+    # fail closed. /gw/* goes to the txdec sidecar, everything else to this party's Torii.
+    static_resources:
+      listeners:
+      - name: iroha3
+        address: {socket_address: {address: 0.0.0.0, port_value: 8443}}
+        filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                tls_params: {tls_minimum_protocol_version: TLSv1_2}
+                tls_certificates:
+                - certificate_chain: {filename: /mtls/tls.crt}
+                  private_key: {filename: /mtls/tls.key}
+                validation_context: {trusted_ca: {filename: /mtls/ca.crt}}
+          filters:
+          - name: envoy.filters.network.http_connection_manager
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+              stat_prefix: iroha3
+              # the path OPA sees is the path Torii gets: no //, no %2F, no /./
+              normalize_path: true
+              merge_slashes: true
+              path_with_escaped_slashes_action: REJECT_REQUEST
+              route_config:
+                virtual_hosts:
+                - name: iroha3
+                  domains: ["*"]
+                  routes:
+                  - match: {prefix: "/gw/"}
+                    route: {cluster: txdec, timeout: 10s}
+                    typed_per_filter_config:
+                      envoy.filters.http.ext_authz:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                        check_settings:
+                          context_extensions: {target: iroha3, node: node1}
+                  - match: {prefix: "/"}
+                    route: {cluster: torii, timeout: 60s}
+                    typed_per_filter_config:
+                      envoy.filters.http.ext_authz:
+                        "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                        check_settings:
+                          context_extensions: {target: iroha3, node: node1}
+              http_filters:
+              - name: envoy.filters.http.ext_authz
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                  transport_api_version: V3
+                  # pack_as_bytes: the binary Norito tx arrives in input.attributes.request.http.raw_body
+                  with_request_body: {max_request_bytes: 1048576, allow_partial_message: false, pack_as_bytes: true}
+                  failure_mode_allow: false
+                  # must exceed the 2s http.send to txdec in the rules
+                  grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 3s}
+              - name: envoy.filters.http.router
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+      - name: torii
+        type: STRICT_DNS
+        connect_timeout: 2s
+        load_assignment:
+          cluster_name: torii
+          endpoints:
+          - lb_endpoints:
+            - endpoint: {address: {socket_address: {address: bi.iroha3.svc.cluster.local, port_value: 8080}}}
+      - name: txdec
+        type: STATIC
+        connect_timeout: 1s
+        load_assignment:
+          cluster_name: txdec
+          endpoints:
+          - lb_endpoints:
+            - endpoint: {address: {socket_address: {address: 127.0.0.1, port_value: 8090}}}
+      - name: opa
+        type: STATIC
+        connect_timeout: 1s
+        typed_extension_protocol_options:
+          envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+            "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+            explicit_http_config: {http2_protocol_options: {}}
+        load_assignment:
+          cluster_name: opa
+          endpoints:
+          - lb_endpoints:
+            - endpoint: {address: {socket_address: {address: 127.0.0.1, port_value: 9191}}}
+    admin:
+      address: {socket_address: {address: 127.0.0.1, port_value: 9901}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ir-gw-1
+  namespace: iroha3
+  labels: {app.kubernetes.io/name: ir-gw, app.kubernetes.io/part-of: iroha3-gw, iroha3-rd/party: bi, node: node1}
+spec:
+  replicas: 1
+  # no second pod: surge needs a free pod slot, and the node is pinned
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 0, maxUnavailable: 1}}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ir-gw, iroha3-rd/party: bi}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ir-gw, app.kubernetes.io/part-of: iroha3-gw, iroha3-rd/party: bi, node: node1}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      imagePullSecrets: [{name: ghcr-pull}]
+      nodeSelector: {kubernetes.io/hostname: member-16046-node}
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.38.9
+        args: ["-c", "/config/envoy.yaml", "--log-level", "warn"]
+        ports: [{name: irgw, containerPort: 8443}]
+        readinessProbe: {tcpSocket: {port: 8443}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: envoy, mountPath: /config, readOnly: true}
+        - {name: mtls, mountPath: /mtls, readOnly: true}
+      - name: opa
+        image: openpolicyagent/opa:1.21.1-envoy-1-static
+        args:
+        - run
+        - --server
+        - --addr=localhost:8181
+        - --diagnostic-addr=0.0.0.0:8282
+        - --authorization=basic
+        - --config-file=/config/opa.yaml
+        - --set=labels.gateway=ir-gw-1
+        # the config's relative service URLs are in ns paladin; this pod is in iroha3
+        - --set=services.bundle-server.url=http://bundle-server.paladin.svc
+        - --set=services.sink.url=http://bundle-server.paladin.svc:8081
+        - --set=bundles.bi.resource=1/bi.tar.gz
+        - --set=bundles.bank.resource=1/bank.tar.gz
+        - --set=bundles.bank.signing.keyid=bi
+        readinessProbe: {httpGet: {path: "/health?plugins&bundles", port: 8282}, periodSeconds: 5}
+        livenessProbe: {httpGet: {path: /health, port: 8282}, periodSeconds: 10}
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: opa, mountPath: /config, readOnly: true}
+      - name: txdec
+        image: ${TXDEC_IMAGE}
+        # Step 1: only --listen exists in rd-dfabi b599859. Step 2 adds --state-dir /state --torii-url http://bi.iroha3.svc.cluster.local:8080
+        # once `serve` has them (the emptyDir below is already mounted for it).
+        command: [rd-dfabi, decode-tx, serve, --listen, "127.0.0.1:8090"]
+        # listens on loopback only, which a kubelet tcpSocket probe on the pod IP cannot reach
+        readinessProbe: {exec: {command: [bash, -c, ": >/dev/tcp/127.0.0.1/8090"]}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: state, mountPath: /state}
+      volumes:
+      - {name: envoy, configMap: {name: ir-gw-1-envoy}}
+      - {name: mtls, secret: {secretName: ir-gw-1-mtls, defaultMode: 292}} # 0444: envoy runs as uid 10001
+      - {name: opa, configMap: {name: ir-gw-opa}}
+      - {name: state, emptyDir: {sizeLimit: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ir-gw-1
+  namespace: iroha3
+  labels: {app.kubernetes.io/name: ir-gw, app.kubernetes.io/part-of: iroha3-gw, iroha3-rd/party: bi, node: node1}
+spec:
+  selector: {app.kubernetes.io/name: ir-gw, iroha3-rd/party: bi}
+  ports:
+  - {name: irgw, port: 8443, targetPort: 8443}
