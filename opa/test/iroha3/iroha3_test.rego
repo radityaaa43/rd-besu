@@ -35,6 +35,13 @@ get(node, path) := door(node, "GET", path, "", "")
 
 post(node, path) := door(node, "POST", path, "application/json", "")
 
+# The same with Torii's X-Iroha-Account header (Envoy lowercases the name).
+signed(req, acct) := object.union(req, {"attributes": {"request": {"http": {"headers": {"x-iroha-account": acct}}}}})
+
+sget(node, path, acct) := signed(get(node, path), acct)
+
+spost(node, path, acct) := signed(post(node, path), acct)
+
 # --- the sidecar, mocked. Every request must have the contract's shape (url, method, headers, timeout, no cache, no raise).
 
 sidecar := "http://127.0.0.1:8090"
@@ -192,19 +199,68 @@ test_golden_at_the_wrong_gateway_denied if {
 
 # --- reads: an explicit list, no sidecar call
 
-test_reads_allowed if {
+test_public_reads_allowed_unsigned if {
 	every n in ["node1", "node2", "node3", "node4"] {
-		every p in [
-			"/health", "/status", "/v1/nexus/lifecycle", "/v1/node/capabilities",
-			"/v1/pipeline/transactions/status", "/v1/pipeline/transactions/status?hash=3b1c",
-			"/v1/accounts/acct-a-0002/transactions", "/v1/accounts/acct-a-0002/transactions?limit=5",
-		] {
+		every p in ["/health", "/status", "/v1/nexus/lifecycle", "/v1/node/capabilities"] {
 			allowed(get(n, p)) with http.send as mock_none
 		}
+		allowed(post(n, "/v1/fees/quote")) with http.send as mock_none
+	}
+}
+
+test_reads_allowed_for_own_account if {
+	every n, s in {"node1": g.bi_signer, "node2": g.a_signer, "node3": g.b_signer, "node4": g.c_signer} {
+		every p in [
+			"/health", "/v1/pipeline/transactions/status", "/v1/pipeline/transactions/status?hash=3b1c",
+			"/v1/accounts/acct-a-0002/transactions", "/v1/accounts/acct-a-0002/transactions?limit=5",
+		] {
+			allowed(sget(n, p, s)) with http.send as mock_none
+		}
 		every p in ["/v1/fees/quote", "/v1/query", "/v1/pipeline/transactions/details", "/gw/usage"] {
-			allowed(post(n, p)) with http.send as mock_none
+			allowed(spost(n, p, s)) with http.send as mock_none
 		}
 	}
+}
+
+test_reads_allowed_for_operator if {
+	every n in ["node1", "node2", "node3", "node4"] {
+		allowed(sget(n, "/v1/accounts/acct-a-0002/transactions", g.op_signer)) with http.send as mock_none
+		allowed(sget(n, "/v1/pipeline/transactions/status?hash=3b1c", g.op_signer)) with http.send as mock_none
+		allowed(spost(n, "/v1/query", g.op_signer)) with http.send as mock_none
+		allowed(spost(n, "/gw/usage", g.op_signer)) with http.send as mock_none
+	}
+}
+
+# another party's account (or an unknown one) is not this gateway's signer
+test_reads_denied_for_other_party if {
+	not allowed(sget("node2", "/v1/accounts/acct-a-0002/transactions", g.b_signer)) with http.send as mock_none
+	not allowed(sget("node2", "/v1/pipeline/transactions/status", g.bi_signer)) with http.send as mock_none
+	not allowed(spost("node2", "/v1/query", g.c_signer)) with http.send as mock_none
+	not allowed(spost("node3", "/gw/usage", g.a_signer)) with http.send as mock_none
+	not allowed(spost("node2", "/v1/query", "0xunknown")) with http.send as mock_none
+	not allowed(spost("node2", "/v1/query", "")) with http.send as mock_none
+
+	# the I105 id of the own party is not the header form Torii takes
+	not allowed(spost("node2", "/v1/query", g.a_acct)) with http.send as mock_none
+}
+
+# no header on an account route
+test_reads_denied_without_header if {
+	every n in ["node1", "node2", "node3", "node4"] {
+		not allowed(get(n, "/v1/pipeline/transactions/status")) with http.send as mock_none
+		not allowed(get(n, "/v1/accounts/acct-a-0002/transactions")) with http.send as mock_none
+		not allowed(post(n, "/v1/query")) with http.send as mock_none
+		not allowed(post(n, "/v1/pipeline/transactions/details")) with http.send as mock_none
+		not allowed(post(n, "/gw/usage")) with http.send as mock_none
+	}
+}
+
+# no operator in data: only the party accounts read
+test_reads_denied_for_operator_without_data if {
+	structure := object.remove(g.structure, ["operator"])
+	cfg := object.union(fixtures.bi, {"iroha3": structure, "policy": {"iroha3": fixtures.bi_doc}})
+	not bi.allow with input as spost("node2", "/v1/query", g.op_signer) with data.bi.config as cfg
+	bi.allow with input as spost("node2", "/v1/query", g.a_signer) with data.bi.config as cfg
 }
 
 test_other_gets_denied if {
@@ -215,7 +271,7 @@ test_other_gets_denied if {
 		"/v1/accounts/a/b/transactions", "/health/../v1/events", "/healthz", "/status/x", "/gw/intent", "/gw/usage",
 		"/intent/lookup", "/decode", "/usage",
 	] {
-		not allowed(get("node2", p))
+		not allowed(sget("node2", p, g.op_signer))
 	}
 }
 
@@ -226,7 +282,7 @@ test_other_posts_denied if {
 		"/v1/soracloud/deploy", "/v1/iso20022/pacs008", "/v1/fees/quote/x", "/v1/query/", "/gw/intent/lookup", "/gw/usage/x",
 		"/gw/seed", "/intent/lookup", "/intent/decode", "/decode", "/usage",
 	] {
-		not allowed(post("node2", p))
+		not allowed(spost("node2", p, g.op_signer))
 	}
 }
 

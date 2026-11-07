@@ -3,7 +3,8 @@
 # input.attributes.request.http.rawBody (Envoy pack_as_bytes, base64); the txdec sidecar (rd-dfabi decode-tx serve, the
 # same pod) turns it into JSON (apps/rd-dfabi/schema/decode-tx.response.json). Torii verifies the signature; the rules
 # read what the transaction says. The decoder's answer is only read here, never returned: the result of `allow` is a boolean.
-# Structural values come from data.bi.config.iroha3 (dataspace, assets: token -> asset definition id, accounts: id -> node);
+# Structural values come from data.bi.config.iroha3 (dataspace, assets: token -> asset definition id, accounts: id -> node,
+# signers: canonical hex of the party account -> node, operator: canonical hex of the operator account);
 # every limit from the Iroha 3 document (data.bi.config.policy.iroha3). The other platforms' documents do not matter.
 #   mint              BI's node only; recipient not frozen; max_mint_per_tx, hours
 #   burn              BI's node only, from its own holding; max_mint_per_tx
@@ -12,7 +13,7 @@
 #                     neither party frozen. all_or_nothing only
 #   POST /gw/intent   buyer's registration of that DvP at the buyer's gateway (payment.from = this party), same checks
 #   consent grant     CanExecuteSettlement at the buyer's gateway, only for an intent the store holds as active for the signer
-#   reads             the explicit list below
+#   reads             the explicit list below; public routes unsigned, the rest from this party's account or the operator
 # An asset passes only with the exact definition id of its token in data AND balance scope dataspace:<n>. Anything else
 # (unknown kind, ContractCall/IVM, JSON body, batch, other grants, other routes), a decoder answer that is not a clean
 # 200, a malformed quantity: denied (default false).
@@ -39,17 +40,22 @@ path := split(http_in.path, "?")[0]
 default allow := false
 
 # --- reads: GET or POST on an exact path, nothing else
+# Public routes (no account data, the adapter calls them unsigned) pass without a signer. Every other read passes only when
+# the Torii canonical-signature header X-Iroha-Account (Envoy lowercases the name) names this gateway's own party or the
+# operator. Torii verifies the signature; this rule reads whose account the caller claims. A missing header is denied.
 
-read_get := {
+public_get := {
 	"/health",
 	"/status",
 	"/v1/nexus/lifecycle",
 	"/v1/node/capabilities",
-	"/v1/pipeline/transactions/status",
 }
 
+public_post := {"/v1/fees/quote"}
+
+read_get := {"/v1/pipeline/transactions/status"}
+
 read_post := {
-	"/v1/fees/quote",
 	"/v1/query",
 	"/v1/pipeline/transactions/details",
 	"/gw/usage",
@@ -57,19 +63,39 @@ read_post := {
 
 allow if {
 	http_in.method == "GET"
+	path in public_get
+}
+
+allow if {
+	http_in.method == "POST"
+	path in public_post
+}
+
+allow if {
+	read_signer
+	http_in.method == "GET"
 	path in read_get
 }
 
 # GET /v1/accounts/{id}/transactions (signed by the Torii canonical-signature headers; Torii checks them).
 allow if {
+	read_signer
 	http_in.method == "GET"
 	regex.match(`^/v1/accounts/[^/]+/transactions$`, path)
 }
 
 allow if {
+	read_signer
 	http_in.method == "POST"
 	path in read_post
 }
+
+# The signer's account as Torii takes it: lowercase canonical hex (data signers: hex -> node, operator: hex).
+signer := http_in.headers["x-iroha-account"]
+
+read_signer if cfg.signers[signer] == own
+
+read_signer if signer == cfg.operator
 
 # --- transactions: POST /v1/pipeline/transactions, application/x-norito, exactly one instruction
 

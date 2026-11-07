@@ -69,6 +69,13 @@
       "sorauﾛ1Ptｼﾀﾁ3jnﾄZﾘTﾃﾘFﾛﾃQｷgヰﾗY4hxﾈZﾔｺｾﾃﾉubiﾉrﾐC938FF": "node2",
       "sorauﾛ1NﾘoLvdcﾄﾙtAｸHiCﾒUn8wｦﾑｾｹﾋ6ﾗGｶｿﾈｹ64MﾏH8bE964J7": "node3",
       "sorauﾛ1PﾏqﾜﾀｽEGヰHqﾏqzｾgJｴCｺzLXﾅaﾍﾜﾓ1Jﾓﾅeyvﾋen3LKYGRT": "node4"
-    }
+    },
+    "signers": {
+      "0x020001202861f7861ef3ec8e6754c4c83edda1b278af5e34f5212ee6024d44b0d9a87d7a": "node1",
+      "0x02000120a3b49639bc6f1f7490b5c647e2c5f00be06f0b49e029fb8744b5c9c74870d92c": "node2",
+      "0x020001202a03925374377fc562b2bfe61cdd862cbb8e4fba68a4dd1f22fbf28fa45b0dd1": "node3",
+      "0x02000120d37459d166812baf4367fb8d9ef3b538ae0da0587e82ce1ea4ebf2cc1439c5fc": "node4"
+    },
+    "operator": "0x02000120f6f011b5a7dc288763682c36e93ad7f0aaaac6776422c81beede9e5cfdbf18f1"
   }
 }

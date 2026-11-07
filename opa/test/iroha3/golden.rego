@@ -11,6 +11,17 @@ b_acct := "acct-b-0003"
 
 c_acct := "acct-c-0004"
 
+# The X-Iroha-Account value (canonical hex in Torii) of each party's account and of the operator.
+bi_signer := "0xbi0001"
+
+a_signer := "0xa00002"
+
+b_signer := "0xb00003"
+
+c_signer := "0xc00004"
+
+op_signer := "0xop0005"
+
 rd := "defRD-synthetic-0001"
 
 dfabi := "defDFABI-synthetic-0002"
@@ -28,6 +39,13 @@ structure := {
 		b_acct: "node3",
 		c_acct: "node4",
 	},
+	"signers": {
+		bi_signer: "node1",
+		a_signer: "node2",
+		b_signer: "node3",
+		c_signer: "node4",
+	},
+	"operator": op_signer,
 }
 
 # A TxView (the decoder's answer for a clean Norito transaction) around the given instructions.
