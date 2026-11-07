@@ -74,7 +74,7 @@ their screens work today. Putting a platform behind the gateway needs only the p
 
 1. **Registry entry**, `frontend/server/src/policy/platforms.ts` (`PLATFORMS` and `REGISTRY`, the only list of platforms; the store, bundles, revisions, routes, `/api/meta` and the web screen all derive from it):
    - `label`: the name on the screen;
-   - `gateways`: sink names (`<name>-gw-<node>`, node 1..4) of the gateways that enforce it. The Publisher waits for the union of every platform's gateways, once each, and skips a name whose Deployment does not exist, so `[]` (today for fabricx and iroha3) or a gateway not deployed yet never makes a publish time out or fail;
+   - `gateways`: sink names (`<name>-gw-<node>`, node 1..4) of the gateways that enforce it. The Publisher waits for the union of every platform's gateways, once each, and skips a name whose Deployment does not exist, so `[]` or a gateway not deployed yet (today `ir-gw-1..4`, registered with `enforced: false`) never makes a publish time out or fail;
    - `enforced`: `false` until the gateway reads the documents; the screen then says "Belum ditegakkan gateway: dokumen dapat disusun, tetapi belum memengaruhi transaksi";
    - `usage` (optional): the daily-usage source behind "Terpakai hari ini", `(party, limits) => Promise<{ RD, DFABI: { used, limit } }>`, read from the bank's own node. Without it `/api/policy/usage` answers 501 "Pemakaian harian belum tersedia untuk platform ini".
    Also add the key `<id>` to every `seeds/*.json` (incl. `bank-bi.json`); `PolicyStore.migrate()` creates v1 of a registered platform that has no directory yet (maker and checker "migrasi", reason "Platform <label> didaftarkan"), idempotent.
@@ -107,6 +107,16 @@ Gateways `fx-gw-1..4` (ns `fabricx`) are designed in `fabric-x/opa/DESIGN.md`. E
 - **Redeem differs from Noto's burn.** Noto's burn is issuer-only. In Fabric-X the holder redeems and BI co-signs on chain (the issuer node has no redeem view), so BI keeps control on the ledger. Redeem counts toward `daily_limit` like a transfer. An amount above the holder's balance is rejected by the view ("insufficient funds").
 - `daily_limit` comes from the party's own token records (`rd_dfabi_v2`) via fxapi `usage` on 127.0.0.1:8080 (2s, fail closed). Counted are transfers, DvP legs and redeems since 00:00 WIB; change is excluded.
 - **Known gap (DvP and award precheck):** it is enforced by the gateways, not by the buyer's node. A modified initiator that bypasses its own gateway can skip the precheck.
+
+## Iroha 3 rules (`iroha3`)
+
+Gateways `ir-gw-1..4` (registered in `platforms.ts` with `enforced: false`, until live step 4). Envoy fronts each party's Torii and tags the door `{target: iroha3, node: node1..4}`. Rules: `bundles/bi/bi/platform/iroha3`, `bundles/bank/bank/platform/iroha3`; tests: `test/iroha3`.
+
+- **Body as bytes.** A signed Norito transaction is binary, so Envoy runs with `pack_as_bytes` and the rules read it from `input.attributes.request.http.rawBody` (base64), not `body`. The decision-log mask (`system/log`) covers `rawBody`.
+- **txdec sidecar** (`rd-dfabi decode-tx serve`, same pod) on `127.0.0.1:8090`: `POST /decode`, `/intent/decode`, `/intent/lookup` (BI) and `/usage` (bank). `http.send` with 2s timeout, no cache, fail closed. Envoy routes only `/gw/*` to it, after the check; its answer is never returned.
+- **Intent pre-registration.** A DvP is signed by the seller, the buyer consents with a `CanExecuteSettlement` grant. The buyer first registers the DvP at the buyer's gateway (`POST /gw/intent`, same checks as the DvP), and the consent is allowed only for an intent the store holds as `active` for that signer.
+- **Reads** (`X-Iroha-Account`, lowercase name as Envoy delivers it): `/health`, `/status`, `/v1/nexus/lifecycle`, `/v1/node/capabilities` and `POST /v1/fees/quote` need no signer. Every other read needs the header to name this gateway's party (`data.bi.config.iroha3.signers`) or the operator (`...iroha3.operator`), both as the canonical hex Torii takes. Missing header or another party: denied.
+- **Publishing.** `kube.ts` is hard-wired to namespace `paladin` (`NS`), so it cannot read the `ir-gw-N` Deployments or write their ConfigMaps. Publishes to `ir-gw-N` are confirmed through the sink (`bundle-server`, status per gateway) like `fx-gw`; the gateways pull `N/bi.tar.gz` and `N/bank.tar.gz` from `bundle-server`.
 
 ## Test
 
