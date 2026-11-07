@@ -48,14 +48,13 @@ public_get := {
 	"/health",
 	"/status",
 	"/v1/nexus/lifecycle",
-	"/v1/node/capabilities",
 }
-
-public_post := {"/v1/fees/quote"}
 
 read_get := {"/v1/pipeline/transactions/status"}
 
+# The CLI signs the fee quote it fetches before a submit (captured headers carry X-Iroha-Account), so it is a signed read.
 read_post := {
+	"/v1/fees/quote",
 	"/v1/query",
 	"/v1/pipeline/transactions/details",
 	"/gw/usage",
@@ -64,11 +63,6 @@ read_post := {
 allow if {
 	http_in.method == "GET"
 	path in public_get
-}
-
-allow if {
-	http_in.method == "POST"
-	path in public_post
 }
 
 allow if {

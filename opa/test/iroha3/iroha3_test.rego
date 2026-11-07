@@ -201,10 +201,17 @@ test_golden_at_the_wrong_gateway_denied if {
 
 test_public_reads_allowed_unsigned if {
 	every n in ["node1", "node2", "node3", "node4"] {
-		every p in ["/health", "/status", "/v1/nexus/lifecycle", "/v1/node/capabilities"] {
+		every p in ["/health", "/status", "/v1/nexus/lifecycle"] {
 			allowed(get(n, p)) with http.send as mock_none
 		}
-		allowed(post(n, "/v1/fees/quote")) with http.send as mock_none
+	}
+}
+
+# The CLI signs its fee quote; an unsigned quote and the never-used capabilities route are denied.
+test_fee_quote_needs_a_signer if {
+	every n in ["node1", "node2", "node3", "node4"] {
+		not allowed(post(n, "/v1/fees/quote")) with http.send as mock_none
+		not allowed(get(n, "/v1/node/capabilities")) with http.send as mock_none
 	}
 }
 
