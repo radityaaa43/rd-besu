@@ -10,11 +10,17 @@ Status: eksplorasi mandiri, tidak terintegrasi dengan backend Noto+Pente.
 >
 > **V0 dipensiunkan (2026-10-21).** Config domain `zeto` hanya memuat `Zeto_Anon_V1`; deploy token V0 ditolak (`PD210000`). Kontrak v0.2.2 dan
 > token V0 lama tetap di chain tetapi tidak dipakai. Lensa sudah di-bootstrap ulang ke token V1. Backup dan rollback: `out/domain-v0-removal-backup-20261021/`.
+>
+> **Pindah ke `Zeto_AnonNullifier` (2026-11-09).** Token RD dan DFABI baru dideploy sebagai `Zeto_AnonNullifier` v0.5.1 (sumbu V1): spend
+> mengumumkan nullifier, bukan commitment yang dibelanjakan. Token `Zeto_Anon_V1` lama tetap di chain dan baris domain-nya tetap ada. Rollback
+> V0 di atas **tidak boleh** dipakai lagi (baris `Zeto_AnonNullifier` di backup itu akan memakai circuit V0 untuk klon v0.5.1). Detail di bagian 10.7.
+> Bagian 1 sampai 9 tetap menyebut `Zeto_Anon` karena itu riwayat V0.
 
 ## Platform
 
 - Paladin: `main` 559567e38 digabung PR #1189 "Zeto V1 support with multi-version support" (merge 82fbd49ce), worktree `/home/ecs-user/eksplorasi-paladin/build-v1/paladin` (branch `build-main-zeto-v1`).
-- Zeto contracts v0.5.1, sumbu V1: token dideploy dengan `tokenName: "Zeto_Anon_V1"` (nama implementasi V1 di factory cluster; `Zeto_Anon` masih v0.2.2), `domainConfigSchema: "v1"`, `zetoVariant: 1`, `factoryVersion: 1` (`ZETO_V1`, `src/zeto-v1.ts`; `P@main:examples/swap/src/index.ts:136-143`).
+- Zeto contracts v0.5.1, sumbu V1: token dideploy dengan `tokenName: "Zeto_AnonNullifier"` (sejak 2026-11-09; sebelumnya `"Zeto_Anon_V1"`), `domainConfigSchema: "v1"`, `zetoVariant: 1`, `factoryVersion: 1` (`ZETO_V1`, `src/zeto-v1.ts`; `P@main:examples/swap/src/index.ts:136-143`). Nama harus persis `Zeto_AnonNullifier` karena Paladin mengaktifkan nullifier dan SMT lewat `IsNullifiersToken()` (`P@main:domains/zeto/internal/zeto/common/utils.go:92`), yang membandingkan string itu. Implementasi v0.5.1 didaftarkan di factory menimpa entri v0.2.2 dengan nama yang sama (bagian 10.7).
+- Domain `zeto` didefinisikan statis di keempat CR `Paladin` (`node1..4`, `spec.config.domains.zeto`) dengan `defaultGasLimit: 30000000`. Mengubah `configJSON` di `PaladinDomain` tidak lagi sampai ke node.
 - Prover: rapidsnark `main` (thread-safe). Akar masalah "Invalid proof" konkuren sebelumnya (stress multi-token) adalah ThreadPool rapidsnark v0.0.7 yang tidak thread-safe.
 - Topologi: node1 = BI (`bi`, `cashIssuer`, `bondIssuer`, `bondCustodian` semuanya BI), node2-4 = bank (`investor2`, `investor3`, `investor4`). Node4 bukan BI lagi.
 
@@ -27,7 +33,7 @@ Notasi rujukan:
 - Nama fungsi dan nomor baris Solidity berasal dari source tersebut. Bytecode yang berjalan di cluster dibangun dari artefak yang sama,
   tetapi tidak dibandingkan byte-per-byte.
 
-Daftar isi: 10 Zeto V1 dan topologi BI di node1 (keadaan sekarang), 1 Ringkasan, 2 C4 Level 1 System Context, 3 C4 Level 2 Container, 4 C4 Level 3 Component,
+Daftar isi: 10 Zeto V1, `Zeto_AnonNullifier` (10.7) dan topologi BI di node1 (keadaan sekarang), 1 Ringkasan, 2 C4 Level 1 System Context, 3 C4 Level 2 Container, 4 C4 Level 3 Component,
 5 C4 Level 4 Code (katalog layanan dan fungsi, logika per kontrak), 6 Dynamic view, 7 Model privasi,
 8 Keamanan, keputusan desain dan batasan, 9 Pengujian dan bukti.
 
@@ -802,7 +808,8 @@ Burn (tidak ada), unlock (tidak ada di Paladin), DvP pada token KYC (circuit tid
 ## 10. Zeto V1 dan topologi BI di node1 (keadaan sekarang)
 
 Semua fakta platform di bagian ini dibaca dari worktree `build-v1/paladin` (Paladin main 559567e38 + PR #1189, merge 82fbd49ce). `P@main:` = path di worktree itu.
-Belum ada hasil uji live di platform ini; yang tertulis adalah apa yang dikerjakan kode dan apa yang dibaca dari source.
+Bagian 10.1 sampai 10.6 ditulis sebelum ada hasil uji live dan berisi apa yang dikerjakan kode serta apa yang dibaca dari source. Bagian 10.7 (token
+`Zeto_AnonNullifier`, 2026-11-09) berisi hasil uji live di cluster.
 
 ### 10.1 Penempatan node
 
@@ -849,6 +856,7 @@ D9 (Atom tidak membandingkan jumlah dan penerima dengan kesepakatan) dan X1 (`At
 - Output antar bank (mis. investor2 -> investor3) hanya ada di node bank. Tanpa laporan bank, BI tidak bisa mengadopsinya, jadi tetap ditandai `unreported` setelah masa tenggang.
 - Event V1 dibaca dari `abis/ZetoV1Events.json`: `ZetoLockCreated` (inputs, outputs, lockedOutputs), `ZetoLockSpent` dan `ZetoLockCancelled` (lockedInputs, lockedOutputs, outputs). `UTXOsLocked` dan `LockDelegateChanged` (V0) tetap bisa didekode untuk token lama.
 - Tx `createLock`/`spendLock` ditandatangani key milik pemilik lock (`RequiredSigner`: `P@main:.../handler_create_lock.go:493`, `handler_spend_lock.go:377`), jadi signer base-ledger tx lock menyebut pihaknya. Tx `transfer`/`mint`/`deposit` tetap memakai key sekali pakai sequencer (`P@main:core/go/internal/sequencer/coordinator/coordinating.go:456`). Atribusi lewat input yang dibelanjakan tetap dipakai untuk semuanya.
+- Pada token `Zeto_AnonNullifier` (bagian 10.7), `inputs` di event transfer berisi nullifier, bukan commitment yang dibelanjakan. BI tidak bisa memetakan nullifier ke commitment, jadi `senderOf()` mengembalikan `unknown-input-owner` untuk output antar bank yang tidak dilaporkan. Output yang dilaporkan tidak berubah: Lensa menentukan pengirim dari bank pelapor.
 
 ### 10.4 Pemeriksaan privasi
 
@@ -864,3 +872,67 @@ Node yang dimatikan adalah node1. Saldo bank (DFABI untuk investor2, RD untuk in
 - `heldStates` memakai status `confirmed` (kualifier `available` dihapus di main, `P@main:sdk/typescript/src/interfaces/states.ts`).
 - Poison-pill `setERC20` diperbaiki upstream di main; fase `setERC20` di muka dipertahankan dan sekarang opsional.
 - Token KYC (`Zeto_AnonNullifierKyc`) tidak dipakai lagi oleh `bootstrap-zeto.ts`; temuan "KYC tidak bisa DvP" berlaku untuk V0 / Paladin v1.0.0. Dukungan lock KYC di V1 tidak diuji di sini.
+
+### 10.7 Token `Zeto_AnonNullifier` V1 (keadaan sekarang, 2026-11-09)
+
+RD dan DFABI sekarang adalah klon `Zeto_AnonNullifier` dari zeto-contracts v0.5.1. Spend mengumumkan **nullifier**, yaitu hash dari nilai, salt,
+dan private key pemilik, dan bukan commitment yang dibelanjakan. Pengamat chain tidak bisa menautkan transfer ke output yang dibelanjakannya.
+Output baru menjadi leaf di SMT Poseidon on-chain, dan proof transfer membuktikan keanggotaan di root SMT. Pola deploy mengikuti config resmi Paladin
+`P@main:domains/integration-test/zeto/config-for-deploy-fungible-v1.yaml`.
+
+**Kontrak di cluster.** Semua dideploy lewat CR operator yang dibuat `gen_v1_nullifier_manifests.py`, di
+`/home/ecs-user/eksplorasi-paladin/build-v1/v1-manifests/nullifier/`.
+
+| CR | Isi | Catatan |
+|---|---|---|
+| `zeto-v1-smt-lib` | `SmtLib` v0.5.1 | Baru. `zeto-smt-lib` yang lama adalah v0.2.2 (bytecode berbeda) |
+| `zeto-v1-g16-anon-nullifier-transfer` (+`-batch`) | verifier transfer | Baru. Vkey v0.5.1 berbeda dengan verifier V0 |
+| `zeto-v1-g16-withdraw-nullifier` (+`-batch`) | verifier withdraw | Baru |
+| `zeto-v1-impl-anon-nullifier` | implementasi `Zeto_AnonNullifier` | Baru, `0x5383f835…`. Di-link ke `zeto-poseidon-unit2l/3l` (bytecode circomlibjs, tidak bergantung versi), `zeto-v1-smt-lib`, dan `zeto-v1-lockable-lib` |
+| `zeto-v1-register-anon-nullifier` | `registerImplementation("Zeto_AnonNullifier", ...)` | Blok 2247239. Menimpa entri v0.2.2; klon V0 yang sudah ada tidak terpengaruh. `lockVerifier`/`batchLockVerifier` = `zeto-v1-g16-anon`(+batch), `depositVerifier` = `zeto-v1-g16-deposit` |
+
+**Config domain.** Baris baru di samping `Zeto_Anon_V1`:
+`{"name":"Zeto_AnonNullifier","forZetoVariant":1,"circuits":{"deposit":"deposit","withdraw":"withdraw_nullifier","transfer":"anon_nullifier_transfer","transferLocked":"anon"}}`.
+`withdraw` dan `transfer` diberi `usesNullifiers: true`. Proving key V1 untuk ketiga circuit sudah ada di image (`/app/domains/zeto/zkp/V1`), jadi tidak perlu
+rebuild image.
+
+**Gas.** Paladin memberi setiap tx base-ledger Zeto gas tetap `defaultGasLimit` dan tidak pernah mengestimasi
+(`P@main:core/go/internal/domainmgr/private_smart_contract.go:476`, default 4 000 000 di `domain.go:88`). Biaya insert SMT naik seiring besarnya pohon:
+
+| Tx | Ukuran pohon | Gas |
+|---|---|---|
+| mint 5 output | kosong | 2 703 669 |
+| mint 5 output | 5 leaf | 5 358 406, gagal dengan limit 4 juta |
+| mint 1 output | 5 leaf | 908 300 |
+| transfer 2 output | 1 leaf | 1 420 687 |
+
+Operator v1.0.0 menimpa config domain yang didefinisikan lewat CR secara utuh, sehingga `defaultGasLimit` tidak bisa diset dari `PaladinDomain`. Karena
+itu domain `zeto` dipindah ke config statis di keempat CR `Paladin` dengan `defaultGasLimit: 30000000` (block gas limit Besu sekitar 1e9, fee nol).
+Patch dan backup ada di `v1-manifests/nullifier/paladin-cr-static-zeto-gas.patch.json` dan `gas-backup-*/`. Gas tertinggi yang terukur sesudahnya adalah 4 712 600.
+
+**Lensa dan OPA.**
+- Lensa di-bootstrap ulang: RD `0x08106229d06c7e3610aba4884984154bd8cce250`, DFABI `0x374725a4c44c58d01f4f05739b257be6c71b6b9d`, atom factory
+  `0x0ff537f2…`, dan grup laporan baru. `besu/opa/bundles/bi/bi/config/data.json` mengikuti (kontrak, atom factory, `report_group`).
+- Zeto V1 menyerahkan lock DvP ke Atom lewat `delegateLock` **public** di pool (paladin-sdk `delegateLockV1`). Gateway hanya mengizinkan versi private,
+  sehingga DvP dan award Zeto belum pernah lolos lewat gateway. Rule dan test baru ada di commit `fbfbbae`: `delegateLock` public hanya ke
+  kontrak RD/DFABI, dari identitas node itu sendiri.
+- Skrip `besu/zeto` memakai HTTP biasa, jadi tidak bisa lewat gateway mTLS. Jalankan dalam bypass window: forward langsung ke pod, sesuai runbook di
+  `besu/opa/README.md`.
+
+**Model privasi.**
+- Transfer: input on-chain berupa nullifier (`spike-nullifier-smoke.ts`, cek "inputs are nullifiers").
+- Lock: `transferLocked` memakai circuit `anon`, dan `spendLock` membelanjakan commitment terkunci tanpa nullifier
+  (`P@main:domains/zeto/internal/zeto/handler_events.go:4-5`). Leg DvP dan award tetap dapat ditautkan dari lock ke spend.
+- R1 untuk BI: output yang dilaporkan bank tetap terverifikasi seperti sebelumnya. Untuk output antar bank yang **tidak** dilaporkan, BI kehilangan atribusi
+  pengirim lewat input (`senderOf()` mengembalikan `unknown-input-owner`, bagian 10.3). Deteksi `unreported` tetap jalan.
+
+**Bukti (2026-11-09, cluster live).**
+- `spike-nullifier-smoke.ts` 7/7: deploy, mint, transfer antar bank (5 detik), input berupa nullifier, dan BI memverifikasi laporan.
+- Keenam flow Lensa lewat gateway OPA: rd-issue, dfabi-issue, rd-transfer, dfabi-transfer, dvp A->C, award BI->A. Di setiap flow, perubahan saldo tepat,
+  4 lens benar (bank bukan pihak `sealed`), dan receipt Besu berstatus `0x1`. `test/live/zeto.live.ts` 5/5 (tanpa DvP).
+- Bytecode RD/DFABI adalah klon EIP-1167 ke `0x5383f835…`.
+- OPA: `opa test` 300/300 dan 51/51 probe live lewat mTLS di `bank-gw-1..4`.
+
+**Sisa.** Uji DvP dan award pertama, sebelum fix gateway, meninggalkan 4 lock yang belum didelegasikan: A 1 DFABI + 1e6 RD, C 1e6 RD, BI 1 DFABI.
+`cancelLock` gagal di assemble dengan `PD011615 ... not found`. Error yang sama sudah tercatat pada `cancelLock` di kontrak lain sebelum perpindahan
+ini. Lock tersebut dibiarkan dan ikut terhitung di pemakaian harian Kebijakan.
