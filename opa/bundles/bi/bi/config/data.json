@@ -8,7 +8,7 @@
   "participants": ["bi@node1", "bankA@node2", "bankB@node3", "bankC@node4"],
   "zeto": {
     "contracts": {
-      "0x08106229d06c7e3610aba4884984154bd8cce250": "RD",
+      "0x0b91f511a3c9ca8144a5422734a2db42bb86e8f6": "RD",
       "0x374725a4c44c58d01f4f05739b257be6c71b6b9d": "DFABI"
     }
   },
