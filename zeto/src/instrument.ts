@@ -9,7 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { ethers } from "ethers";
 
-export type ZetoToken = { address: string; tokenName: "Zeto_Anon_V1" };
+export type ZetoToken = { address: string; tokenName: "Zeto_AnonNullifier" };
 type Obj = Record<string, any>;
 
 // ---- shared record shape (spec "Shared record shape and catalog") ----
@@ -161,7 +161,7 @@ export function buildRdRecord(input: { issuerLei: string }, token: ZetoToken): O
         decimals: "0",
         token: ethers.getAddress(token.address),
         platform: ["Hyperledger Besu", DLT_NAME],
-        tokenStandard: token.tokenName.replace(/_V1$/, ""), // profile enum (shared docs/instrument-data) lists the standard "Zeto_Anon", not the factory impl name
+        tokenStandard: token.tokenName,
       },
     },
   };
@@ -175,7 +175,7 @@ export const primaryIdOf = (record: Obj): string =>
 if (require.main === module) {
   const assert = require("assert");
   // Builders: the sample builds to exactly 42 bdt ids; extra or "Not used" input throws.
-  const t: ZetoToken = { address: "0x" + "ab".repeat(20), tokenName: "Zeto_Anon_V1" };
+  const t: ZetoToken = { address: "0x" + "ab".repeat(20), tokenName: "Zeto_AnonNullifier" };
   const terms = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "docs", "samples", "dfabi-terms.sample.json"), "utf8"));
   delete terms._note;
   const rec = buildDfabiRecord(terms, t);

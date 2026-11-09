@@ -1,15 +1,15 @@
 {
   "nodes": {
     "node1": {"party": "BI", "identities": ["bi@node1"], "issuer": true, "paladin_url": "http://paladin-node1.paladin.svc.cluster.local:8548"},
-    "node2": {"party": "A", "identities": ["bankA@node2"], "report_group": "0xe3dbf2b63e3f32d5c841edb9d92d8e9c007d5c90564d440d17c6439dfeeb3273", "paladin_url": "http://paladin-node2.paladin.svc.cluster.local:8548"},
-    "node3": {"party": "B", "identities": ["bankB@node3"], "report_group": "0xba7f91bce893d12c04a95c56f0a76b5f8673434bbfaa44993d1e8a3bfeb85004", "paladin_url": "http://paladin-node3.paladin.svc.cluster.local:8548"},
-    "node4": {"party": "C", "identities": ["bankC@node4"], "report_group": "0x1b83cd9b1ee1772d52865676c9e354ba51c4d29b6146d3cf8d87cfa82695657a", "paladin_url": "http://paladin-node4.paladin.svc.cluster.local:8548"}
+    "node2": {"party": "A", "identities": ["bankA@node2"], "report_group": "0xec8979f57a1802f45b61ce7aa2c657111090576dc1f9d97c5ad0265f259a703d", "paladin_url": "http://paladin-node2.paladin.svc.cluster.local:8548"},
+    "node3": {"party": "B", "identities": ["bankB@node3"], "report_group": "0xd0fe12c1e4515b331e7e512c5b2a64c651438b04082463def82c27a73aa8f901", "paladin_url": "http://paladin-node3.paladin.svc.cluster.local:8548"},
+    "node4": {"party": "C", "identities": ["bankC@node4"], "report_group": "0xed8b8ff405ac48fe3530cf636a1b3fc3d30c58ea48b59e5700e6b07bec00a9c5", "paladin_url": "http://paladin-node4.paladin.svc.cluster.local:8548"}
   },
   "participants": ["bi@node1", "bankA@node2", "bankB@node3", "bankC@node4"],
   "zeto": {
     "contracts": {
-      "0xdef2e64a415fd95e5b2c9fa1d7bdbc1792c410a1": "RD",
-      "0x2ecc2fe5ff44b850b99607599abc3f6a23e223dc": "DFABI"
+      "0x08106229d06c7e3610aba4884984154bd8cce250": "RD",
+      "0x374725a4c44c58d01f4f05739b257be6c71b6b9d": "DFABI"
     }
   },
   "noto": {
@@ -26,7 +26,7 @@
   },
   "atom": {
     "factories": [
-      "0xeca568aaf1edd02004aa85562087f8057deb465f",
+      "0x0ff537f240fa6e168db5bbdb176dcdd2a769f5ac",
       "0xf1f90c201e28d8e21944c4256d50e266b2b01fec"
     ]
   },

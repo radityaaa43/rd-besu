@@ -8,9 +8,11 @@ import PaladinClient, { ITransactionReceipt, PaladinVerifier, TransactionType, Z
 import { ethers } from "ethers";
 import { LONG_POLL_TIMEOUT } from "./common";
 
-// Deploy params of the V1 axis (examples/swap/src/index.ts:136-143). On the live cluster the V1 implementation is registered in the factory as "Zeto_Anon_V1"; "Zeto_Anon" is still the v0.2.2 one. The ONLY place that name is set. Without all three the pool is on the V0 axis
+// Deploy params of the V1 axis (examples/swap/src/index.ts:136-143). The ONLY place the token name is set. Without all three the pool is on the V0 axis
 // and reverts on the first proving call against zeto-contracts v0.5.x.
-export const ZETO_V1 = { tokenName: "Zeto_Anon_V1", domainConfigSchema: "v1", zetoVariant: 1, factoryVersion: 1 } as const;
+// "Zeto_AnonNullifier" (v0.5.1, registered over the retired v0.2.2 entry in the shared factory): the name must be exact, Paladin's
+// IsNullifiersToken() matches that string to switch on nullifiers + the SMT. Older tokens stay on "Zeto_Anon_V1" (still in the domain config).
+export const ZETO_V1 = { tokenName: "Zeto_AnonNullifier", domainConfigSchema: "v1", zetoVariant: 1, factoryVersion: 1 } as const;
 
 export type LockParty = { lookup: string; c: PaladinClient; v: PaladinVerifier };
 export type Lock = { lockId: string; receipt: ITransactionReceipt; states: any[] };

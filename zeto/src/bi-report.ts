@@ -208,6 +208,8 @@ export class BiLedger {
 
   // Sender = owner(s) of the spent inputs BI already verified; deposits/mints have no inputs, so
   // they fall back to the signer (issuer-side public calls are not anonymised).
+  // Zeto_AnonNullifier: a transfer's inputs are nullifiers (Poseidon(amount, salt, owner private key)), which BI can never
+  // map to a commitment, so an unreported bank-to-bank output keeps sender "unknown-input-owner". Only a bank report names it.
   senderOf(o: ChainOutput) {
     const owners = new Set(o.inputs.map((i) => this.verified.get(i)?.output.owner).map((k) => (k ? this.ownerOf(k) : "unknown-input-owner")));
     return owners.size ? [...owners].join("+") : this.identityOf(o.from);

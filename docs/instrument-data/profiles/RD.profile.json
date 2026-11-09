@@ -75,6 +75,7 @@
             "values": [
               "ERC-20 + ERC-5564 stealth",
               "Zeto_Anon",
+              "Zeto_AnonNullifier",
               "Zeto_AnonNullifierKyc"
             ]
           }
