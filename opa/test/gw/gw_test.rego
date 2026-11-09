@@ -221,6 +221,15 @@ test_public_deploy_denied if not allowed(send("node2", {"type": "public", "from"
 
 test_public_other_function_denied if not allowed(send("node2", public("0x00000000000000000000000000000000000000bb", "transfer")))
 
+# Zeto V1 delegateLock is a public tx on the pool (paladin-sdk delegateLockV1)
+test_zeto_public_delegate_lock_allowed if allowed(send("node2", public(dfabi, "delegateLock")))
+
+test_zeto_public_delegate_lock_after_hours_allowed if at_hours(send("node2", public(rd, "delegateLock")), "2026-11-05T11:00:00Z")
+
+test_public_delegate_lock_unknown_contract_denied if not allowed(send("node2", public("0x00000000000000000000000000000000000000bb", "delegateLock")))
+
+test_public_delegate_lock_other_node_identity_denied if not allowed(send("node3", public(dfabi, "delegateLock")))
+
 # --- Private txs without `domain` (the Paladin SDK omits it on writes; Paladin resolves it from `to`)
 
 # `domain` dropped: the shape the SDK really sends for Zeto and Noto writes.

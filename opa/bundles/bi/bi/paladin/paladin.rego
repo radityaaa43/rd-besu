@@ -45,6 +45,17 @@ allow if {
 	data.bi.atom.allow
 }
 
+# Zeto V1 hands a DvP lock to the Atom with a PUBLIC delegateLock on the pool (paladin-sdk delegateLockV1), not a
+# private one. Only the lock's current spender can call it (the pool checks that) and it moves no value, so like the
+# private DvP-finishing calls it is never blocked; it must target a Zeto contract BI knows, from the node's own identity.
+allow if {
+	rpc.method == "ptx_sendTransaction"
+	tx.type == "public"
+	tx.function == "delegateLock"
+	data.bi.config.zeto.contracts[lower(tx.to)]
+	ident.node_of(tx.from) == input.attributes.contextExtensions.node
+}
+
 allow if {
 	rpc.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
 	tx.type == "private"
