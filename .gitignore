@@ -1,0 +1,13 @@
+node_modules/
+out/
+cache/
+.env
+.env.*
+!.env.example
+*.log
+
+# cluster kubeconfig with a client private key, never commit
+alibaba.yaml
+
+# ICMA BDT v1.2 source PDF: licensed copy, never commit
+docs/icma-bdt-v1.2/
