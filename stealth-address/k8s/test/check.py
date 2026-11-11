@@ -54,7 +54,7 @@ for party, ns in PARTIES.items():
         check(np["allow-same-namespace"]["spec"]["ingress"] == [{"from": [{"podSelector": {}}]}], f"{party}: allow-same-namespace shape")
         check({"key": "app", "operator": "NotIn", "values": ["stealth-signer"]} in np["allow-same-namespace"]["spec"]["podSelector"]["matchExpressions"], f"{party}: allow-same-namespace excludes pods labelled app=stealth-signer (S17)")
         e = np["allow-dns-egress"]["spec"]
-        check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {} and e["egress"] == [{}], f"{party}: egress stays open: {e}")
+        check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {"matchExpressions": [{"key": "rd/egress-locked", "operator": "DoesNotExist"}]} and e["egress"] == [{}], f"{party}: egress stays open for every pod EXCEPT those labelled rd/egress-locked (R17-stealth gate: a signer/scanner/Job with its own narrow policy): {e}")
     rules = (of(ds, "Role") or [{"rules": []}])[0]["rules"]
     sec = [r for r in rules if "secrets" in r["resources"]]
     check(len(sec) == 1 and sorted(sec[0]["verbs"]) == ["create", "patch", "update"], f"{party}: secrets verbs exactly create,update,patch")

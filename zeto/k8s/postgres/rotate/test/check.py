@@ -15,16 +15,16 @@ def run(*a): return subprocess.run([render, *a], capture_output=True, text=True)
 for party in ("bi", "bank-a", "bank-b", "bank-c"):
     r = run(party, "--image", IMG, "--api-ips", IPS)
     check(r.returncode == 0, f"{party}: render failed {r.stderr[:100]}")
-    ds = list(yaml.safe_load_all(r.stdout)); by = {d["kind"]: d for d in ds}
+    ds = list(yaml.safe_load_all(r.stdout)); by = {d["kind"]: d for d in ds if d["kind"] != "NetworkPolicy"}; nps = {d["metadata"]["name"]: d for d in ds if d["kind"] == "NetworkPolicy"}
     ns = f"rd-zeto-{party}"
-    check([d["kind"] for d in ds] == ["ConfigMap", "ServiceAccount", "Role", "RoleBinding", "NetworkPolicy", "Job"], f"{party}: kinds")
+    check([d["kind"] for d in ds] == ["ConfigMap", "ServiceAccount", "Role", "RoleBinding", "NetworkPolicy", "NetworkPolicy", "Job"], f"{party}: kinds")
     check(all(d["metadata"]["namespace"] == ns for d in ds), f"{party}: every object in {ns}")
     rl = by["Role"]["rules"]
     num = {"bi": 1, "bank-a": 2, "bank-b": 3, "bank-c": 4}[party]
     check(rl == [{"apiGroups": [""], "resources": ["secrets"], "resourceNames": ["paladin-pg-credentials"], "verbs": ["get", "patch"]},
                  {"apiGroups": ["core.paladin.io"], "resources": ["paladins"], "resourceNames": [f"node{num}"], "verbs": ["get", "patch"]}], f"{party}: Role = secrets get+patch on paladin-pg-credentials and paladins get+patch on node{num} only: {rl}")
     check(by["RoleBinding"]["subjects"] == [{"kind": "ServiceAccount", "name": "pg-pw-rotate", "namespace": ns}], f"{party}: RoleBinding subject")
-    np_ = by["NetworkPolicy"]["spec"]
+    np_ = nps["pg-pw-rotate"]["spec"]
     check(np_["policyTypes"] == ["Egress", "Ingress"] and "ingress" not in np_, f"{party}: NetworkPolicy denies all ingress")
     eg = np_["egress"]
     check(eg[0]["to"] == [{"podSelector": {"matchLabels": {"app": "paladin-pg"}}}] and eg[0]["ports"] == [{"protocol": "TCP", "port": 5432}], f"{party}: egress 1 = paladin-pg:5432 only")
@@ -35,8 +35,12 @@ for party in ("bi", "bank-a", "bank-b", "bank-c"):
     check(c["image"] == IMG, f"{party}: image is the digest given")
     check(c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, f"{party}: container hardening")
     check(pod["securityContext"]["runAsNonRoot"] is True and pod["serviceAccountName"] == "pg-pw-rotate", f"{party}: runAsNonRoot + dedicated SA")
-    check(j["template"]["metadata"]["labels"]["app"] == "paladin" and j["template"]["metadata"]["labels"]["job"] == "pg-pw-rotate", f"{party}: pod labels app=paladin (cancels allow-dns-egress, admitted by paladin-pg-ingress) + job")
-    check(np_["podSelector"]["matchLabels"] == {"job": "pg-pw-rotate"}, f"{party}: policy selects the Job pod")
+    pl = j["template"]["metadata"]["labels"]
+    check(pl.get("app") != "paladin", f"{party}: a Job pod must NOT carry app=paladin (that label pulls in rehearsal-no-9000-egress and the paladin policies; analyst ruling a)")
+    check(pl.get("rd/egress-locked") == "true" and pl.get("job") == "pg-pw-rotate", f"{party}: Job pod labels rd/egress-locked=true (allow-dns-egress excludes it) + job=pg-pw-rotate: {pl}")
+    pgi = nps["pg-pw-rotate-pg-ingress"]["spec"]
+    check(pgi["podSelector"] == {"matchLabels": {"app": "paladin-pg"}} and pgi["policyTypes"] == ["Ingress"] and pgi["ingress"] == [{"from": [{"podSelector": {"matchLabels": {"job": "pg-pw-rotate"}}}], "ports": [{"protocol": "TCP", "port": 5432}]}], f"{party}: extra ingress to paladin-pg:5432 from the Job pod only (paladin-pg-ingress admits app=paladin only)")
+    check(np_["podSelector"]["matchLabels"] == {"rd/egress-locked": "true", "job": "pg-pw-rotate"}, f"{party}: policy selects the Job pod")
     envs = {e["name"]: e for e in c["env"]}
     check(envs["NODE"]["value"] == f"node{num}", f"{party}: NODE env")
     check(all("secretKeyRef" in envs[k]["valueFrom"] and envs[k]["valueFrom"]["secretKeyRef"]["name"] == "paladin-pg-credentials" for k in ("PGUSER", "PGDATABASE", "PGPASSWORD")), f"{party}: credentials come from the Secret by reference (env, not argv)")

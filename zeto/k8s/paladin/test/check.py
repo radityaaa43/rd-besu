@@ -250,6 +250,31 @@ for bad in (["pull-secret"], ["pull-secret", "nope"], ["pull-secret", "bi", "ban
             ["pull-test", "nope", "--image", DIGEST], ["pull-test", "bi", "--image", DIGEST, "--extra"], ["pull-test", "bi", "--image", DIGEST, "x"], ["pull-test"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must exit 2")
 
+# ---- R17 Paladin egress: ONE NetworkPolicy per node, own ns, selecting app=paladin only (analyst ruling b, 2026-11-12). Nothing else is allowed.
+LB = {"bi": "8.215.50.4", "bank-a": "8.215.7.78", "bank-b": "8.215.47.22", "bank-c": "47.84.72.91"}
+LBARG = ",".join(f"{k}={v}" for k, v in LB.items())
+for party in ("bi", "bank-a", "bank-b", "bank-c"):
+    ns = f"rd-zeto-{party}"
+    eg = docs("egress", party, "--lb-ips", LBARG)
+    check(len(eg) == 1 and eg[0]["kind"] == "NetworkPolicy" and eg[0]["metadata"]["name"] == "paladin-egress" and eg[0]["metadata"]["namespace"] == ns, f"{party}: egress must be ONE NetworkPolicy paladin-egress in {ns}")
+    if not eg: continue
+    sp = eg[0]["spec"]
+    check(sp["podSelector"] == {"matchLabels": {"app": "paladin"}} and sp["policyTypes"] == ["Egress"] and "ingress" not in sp, f"{party}: selects app=paladin only, Egress only (ingress stays with paladin-ingress/paladin-transport-ingress)")
+    rules = sp["egress"]
+    others = sorted(v for k, v in LB.items() if k != party)
+    transport = [r for r in rules if r.get("ports") == [{"protocol": "TCP", "port": 9000}]]
+    check(len(transport) == 1 and sorted(t["ipBlock"]["cidr"] for t in transport[0]["to"]) == sorted(f"{ip}/32" for ip in others) and all(set(t) == {"ipBlock"} for t in transport[0]["to"]), f"{party}: TCP 9000 to exactly the other 3 parties' LB IPs as /32 (never its own, never a wider block)")
+    val = [r for r in rules if r.get("to") == [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "besu-validator"}}}]]
+    check(len(val) == 1 and val[0]["ports"] == [{"protocol": "TCP", "port": 8545}, {"protocol": "TCP", "port": 8546}], f"{party}: besu-validator in the own ns on 8545 (jsonrpc) and 8546 (ws; templates/paladin.yaml baseLedgerEndpoint.ws)")
+    pg = [r for r in rules if r.get("to") == [{"podSelector": {"matchLabels": {"app": "paladin-pg"}}}]]
+    check(len(pg) == 1 and pg[0]["ports"] == [{"protocol": "TCP", "port": 5432}], f"{party}: paladin-pg 5432 in the own ns")
+    dns = [r for r in rules if r.get("to") == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}]]
+    check(len(dns) == 1 and dns[0]["ports"] == [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}], f"{party}: kube-dns 53 UDP+TCP")
+    check(len(rules) == 4, f"{party}: exactly 4 egress rules, nothing else: {len(rules)}")
+    check(not any(("namespaceSelector" in t and "podSelector" not in t) for r in rules for t in r.get("to", [])) and not any(t.get("ipBlock", {}).get("cidr", "").endswith(("/0", "/8", "/16")) for r in rules for t in r.get("to", [])), f"{party}: no namespace-wide or wide CIDR peer")
+for bad in (["egress", "bi"], ["egress", "bi", "--lb-ips", "bi=1.2.3.4"], ["egress", "bi", "--lb-ips", LBARG.replace("8.215.7.78", "8.215.7.0/24")], ["egress", "bi", "--lb-ips", LBARG + ",bank-d=1.1.1.1"], ["egress", "bank-d", "--lb-ips", LBARG], ["egress", "bi", "--lb-ips", LBARG.replace("8.215.7.78", "300.1.1.1")]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 if fails:
     print("\n".join(f"FAIL {f}" for f in fails), file=sys.stderr)
     sys.exit(1)
