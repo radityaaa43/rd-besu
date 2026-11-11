@@ -1,6 +1,6 @@
 /*
  * LIVE Zeto V1 lock lifecycle check on ONE party's node (zeto S21 gate "Lensa live lock check"): through that party's own
- * gateway and identity runs createLock -> prepareSpendLock -> delegateLock (to the owner's own eth address) -> cancelLock,
+ * gateway and identity runs createLock -> delegateLock (to the owner's own eth address) -> cancelLock,
  * prints the balance before/after each step. Moves LOCK_CHECK_AMOUNT units into a lock and cancels it (net zero).
  * Last line: `L6 zeto LOCK: PASS` (exit 0) or `L6 zeto LOCK: FAIL <step>: <message>` (exit 1).
  *
@@ -14,7 +14,7 @@ import * as fs from "fs";
 import * as https from "https";
 import * as path from "path";
 import PaladinClient, { ZetoInstance } from "@lfdecentralizedtrust/paladin-sdk";
-import { cancelLock, createLock, delegateLock, prepareSpend, LockParty } from "./src/zeto-v1";
+import { cancelLock, createLock, delegateLock, LockParty } from "./src/zeto-v1";
 import { LockCheckError, runLockCheck } from "./src/lock-check";
 
 const stamp = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
@@ -69,7 +69,6 @@ async function main() {
     {
       balance: async () => BigInt((await zeto.using(c).balanceOf(owner.v, { account: owner.lookup })).totalBalance),
       createLock: (amount) => createLock(zeto, owner, to, amount),
-      prepareSpend: (lockId) => prepareSpend(zeto, owner, lockId),
       delegateToSelf: async (lockId) => delegateLock(zeto, owner, lockId, await owner.v.address()),
       cancel: (lockId) => cancelLock(zeto, owner, lockId),
     },
