@@ -1,10 +1,13 @@
-# Task #16/#18 proposal (user-approved option (a), 2026-10-06). Strategic-merge patch for
-# StatefulSet paladin-node1 (apps/v1). Apply with:
-#   kubectl patch statefulset paladin-node1 -n paladin --type strategic --patch-file patch-node1.yaml
-# Numbers match the operating-paladin skill's own measured sizing for a noto+pente-only
-# deployment (no Zeto configured here, so the skill's "well beyond 2560m for batch circuits"
-# caveat doesn't apply). See README.md for the full rollout/rollback runbook -- DO NOT apply
-# before the lead's go-ahead (Gate 3 must have passed first).
+# Refreshed 2026-11-11 to the LIVE state; the 2026-10-06 proposal in this file was never applied. Strategic-merge patch for
+# StatefulSet paladin-node1 (apps/v1). Live facts (read-only, `KUBECONFIG=besu/zeto/alibaba.yaml`):
+#   - `kubectl get sts paladin-node1 -n paladin` has no container resources: they come from LimitRange `paladin-defaults`
+#     (`kubectl get limitrange paladin-defaults -n paladin`, created 2026-10-06T14:51:52Z): default limit cpu 3 / memory 4Gi,
+#     default request cpu 200m / memory 768Mi (see limitrange.yaml in this directory).
+#   - `kubectl get pod paladin-node1-0 -n paladin` shows postgres and paladin both with requests 200m/768Mi and limits 3/4Gi,
+#     no JDK_JAVA_OPTIONS env, priorityClassName paladin-high-priority (PriorityClass exists, value 10000).
+# The old numbers (paladin limit 1 CPU / 2560Mi with -Xmx1g, "non-Zeto sizing") no longer apply: the zeto domain is configured on
+# all four nodes (the old sizing assumed none). This patch now only states what is live; applying it changes nothing.
+# DO NOT apply without lead's GO (README.md: the operator reverts `resources` and `env` on reconcile).
 spec:
   template:
     spec:
@@ -13,19 +16,16 @@ spec:
       - name: postgres
         resources:
           requests:
-            cpu: 100m
-            memory: 256Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-      - name: paladin
-        env:
-        - name: JDK_JAVA_OPTIONS
-          value: "-Xmx1g -Xms256m -XX:MaxMetaspaceSize=256m"
-        resources:
-          requests:
-            cpu: 250m
+            cpu: 200m
             memory: 768Mi
           limits:
-            cpu: 1
-            memory: 2560Mi
+            cpu: "3"
+            memory: 4Gi
+      - name: paladin
+        resources:
+          requests:
+            cpu: 200m
+            memory: 768Mi
+          limits:
+            cpu: "3"
+            memory: 4Gi
