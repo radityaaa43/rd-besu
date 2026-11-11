@@ -95,8 +95,12 @@ export function reportTo(group: string, from: Party, token: "RD" | "DFABI", zeto
   })(), LONG_POLL_TIMEOUT, `Laporan ${from.lookup}`);
 }
 
+// A report group only carries pgroup_sendMessage reports (topic zeto-report-v1), so external calls stay off: that is also the
+// Pente default (paladin@v1.0.0 (6d4b91343) domains/pente/src/main/java/io/kaleido/paladin/pente/domain/PenteDomain.java:697 sets "externalCallsEnabled" to "false"; checked on the tag).
+export const reportGroupParams = (name: string, members: PaladinVerifier[]) => ({ name, members, evmVersion: "shanghai", externalCallsEnabled: false });
+
 export async function newGroup(bank: Party, bi: Party, name: string): Promise<string> {
-  const g = await within(new PenteFactory(bank.c, "pente").newPrivacyGroup({ name, members: [bank.v, bi.v], evmVersion: "shanghai", externalCallsEnabled: true }).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy privacy group");
+  const g = await within(new PenteFactory(bank.c, "pente").newPrivacyGroup(reportGroupParams(name, [bank.v, bi.v])).waitForDeploy(LONG_POLL_TIMEOUT), LONG_POLL_TIMEOUT, "Deploy privacy group");
   return must(g, "privacy group").group.id;
 }
 

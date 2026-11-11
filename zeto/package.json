@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "node --require ts-node/register --test test/flows-group.test.ts",
     "bootstrap": "ts-node bootstrap-zeto.ts",
     "smoke": "ts-node smoke-zeto.ts",
     "dvp": "ts-node spike-zeto-dvp-zz.ts",

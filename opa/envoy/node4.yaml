@@ -31,8 +31,9 @@ static_resources:
               transport_api_version: V3
               with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
               failure_mode_allow: false
-              # ext_authz timeout must exceed the Rego http.send timeout (2s) of the daily limit
-              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 3s}
+              # ext_authz timeout budget: gw.rego:17-22 ANDs bi.paladin.allow, bank.paladin.allow (one http.send, paladin.rego:178)
+              # and bi.balance.allow (a mint can add two more, balance.rego:96): at most three sequential http.send of 2s = 6s < 7s
+              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 7s}
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

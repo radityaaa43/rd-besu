@@ -39,11 +39,11 @@ test_node_of_table if {
 	bi_node("bankA@Node2") == "Node2"
 }
 
-bi_part(id) := true if bi.participant(id) with data.bi.config.participants as participants
+bi_part(id) if bi.participant(id) with data.bi.config.participants as participants
 
 bi_part(id) := false if not bi.participant(id) with data.bi.config.participants as participants
 
-bank_part(id) := true if bank.participant(id) with data.bi.config.participants as participants
+bank_part(id) if bank.participant(id) with data.bi.config.participants as participants
 
 bank_part(id) := false if not bank.participant(id) with data.bi.config.participants as participants
 
