@@ -36,7 +36,9 @@ export type TradeStep =
   | "atom-execute"
   | "settle";
 
-export type TradeStatus = "SETTLED" | "ROLLED_BACK" | "FAILED";
+// PENDING is only ever written by a progress callback (see onProgress): the trade is running, or the process died mid-trade. A PENDING
+// line is later superseded by the final line of the same tradeId (loadTrades keeps the last one); recoverTrade refuses it, as it only recovers FAILED.
+export type TradeStatus = "SETTLED" | "ROLLED_BACK" | "FAILED" | "PENDING";
 
 export interface TradeRecord {
   tradeId: string;
@@ -101,15 +103,25 @@ async function withAccounts<T>(accounts: string[], fn: () => Promise<T>): Promis
   }
 }
 
+// Called after each lock and delegate step with the trade so far (status PENDING, lock ids set as they appear) and the step. A caller that
+// persists it can find locked funds after a crash. An error thrown by the callback is logged and does not stop the trade.
+export type OnProgress = (trade: TradeRecord, step: TradeStep) => void;
+
+// The trade as it stands mid-run, for onProgress. Pure: the live trade object is not changed.
+export function pendingSnapshot(trade: TradeRecord, bond: Pick<Leg, "lockId">, cash: Pick<Leg, "lockId">): TradeRecord {
+  return { ...trade, status: "PENDING", bondLockId: bond.lockId, cashLockId: cash.lockId, timestamp: new Date().toISOString() };
+}
+
 export function executeOutright(
   p: Platform,
   params: OutrightParams,
-  log: (msg: string) => void = console.log
+  log: (msg: string) => void = console.log,
+  onProgress?: OnProgress
 ): Promise<TradeRecord> {
-  return withAccounts([params.seller, params.buyer], () => runOutright(p, params, log));
+  return withAccounts([params.seller, params.buyer], () => runOutright(p, params, log, onProgress));
 }
 
-async function runOutright(p: Platform, params: OutrightParams, log: (msg: string) => void): Promise<TradeRecord> {
+async function runOutright(p: Platform, params: OutrightParams, log: (msg: string) => void, onProgress?: OnProgress): Promise<TradeRecord> {
   // --- Validation and pre-trade checks: reject before anything touches the chain ---
   const seller = participantOf(p, params.seller);
   const buyer = p.investors.get(params.buyer);
@@ -174,6 +186,9 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
   const done = (s: TradeStep) => {
     if (params.injectFailureAfter === s) throw new Error(`injected failure after ${s}`);
   };
+  const progress = (s: TradeStep) => {
+    try { onProgress?.(pendingSnapshot(trade, bond, cash), s); } catch (e) { log(`[${s}] progress callback failed: ${(e as Error).message}`); }
+  };
 
   const lock = async (leg: Leg, s: TradeStep) => {
     step = s;
@@ -181,6 +196,7 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     const r = await run(s, leg.token.lock(leg.owner.verifier, { amount: leg.amount.toString(), data: "0x" }, key(s)), true);
     leg.lockId = lockInfoOf(r)?.lockId;
     if (!leg.lockId) throw new Error("no lockId in receipt");
+    progress(s); // before done(): a failure injected after this step must still see the lock id
     done(s);
   };
   const prepare = async (leg: Leg, to: Participant, s: TradeStep) => {
@@ -203,6 +219,7 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     log(`[${s}] ${leg.owner.name} delegates ${leg.name} lock to ${to}`);
     await run(s, leg.token.delegateLock(leg.owner.verifier, { lockId: leg.lockId!, delegate: to, data: "0x" }, key(s)));
     leg.delegatedTo = to;
+    progress(s as TradeStep);
   };
 
   try {
