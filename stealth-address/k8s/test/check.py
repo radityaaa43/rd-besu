@@ -52,6 +52,7 @@ for party, ns in PARTIES.items():
     if NETPOLS <= set(np):
         check(np["default-deny-ingress"]["spec"] == {"podSelector": {}, "policyTypes": ["Ingress"]}, f"{party}: default-deny-ingress shape")
         check(np["allow-same-namespace"]["spec"]["ingress"] == [{"from": [{"podSelector": {}}]}], f"{party}: allow-same-namespace shape")
+        check({"key": "app", "operator": "NotIn", "values": ["stealth-signer"]} in np["allow-same-namespace"]["spec"]["podSelector"]["matchExpressions"], f"{party}: allow-same-namespace excludes pods labelled app=stealth-signer (S17)")
         e = np["allow-dns-egress"]["spec"]
         check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {} and e["egress"] == [{}], f"{party}: egress stays open: {e}")
     rules = (of(ds, "Role") or [{"rules": []}])[0]["rules"]

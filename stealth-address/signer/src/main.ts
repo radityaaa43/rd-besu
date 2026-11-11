@@ -1,7 +1,7 @@
 // Process entrypoint (S9 wires it into the Deployment). Not unit-tested: needs a real RPC node and key files.
 // Env: PARTY, ROLE (bank|custodian), PORT, CHAIN_ID, RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY, FROM_BLOCK, RPC_URL,
 // RPC_JWT_KEY_FILE (optional: the node's RS256 private key; the signer mints <= 900 s tokens from it), KEYS_DIR (bank: files spendKey, viewKey, identityKey; custodian: file certKey ONLY),
-// bank: CERT_URL + TLS_DIR (client.key, client.crt, ca.crt); custodian: TLS_DIR (server.key, server.crt, ca.crt) + BANK_SIGNERS (comma list of "CN=...").
+// bank: CERT_URL + optional CERT_SERVERNAME + TLS_DIR (client.key, client.crt, ca.crt); custodian: TLS_DIR (server.key, server.crt, ca.crt) + BANK_SIGNERS (comma list of "CN=...").
 import { readFileSync } from 'node:fs';
 import { createServer as createHttps } from 'node:https';
 import type { TLSSocket } from 'node:tls';
@@ -34,7 +34,7 @@ const log = (line: string) => process.stdout.write(line + '\n');
 const tls = process.env.TLS_DIR;
 
 const certClient = role === 'bank' && process.env.CERT_URL && tls
-  ? createCertClient({ url: process.env.CERT_URL, fetch: createMtlsFetch({ key: file(tls, 'client.key'), cert: file(tls, 'client.crt'), ca: file(tls, 'ca.crt') }) })
+  ? createCertClient({ url: process.env.CERT_URL, fetch: createMtlsFetch({ key: file(tls, 'client.key'), cert: file(tls, 'client.crt'), ca: file(tls, 'ca.crt'), servername: process.env.CERT_SERVERNAME }) })
   : undefined;
 const peer = (req: import('node:http').IncomingMessage) => {
   const cn = (req.socket as TLSSocket).getPeerCertificate?.()?.subject?.CN;
