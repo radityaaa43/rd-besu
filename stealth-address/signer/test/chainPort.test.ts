@@ -1,0 +1,39 @@
+// ChainPort adapter against a mocked ethers provider (no network). Production wiring (JsonRpcProvider, JWT) is not covered.
+import { Interface, zeroPadValue, type Provider } from 'ethers';
+import { describe, expect, it } from 'vitest';
+import { createChainPort } from '../src/chainPort.ts';
+import { BOND, RD } from './fixtures.ts';
+
+const ann = new Interface(['event Announcement(uint256 indexed schemeId, address indexed stealthAddress, address indexed caller, bytes ephemeralPubKey, bytes metadata)']);
+const stealth = '0x' + '5a'.repeat(20);
+const calls: Array<{ method: string; arg: any }> = [];
+const provider = {
+  getBlockNumber: async () => 2500,
+  getLogs: async (f: any) => {
+    calls.push({ method: 'getLogs', arg: f });
+    if (f.fromBlock !== 0) return [];
+    const e = ann.encodeEventLog('Announcement', [1n, stealth, RD, '0x02' + '11'.repeat(32), '0x01']);
+    return [{ topics: e.topics, data: e.data, transactionHash: '0x' + '0'.repeat(63) + '1', blockNumber: 7 }];
+  },
+  call: async (tx: any) => { calls.push({ method: 'call', arg: tx }); return zeroPadValue('0x2a', 32); },
+  getBlock: async () => ({ timestamp: 1_800_000_000 }),
+} as unknown as Provider;
+const port = createChainPort({ provider, announcer: '0x' + 'a1'.repeat(20), validator: '0x' + 'a2'.repeat(20), dvpFactory: '0x' + 'a3'.repeat(20), rd: RD, bond: BOND, fromBlock: 0 });
+
+describe('createChainPort (mocked provider)', () => {
+  it('announcements: reads in 1000-block chunks, filters caller to rd/bond, parses the event', async () => {
+    const got = await port.announcements(0);
+    expect(got).toEqual([{ schemeId: 1n, stealthAddress: expect.stringMatching(/^0x5a/i), ephemeralPubKey: '0x02' + '11'.repeat(32), metadata: '0x01', txHash: '0x' + '0'.repeat(63) + '1', blockNumber: 7, caller: expect.stringMatching(/^0x0+d1$/i) }]);
+    const logs = calls.filter((c) => c.method === 'getLogs').map((c) => [c.arg.fromBlock, c.arg.toBlock]);
+    expect(logs).toEqual([[0, 999], [1000, 1999], [2000, 2500]]);
+    expect(calls[0].arg.topics[3]).toEqual([zeroPadValue(RD, 32), zeroPadValue(BOND, 32)]);
+  });
+  it('balanceOf picks balanceOfByPartition when a partition is given; now() is the block timestamp', async () => {
+    expect(await port.balanceOf(RD, stealth)).toBe(42n);
+    expect(await port.balanceOf(BOND, stealth, '0x' + '01'.repeat(32))).toBe(42n);
+    const sel = (i: number) => calls.filter((c) => c.method === 'call')[i].arg.data.slice(0, 10);
+    expect(sel(0)).toBe(new Interface(['function balanceOf(address)']).getFunction('balanceOf')!.selector);
+    expect(sel(1)).toBe(new Interface(['function balanceOfByPartition(bytes32,address)']).getFunction('balanceOfByPartition')!.selector);
+    expect(await port.now()).toBe(1_800_000_000n);
+  });
+});

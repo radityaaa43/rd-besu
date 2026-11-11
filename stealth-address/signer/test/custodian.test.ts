@@ -23,8 +23,8 @@ const req = (over: Record<string, unknown> = {}) => ({ sender, token: BOND, payl
 
 let stop: (() => Promise<void>) | undefined;
 afterEach(async () => { await stop?.(); stop = undefined; vi.restoreAllMocks(); });
-async function custodian(chain: FakeChain, peer: { subject: string } | undefined = BANK) {
-  const s = await start(chain, { cfg, keys: { certKey }, peer: () => peer }); stop = s.stop; return s;
+async function custodian(chain: FakeChain, peer: { subject: string } | null = BANK) { // null = no client cert (undefined would trigger the default)
+  const s = await start(chain, { cfg, keys: { certKey }, peer: () => peer ?? undefined }); stop = s.stop; return s;
 }
 
 describe('/cert on role custodian', () => {
@@ -47,7 +47,7 @@ describe('/cert on role custodian', () => {
 
   it('(a) client cert not a registered bank signer (or none) -> 403 and nothing signed', async () => {
     const chain = new FakeChain();
-    for (const peer of [{ subject: 'CN=stranger' }, undefined]) {
+    for (const peer of [{ subject: 'CN=stranger' }, null]) {
       const s = await custodian(chain, peer);
       const r = await s.call('POST', '/cert', req());
       expect([r.status, r.json.error]).toEqual([403, 'not_registered_signer']);
