@@ -1,9 +1,9 @@
 {
   "nodes": {
     "node1": {"party": "BI", "identities": ["bi@node1"], "issuer": true, "paladin_url": "http://paladin-node1.paladin.svc.cluster.local:8548"},
-    "node2": {"party": "A", "identities": ["bankA@node2"], "report_group": "0xec8979f57a1802f45b61ce7aa2c657111090576dc1f9d97c5ad0265f259a703d", "paladin_url": "http://paladin-node2.paladin.svc.cluster.local:8548"},
-    "node3": {"party": "B", "identities": ["bankB@node3"], "report_group": "0xd0fe12c1e4515b331e7e512c5b2a64c651438b04082463def82c27a73aa8f901", "paladin_url": "http://paladin-node3.paladin.svc.cluster.local:8548"},
-    "node4": {"party": "C", "identities": ["bankC@node4"], "report_group": "0xed8b8ff405ac48fe3530cf636a1b3fc3d30c58ea48b59e5700e6b07bec00a9c5", "paladin_url": "http://paladin-node4.paladin.svc.cluster.local:8548"}
+    "node2": {"party": "A", "identities": ["bankA@node2"], "report_group": "0xee0dc11a32f1ee053753e76aba245bcd236eac832d93922bf10f9aaf9d6066ab", "paladin_url": "http://paladin-node2.paladin.svc.cluster.local:8548"},
+    "node3": {"party": "B", "identities": ["bankB@node3"], "report_group": "0x1e3ffdf54d7f67b1040c3a364e56b82b1c34edfa60036aad15de3888f41ad208", "paladin_url": "http://paladin-node3.paladin.svc.cluster.local:8548"},
+    "node4": {"party": "C", "identities": ["bankC@node4"], "report_group": "0x3f98399991bacbd12b35ef1f991be004f31cd485202a3d5570453790cbae9903", "paladin_url": "http://paladin-node4.paladin.svc.cluster.local:8548"}
   },
   "participants": ["bi@node1", "bankA@node2", "bankB@node3", "bankC@node4"],
   "zeto": {
