@@ -70,7 +70,7 @@ for party, (own, keyid) in PARTIES.items():
     check(vols.get("bundle-store", {}).get("persistentVolumeClaim") == {"claimName": "bundle-store"}, f"{party}: volume bundle-store must be the PVC")
     check(vols.get("signing", {}).get("secret", {}).get("secretName") == f"opa-bundle-signing-{party}" and not vols["signing"]["secret"].get("optional"), f"{party}: signing volume = Secret opa-bundle-signing-{party}, not optional")
     check(vols.get("signing", {}).get("secret", {}).get("defaultMode") == 0o440, f"{party}: signing key mode 0440 (fsGroup reads it, no other)")
-    check(vols.get("sink-token", {}).get("secret", {}).get("secretName") == "sink-token" and not vols["sink-token"]["secret"].get("optional"), f"{party}: sink-token volume = Secret sink-token, not optional")
+    check(vols.get("sink-token", {}).get("secret", {}).get("secretName") == "bundle-sink-token" and not vols["sink-token"]["secret"].get("optional"), f"{party}: sink-token volume = Secret sink-token, not optional")
     check(not any("configMap" in v and v["configMap"]["name"].endswith("-bundles") for v in vols.values()), f"{party}: no ConfigMap bundle mounts any more")
     mounts = lambda n: {m["mountPath"]: m for m in cs[n]["volumeMounts"]}
     check(mounts("sink").get("/bundle-store", {}).get("name") == "bundle-store" and not mounts("sink")["/bundle-store"].get("readOnly"), f"{party}: sink writes /bundle-store")
@@ -93,6 +93,12 @@ for party, (own, keyid) in PARTIES.items():
     check(ing and [p["port"] for p in ing[0]["ports"]] == [8080, 8081], f"{party}: ingress ports 8080, 8081")
 
 # arguments
+pull = docs("bi", "--sink-image", IMG, "--pull-secret", "ghcr-pull")
+pod = [d for d in pull if d["kind"] == "Deployment"][0]["spec"]["template"]["spec"]
+check(pod.get("imagePullSecrets") == [{"name": "ghcr-pull"}], f"--pull-secret must set imagePullSecrets: {pod.get('imagePullSecrets')}")
+nopull = [d for d in docs("bi", "--sink-image", IMG) if d["kind"] == "Deployment"][0]["spec"]["template"]["spec"]
+check("imagePullSecrets" not in nopull, "no imagePullSecrets without --pull-secret")
+check(run("bi", "--sink-image", IMG, "--pull-secret", "Bad Name").returncode == 2, "invalid pull secret name must fail with 2")
 check(run("bank-c", "--sink-image", IMG).returncode == 2, "bank-c without --storage-class must fail with 2 (cluster 2 has no default class)")
 check(run("bi", "--sink-image", IMG, "--storage-class", "x").returncode == 0, "cluster 1 party may pass --storage-class")
 check(run("bi").returncode == 2, "--sink-image is required (the stock python image has no opa)")
