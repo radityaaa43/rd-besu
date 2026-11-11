@@ -23,7 +23,8 @@ jobs:
           [[ "${{ inputs.host }}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "host must be an IPv4"; exit 2; }
           [[ "${{ inputs.port }}" =~ ^[0-9]{1,5}$ ]] || { echo "port must be a number"; exit 2; }
       - name: Runner egress IP (for the log)
-        run: echo "runner egress: $(curl -s -m 10 https://ifconfig.me)"
+        run: |
+          echo "runner egress - $(curl -s -m 10 https://ifconfig.me)"
       - name: TCP connect from outside
         run: |
           if nc -vz -w5 "${{ inputs.host }}" "${{ inputs.port }}"; then
