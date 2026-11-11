@@ -133,6 +133,9 @@ spec:
 # the node, or wholely defined by reference to the CR attached. We do not attempt to merge" (paladin_controller.go:1194-1196).
 # Addresses are the live ones (CONTRACTS.md); test/check.py compares this block with the config the live operator generated for node1.
 apiVersion: core.paladin.io/v1alpha1
+# OPTION D (S21 attempt 3, R14): this render carries NO database.passwordSecret, NO dsn and NO dsnParams. The fork logs a templated DSN with the
+# password at WARN (`REMOVE: DSN=`, gorm.go:133) only on that path. The Job zeto/k8s/postgres/rotate writes `db.postgres.dsn` (hex password) into the LIVE
+# CR's spec.config right after `  postgres:`; the live CR is the only holder. Re-applying this render wipes the dsn: run the Job again afterwards.
 kind: Paladin
 metadata:
   name: node${N}
@@ -145,7 +148,6 @@ spec:
       ws: ws://besu-rpc.${NS}.svc.cluster.local:8546
   database:
     mode: preConfigured
-    passwordSecret: paladin-pg-credentials
     migrationMode: auto
   domains: []
   registries: []
@@ -180,10 +182,6 @@ spec:
     db:
       type: postgres
       postgres:
-        dsn: "postgres://{{.username}}:{{.password}}@paladin-pg.${NS}.svc.cluster.local:5432/{{.database}}?sslmode=disable"
-        dsnParams:
-          database:
-            file: /db-creds/database
     domains:
       noto:
         plugin: {type: c-shared, library: /app/domains/libnoto.so}

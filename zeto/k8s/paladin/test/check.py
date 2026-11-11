@@ -96,7 +96,7 @@ for party, n in PARTIES.items():
     ep = s["baseLedgerEndpoint"]["endpoint"]
     check(ep == {"jsonrpc": f"http://besu-rpc.{ns}.svc.cluster.local:8545", "ws": f"ws://besu-rpc.{ns}.svc.cluster.local:8546"}, f"{party}: baseLedgerEndpoint {ep}")
     db = s["database"]
-    check(db.get("mode") == "preConfigured" and db.get("passwordSecret") == "paladin-pg-credentials" and db.get("migrationMode") == "auto" and "pvcTemplate" not in db, f"{party}: database {db}")
+    check(db == {"mode": "preConfigured", "migrationMode": "auto"}, f"{party}: database must be exactly mode preConfigured + migrationMode auto, with NO passwordSecret (option D): {db}")
     sg = s["secretBackedSigners"]
     check(sg == [{"name": "signer-1", "secret": f"node{n}.keys", "type": "autoHDWallet", "derivationType": "bip32", "keySelector": ".*", "keySelectorMustNotMatch": False}], f"{party}: secretBackedSigners {sg}")
     check(s.get("domains") == [] and s.get("registries") == [], f"{party}: domains/registries must be present and empty (CRD requires them; static in spec.config, no selectors to PaladinDomain/PaladinRegistry CRs)")
@@ -119,9 +119,9 @@ for party, n in PARTIES.items():
     check(conf.get("log", {}).get("level") == "info", f"{party}: log.level info")
     pg = conf.get("db", {}).get("postgres", {})
     check(conf.get("db", {}).get("type") == "postgres", f"{party}: db.type must be postgres (preConfigured does not set it)")
-    check(pg.get("dsn") == f"postgres://{{{{.username}}}}:{{{{.password}}}}@paladin-pg.{ns}.svc.cluster.local:5432/{{{{.database}}}}?sslmode=disable", f"{party}: dsn {pg.get('dsn')}")
-    check(pg.get("dsnParams", {}).get("database") == {"file": "/db-creds/database"}, f"{party}: dsnParams.database must read /db-creds/database")
-    check(re.search(r"://[^{]*:[^{@]+@", str(pg.get("dsn"))) is None, f"{party}: dsn must not carry a literal password")
+    check(not pg, f"{party}: db.postgres must be empty in git: no dsn, no dsnParams (option D, the Job writes the dsn into the live CR): {pg}")
+    raw = "\n".join(l for l in run(party).stdout.splitlines() if not l.lstrip().startswith("#"))  # comments may name the fields
+    check(all(x not in raw for x in ("postgres://", "dsnParams", "passwordSecret", "{{", "/db-creds", "paladin-pg-credentials")), f"{party}: the render must carry no dsn, no dsnParams, no passwordSecret, no credentials reference (option D, R14)")
     # the static domain/registry config must equal what the operator generates from the live PaladinDomain/PaladinRegistry CRs
     check(prune(conf.get("domains")) == live["domains"], f"{party}: config.domains differs from live generated config")
     check(prune(conf.get("registries")) == live["registries"], f"{party}: config.registries differs from live generated config")

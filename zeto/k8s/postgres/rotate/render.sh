@@ -4,7 +4,7 @@
 # --image: the ALREADY PINNED paladin-pg postgres image BY DIGEST (no new tool image). --api-ips: the `kubernetes` Endpoints addresses of that cluster
 # (kubectl get endpoints kubernetes); the policy allows TCP 443 and 6443 to exactly those /32s. Needs bash + sed only. Never talks to a cluster.
 # Objects (all in rd-zeto-<party>): ConfigMap pg-pw-rotate-script, ServiceAccount + Role + RoleBinding pg-pw-rotate (secrets get+patch on
-# paladin-pg-credentials ONLY; apply before the Job, delete right after: logged in R13), NetworkPolicy pg-pw-rotate (egress only to paladin-pg:5432 and the API IPs; ingress none), Job pg-pw-rotate.
+# paladin-pg-credentials ONLY, paladins get+patch on node<N> ONLY (option D: the Job writes the DSN into spec.config); apply before the Job, delete right after: logged in R13), NetworkPolicy pg-pw-rotate (egress only to paladin-pg:5432 and the API IPs; ingress none), Job pg-pw-rotate.
 # `patch` instead of `update`: a merge-patch of one key needs no whole-object PUT (and no chunked-response parsing in shell).
 # The Job pod carries app=paladin on purpose: allow-dns-egress (egress {}) selects `app NotIn [paladin]` and would otherwise cancel this NetworkPolicy,
 # and paladin-pg-ingress admits app=paladin pods to 5432. It matches no Service (paladin-node<N> / paladin-transport need more labels).
@@ -29,6 +29,7 @@ for ip in "${arr[@]}"; do
   to+="        - ipBlock: {cidr: ${ip}/32}"$'\n'
 done
 ns="rd-zeto-$party"
+case "$party" in bi) num=1 ;; bank-a) num=2 ;; bank-b) num=3 ;; bank-c) num=4 ;; esac
 lab="{part-of: rd-zeto, party: $party, job: pg-pw-rotate}"
 cat <<YAML
 apiVersion: v1
@@ -58,6 +59,10 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     resourceNames: [paladin-pg-credentials]
+    verbs: [get, patch]
+  - apiGroups: [core.paladin.io]
+    resources: [paladins]
+    resourceNames: [node$num]
     verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -118,6 +123,7 @@ spec:
             - {name: PGUSER, valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: username}}}
             - {name: PGDATABASE, valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: database}}}
             - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: password}}}
+            - {name: NODE, value: node$num}
             - {name: TMPDIR, value: /tmp}
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
           resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
