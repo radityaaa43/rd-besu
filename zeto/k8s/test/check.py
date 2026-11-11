@@ -115,6 +115,50 @@ for d in of(pp, "Pod"):
     check("range(3)" in script and "time.sleep(2)" in script, f"{d['metadata']['name']}: needs 3 attempts with a 2 s gap")
     check(script.index("except ConnectionRefusedError") < script.index("except OSError as e"), f"{d['metadata']['name']}: ConnectionRefusedError must be caught before the generic OSError")
 
+# ---- cluster 2 (L0-SG): bank-c only, behind --cluster 2 ----
+def run(*args):
+    return subprocess.run([render, *args], capture_output=True, text=True)
+
+c2 = docs("--cluster", "2", "bank-c")
+check(bool(c2), "cluster 2: no objects rendered")
+if c2:
+    check([n["metadata"]["name"] for n in of(c2, "Namespace")] == ["rd-zeto-bank-c"], "cluster 2: Namespace must be exactly rd-zeto-bank-c")
+    lab = (of(c2, "Namespace") or [{"metadata": {}}])[0]["metadata"].get("labels", {})
+    check(lab.get("part-of") == "rd-zeto" and lab.get("party") == "bank-c" and lab.get("cluster") == "2", f"cluster 2: ns labels part-of=rd-zeto, party=bank-c, cluster=2: {lab}")
+    for d in c2:
+        check(d["metadata"].get("labels", {}).get("cluster") == "2", f"cluster 2: {d['kind']}/{d['metadata']['name']} must carry label cluster=2")
+        if d["kind"] != "Namespace":
+            check(d["metadata"].get("namespace") == "rd-zeto-bank-c", f"cluster 2: {d['kind']}/{d['metadata']['name']} not in rd-zeto-bank-c")
+    check({d["metadata"]["name"] for d in of(c2, "NetworkPolicy")} == NETPOLS, "cluster 2: the same 4 NetworkPolicies")
+    check({d["metadata"]["name"] for d in of(c2, "ServiceAccount")} == {"party-admin"}, "cluster 2: only ServiceAccount party-admin (no lensa-publisher)")
+    check({d["metadata"]["name"] for d in of(c2, "Role")} == {"party-admin"} and len(of(c2, "RoleBinding")) == 1, "cluster 2: only Role/RoleBinding party-admin")
+    check(not of(c2, "ClusterRole") and not of(c2, "ClusterRoleBinding"), "cluster 2: no cluster-scoped RBAC")
+    ref = {d["metadata"]["name"]: d for d in of(docs("bank-a"), "Role")}["party-admin"]["rules"]
+    got = {d["metadata"]["name"]: d for d in of(c2, "Role")}.get("party-admin", {}).get("rules")
+    check(got == ref, "cluster 2: party-admin rules must equal the cluster-1 party-admin rules")
+    np2 = {d["metadata"]["name"]: d for d in of(c2, "NetworkPolicy")}
+    ref_np = {d["metadata"]["name"]: d for d in of(docs("bank-a"), "NetworkPolicy")}
+    check(all(np2.get(n, {}).get("spec") == ref_np[n]["spec"] for n in NETPOLS), "cluster 2: policy specs equal the cluster-1 specs")
+for args in (["bank-c"], ["--cluster", "2", "bi"], ["--cluster", "2", "bank-a"], ["--cluster", "2", "all"], ["--cluster", "1", "bank-c"], ["--cluster", "3", "bank-c"], ["--cluster", "2"]):
+    check(run(*args).returncode != 0, f"render.sh {' '.join(args)} must be refused")
+check("bank-c" not in subprocess.run([render, "all"], capture_output=True, text=True).stdout, "cluster 1 `all` must not contain bank-c")
+# probe variant for bank-c: one namespace only, listeners + control in the same namespace, no cross-namespace object, no kube-system
+pc = docs("--cluster", "2", "probe", "bank-c")
+txt = subprocess.run([render, "--cluster", "2", "probe", "bank-c"], capture_output=True, text=True).stdout
+check(bool(pc) and {d["metadata"].get("namespace") for d in pc} == {"rd-zeto-bank-c"}, "cluster 2 probe: every object in rd-zeto-bank-c only")
+check("kube-system" not in txt and "rd-zeto-bank-a" not in txt and "rd-zeto-bank-b" not in txt, "cluster 2 probe: no kube-system and no other namespace")
+check(not of(pc, "NetworkPolicy"), "cluster 2 probe: no extra NetworkPolicy (allow-same-namespace already admits the listeners)")
+check(sorted(d["metadata"]["name"] for d in of(pc, "Pod")) == ["probe-control", "probe-listener-8549", "probe-listener-9000", "probe-paladin"], "cluster 2 probe: 4 pods")
+check(all(d["metadata"].get("labels", {}).get("throwaway") == "zeto-s1-probe" for d in pc), "cluster 2 probe: all objects labelled throwaway=zeto-s1-probe")
+check(any(p["metadata"]["name"] == "probe-paladin" and p["metadata"]["labels"].get("app") == "paladin" for p in of(pc, "Pod")), "cluster 2 probe: probe-paladin has app=paladin")
+for args in (["--cluster", "2", "probe", "bank-a"], ["--cluster", "2", "probe", "bank-c", "bank-a"], ["--cluster", "2", "probe-listeners", "bank-a"]):
+    check(run(*args).returncode != 0, f"render.sh {' '.join(args)} must be refused")
+
+nso = docs("--cluster", "2", "--ns-only", "bank-c")
+check([d["kind"] for d in nso] == ["Namespace"] and nso[0]["metadata"]["name"] == "rd-zeto-bank-c" and nso[0]["metadata"]["labels"].get("cluster") == "2", f"cluster 2 --ns-only: exactly the Namespace doc with cluster=2: {[d['kind'] for d in nso]}")
+for args in (["--ns-only", "bi"], ["--cluster", "2", "--ns-only", "probe", "bank-c"], ["--cluster", "2", "--ns-only"]):
+    check(run(*args).returncode != 0, f"render.sh {' '.join(args)} must be refused (--ns-only is cluster 2 and namespace only)")
+
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)

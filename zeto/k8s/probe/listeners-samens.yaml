@@ -1,0 +1,53 @@
+# Throwaway egress proof, cluster-2 variant (bank-c only, one namespace): listeners in the SAME namespace as the probe pods.
+# allow-same-namespace already admits them, so no extra NetworkPolicy and no other namespace (nothing outside rd-zeto-bank-c is read).
+# probe-paladin (app=paladin) -> 9000 BLOCKED by rehearsal-no-9000-egress, -> 8549 OPEN; probe-control -> 9000 OPEN (control).
+# Everything carries throwaway=zeto-s1-probe: delete by that label. Image python:3.12-alpine (pull from the cluster-2 nodes: [unverified]).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-listener-9000
+  namespace: ${NS}
+  labels: {throwaway: zeto-s1-probe, role: probe-listener, listen: "9000"}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: l
+      image: python:3.12-alpine
+      command: [python, -c, "import socketserver as s;s.TCPServer(('0.0.0.0',9000),s.BaseRequestHandler).serve_forever()"]
+      resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, runAsUser: 65534, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-listener-9000
+  namespace: ${NS}
+  labels: {throwaway: zeto-s1-probe}
+spec:
+  selector: {role: probe-listener, listen: "9000"}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe-listener-8549
+  namespace: ${NS}
+  labels: {throwaway: zeto-s1-probe, role: probe-listener, listen: "8549"}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: l
+      image: python:3.12-alpine
+      command: [python, -c, "import socketserver as s;s.TCPServer(('0.0.0.0',8549),s.BaseRequestHandler).serve_forever()"]
+      resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, runAsUser: 65534, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-listener-8549
+  namespace: ${NS}
+  labels: {throwaway: zeto-s1-probe}
+spec:
+  selector: {role: probe-listener, listen: "8549"}
+  ports: [{port: 8549, targetPort: 8549}]
