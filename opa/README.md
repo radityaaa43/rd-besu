@@ -108,6 +108,21 @@ Gateways `fx-gw-1..4` (ns `fabricx`) are designed in `fabric-x/opa/DESIGN.md`. E
 - `daily_limit` comes from the party's own token records (`rd_dfabi_v2`) via fxapi `usage` on 127.0.0.1:8080 (2s, fail closed). Counted are transfers, DvP legs and redeems since 00:00 WIB; change is excluded.
 - **Known gap (DvP and award precheck):** it is enforced by the gateways, not by the buyer's node. A modified initiator that bypasses its own gateway can skip the precheck.
 
+## Sink door (`sink`, zeto S17)
+Every party gateway also fronts its own bundle-server (Service `bundle-server` port 8081, same namespace) so Lensa and BI's publisher need no kubectl.
+`envoy/nodeN.yaml` has a route `/sink/` on the Paladin listener (:8548), before `/`, tagged `context_extensions: {target: sink, node: nodeN}` (the one ext_authz filter, no per-route disable), prefix rewrite `/sink/` -> `/`.
+`gw.allow` dispatches it like any platform: `bi.platform.sink` AND `bank.platform.sink` (a copy per bundle) must allow. Tests: `test/sink`.
+| Request at the gateway | Forwarded as | Allowed caller (mTLS subject = `attributes.source.principal`, `CN=<name>`) |
+|---|---|---|
+| `GET /sink/status` | `GET /status` | `lensa`, `lensa-bi`, `lensa-bank-a`, `lensa-bank-b`, `lensa-bank-c` (Lensa publisher) |
+| `POST /sink/bundles/<name>` (`[a-z0-9][a-z0-9-]*`) | `POST /bundles/<name>` | same Lensa subjects |
+| `POST /sink/bundles/bi` | `POST /bundles/bi` | `bi-publisher` (BI's publisher-role cert), only at a bank gateway (node2..4) |
+Everything else is denied: a bank's cert, no cert, other methods or paths, a query string. OPA checks only method, path and subject; the bearer token of the POST (Secret `bundle-sink-token`) is checked by `bundle-server/sink.py` (401), and the body is not read. Envoy reports the subject as the principal only when the client cert has no SAN, which holds for `gen-certs.sh` and `gen-party-certs.sh` (the live check is the S17 RED proof).
+The `bi` bundle's `besu` method list now also has `net_peerCount` and `eth_syncing` (Besu network view, S20): ships with the next `bi` revision.
+
+### Bundle resource path per bundle-server
+The old gateways (namespace `paladin`) pull `<N>/bi.tar.gz` and `<N>/bank.tar.gz` (`--set=bundles.<name>.resource=` in `k8s/bank-gw-N.yaml`). The per-party bundle-server (`zeto/k8s/bundle-server`, `sink.py`) stores `<name>/<revision>.tar.gz` and symlinks `<name>/latest.tar.gz`, so for it `bundles.<name>.resource` must be `<name>/latest.tar.gz` (`bi/latest.tar.gz`, `bank/latest.tar.gz`). `opa.yaml` sets no `resource`; `zeto/k8s/gateway/render.sh --bundle-path latest` rewrites the two args, the default stays `<N>/...` for the old gateways.
+
 ## Test
 
 ```
