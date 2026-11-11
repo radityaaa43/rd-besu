@@ -62,6 +62,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: stealth-address/k8s/test.sh
       - run: stealth-address/k8s/gateway/test.sh
+      - run: stealth-address/k8s/signer/test.sh
       - name: envoy --mode validate on every party config (throwaway certs stand in for Secret st-gw-<N>-mtls)
         run: |
           d="$(mktemp -d)"; chmod 755 "$d"
