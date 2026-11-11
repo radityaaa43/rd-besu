@@ -56,6 +56,8 @@ def out(body, rc=0):
 check(out('{"jsonrpc":"2.0","id":1,"result":[]}') == ("0", ""), "behaviour: an empty result prints 0")
 o = out('{"jsonrpc":"2.0","id":1,"result":[{"id":"SECRET-TX-1"}]}'); check(o == ("NONZERO", ""), f"behaviour: a non-empty result prints NONZERO and never the body: {o}")
 o = out("", rc=1); check(o == ("ERROR", ""), f"behaviour: a failing call prints ERROR: {o}")
+o = out('{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"PD012345: bad filter"}}'); check(o == ("ERROR", ""), f"behaviour: a JSON-RPC error body prints ERROR, never NONZERO (a bad filter looked like data before): {o}")
+o = out('<html>502</html>'); check(o == ("ERROR", ""), f"behaviour: a body without a result prints ERROR: {o}")
 
 for bad in (["bi"], ["bi", "--image", "busybox:1.36"], ["bi", "--image", IMG, "--mode", "xx"], ["bi", "--image", IMG, "--method", "x; rm"], ["bi", "--image", IMG, "--params", "[\"'; id\"]"],
             ["bank-d", "--image", IMG], ["bi", "--image", IMG, "--extra"]):

@@ -32,7 +32,7 @@ body="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}"
 if [[ "$mode" == jq ]]; then
   script="curl -sS -m 10 -H 'content-type: application/json' -d '$body' $url | jq -r '.result | length'"
 else
-  script="R=\$(wget -q -T 10 -O - --header 'content-type: application/json' --post-data '$body' $url) || { echo ERROR; exit 1; }; case \"\$R\" in *'\"result\":[]'*) echo 0 ;; *) echo NONZERO ;; esac"
+  script="R=\$(wget -q -T 10 -O - --header 'content-type: application/json' --post-data '$body' $url) || { echo ERROR; exit 1; }; case \"\$R\" in *'\"error\"'*) echo ERROR ;; *'\"result\":[]'*) echo 0 ;; *'\"result\":'*) echo NONZERO ;; *) echo ERROR ;; esac"
 fi
 sel='{rd/egress-locked: "true", app: node-probe}'
 node="{app: paladin, app.kubernetes.io/name: paladin-node$n}"
