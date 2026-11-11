@@ -2,6 +2,7 @@
 src = "src"
 test = "test"
 out = "out"
+solc_version = "0.8.28"
 libs = []
 # The vendored UniversalToken needs OpenZeppelin 4 (npm alias `oz4`); everything else uses 5.4.0.
 # Foundry's import pre-scan ignores the context line and logs "Unable to resolve imports" for three vendor
