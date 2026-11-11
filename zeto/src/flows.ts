@@ -96,7 +96,7 @@ export function reportTo(group: string, from: Party, token: "RD" | "DFABI", zeto
 }
 
 // A report group only carries pgroup_sendMessage reports (topic zeto-report-v1), so external calls stay off: that is also the
-// Pente default (paladin@v1.0.0 PenteDomain.java:697 sets "externalCallsEnabled" to "false").
+// Pente default (paladin@v1.0.0 (6d4b91343) domains/pente/src/main/java/io/kaleido/paladin/pente/domain/PenteDomain.java:697 sets "externalCallsEnabled" to "false"; checked on the tag).
 export const reportGroupParams = (name: string, members: PaladinVerifier[]) => ({ name, members, evmVersion: "shanghai", externalCallsEnabled: false });
 
 export async function newGroup(bank: Party, bi: Party, name: string): Promise<string> {
