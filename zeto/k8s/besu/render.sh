@@ -194,9 +194,6 @@ data:
 YAML
   sed "s/\${P2P_HOST}/$host/" "$cfg" | sed 's/^/    /'
   echo
-  # bank C (cluster 2) reaches only the 3 cluster-1 nodes (the old validators' pod IPs are not routable across clusters); Besu's default
-  # sync-min-peers=5 would never start the sync (log: "Unable to find sync target. Waiting for 5 peers minimum").
-  if [[ "$party" == bank-c ]]; then echo "    sync-min-peers=3"; fi
   echo   # the live config has no trailing newline; without this the next "---" would join its last comment line
   cat <<YAML
 ---

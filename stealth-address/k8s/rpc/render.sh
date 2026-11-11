@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render the stealth S4/S5 Besu JWT RPC node manifests (final-design/stealth/PLAN.md S4 cluster 1, S5 bank C) to stdout. Never talks to a cluster.
 #   render.sh [--cluster 2] net <party>                                   Services besu-rpc (ClusterIP 8545), besu-rpc-hs (headless), NetworkPolicy besu-rpc-ingress
-#   render.sh [--cluster 2] node <party> --static-nodes FILE [--storage-class C]   ConfigMaps besu-rpc-config + besu-static-nodes, StatefulSet besu-rpc
+#   render.sh [--cluster 2] node <party> --static-nodes FILE [--storage-class C] [--allow-multi-peer]   ConfigMaps besu-rpc-config + besu-static-nodes, StatefulSet besu-rpc
 # Before `node`: ./genesis.sh <p> | kubectl apply -f - (admin), ./nodekey.sh <p> and ./jwt.sh <p> (party kubeconfig). Parties bi, bank-a, bank-b;
 # bank-c only with --cluster 2 (smaller requests, no node exclusion, label cluster="2"). The node dials the zeto validators; it exposes TCP 8545 only.
 set -euo pipefail
@@ -77,15 +77,19 @@ YAML
 indent() { sed 's/^/    /' "$1"; echo; }  # echo: a file without trailing newline must not swallow the next "---"
 
 node() {
-  local snf="" sc="alicloud-essd-wffc"
+  local snf="" sc="alicloud-essd-wffc" multi=0
   while [[ $# -gt 0 ]]; do case "$1" in
     --static-nodes) snf="${2:?}"; shift 2 ;;
+    --allow-multi-peer) multi=1; shift ;;
     --storage-class) sc="${2:?}"; shift 2 ;;
     *) die "node: unknown option $1" ;; esac; done
   [[ -n "$snf" ]] || die "node needs --static-nodes <file> (static-nodes.sh output)"
   [[ -s "$snf" ]] || die "static-nodes file '$snf' missing or empty"
-  # the RPC node peers ONLY with its own party's zeto node (user decision): exactly one enode, so sync-min-peers=1 holds
-  [[ "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$snf")" == 1 ]] || die "static-nodes must hold exactly ONE enode (the own party's zeto node)"
+  # the RPC node peers ONLY with its own party's zeto node (user decision): exactly one enode. --allow-multi-peer is for the initial sync / long-outage
+  # catch-up ONLY (a fresh node bulk-downloads from one peer too slowly or stalls: runbook in README); the default stays one entry.
+  local n; n="$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$snf")"
+  if [[ $multi == 1 ]]; then [[ "$n" -ge 1 ]] || die "static-nodes must hold at least one enode"
+  else [[ "$n" == 1 ]] || die "static-nodes must hold exactly ONE enode (the own party's zeto node); --allow-multi-peer is for the catch-up phase only"; fi
   local affinity=""
   if [[ $cluster == 1 ]]; then
     affinity="      affinity:

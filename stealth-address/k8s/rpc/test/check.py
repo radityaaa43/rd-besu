@@ -46,7 +46,7 @@ removed = {k for k in lk if k not in tk}
 added = {k for k in tk if k not in lk}
 check(changed == {"discovery-enabled", "rpc-http-api", "rpc-http-authentication-enabled", "host-allowlist", "rpc-ws-enabled", "metrics-host"}, f"config: changed keys {sorted(changed)}")
 check(removed == {"rpc-http-cors-origins", "rpc-ws-host", "rpc-ws-port", "rpc-ws-api", "rpc-ws-authentication-enabled"}, f"config: removed keys {sorted(removed)}")
-check(added == {"rpc-http-authentication-jwt-public-key-file", "sync-min-peers"}, f"config: added keys {sorted(added)}")
+check(added == {"rpc-http-authentication-jwt-public-key-file"}, f"config: added keys {sorted(added)} (sync-min-peers is ignored in FULL sync, Besu BesuCommand.java:1996-1998 @26.8.1: not set)")
 g = lambda k: tk.get(k, "")
 check(g("rpc-http-api") == 'rpc-http-api=["ETH","NET","WEB3"]', f"config: rpc-http-api {g('rpc-http-api')}")
 check(g("rpc-http-authentication-enabled") == "rpc-http-authentication-enabled=true", "config: JWT authentication must be enabled")
@@ -58,7 +58,7 @@ for h in ("besu-rpc", "st-gw", "localhost", "127.0.0.1"):
     check(f'"{h}"' in al, f"config: host-allowlist must contain {h}: {al}")
 check('"*"' not in al, "config: host-allowlist must not be *")
 
-check(g("sync-min-peers") == "sync-min-peers=1", f"config: sync-min-peers=1 required (the node peers ONLY with its own party's zeto node; Besu default 5 would never start sync): {g('sync-min-peers')}")
+check("sync-min-peers" not in g("sync-min-peers"), "config: sync-min-peers must not be set (ignored in FULL sync-mode, Besu logs a WARN)")
 check(g("discovery-enabled") == "discovery-enabled=false", "config: discovery-enabled=false (static peer only)")
 NETPOLS_ALL = ["bi", "bank-a", "bank-b"]
 PARTIES = {"bi": "rd-stealth-bi", "bank-a": "rd-stealth-bank-a", "bank-b": "rd-stealth-bank-b"}
@@ -86,7 +86,7 @@ for party, ns in PARTIES.items():
     if "besu-rpc-config" in cms:
         c = cms["besu-rpc-config"]["data"]["config.toml"]
         check('rpc-http-authentication-jwt-public-key-file="/jwt/public.pem"' in c and 'rpc-http-api=["ETH","NET","WEB3"]' in c and f"{ns}.svc.cluster.local" in c, f"{party}: rendered config has JWT, API list and the namespace service host")
-        check("\nsync-min-peers=1\n" in c and "sync-min-peers=3" not in c and "\ndiscovery-enabled=false\n" in c, f"{party}: rendered config has sync-min-peers=1 and discovery-enabled=false")
+        check("sync-min-peers" not in c and "\ndiscovery-enabled=false\n" in c, f"{party}: rendered config has no sync-min-peers (no-op in FULL sync) and discovery-enabled=false")
     sts = of(nd, "StatefulSet")
     check(len(sts) == 1 and sts[0]["metadata"]["name"] == "besu-rpc" and sts[0]["metadata"]["namespace"] == ns, f"{party}: one StatefulSet besu-rpc in {ns}")
     if sts:
@@ -112,6 +112,9 @@ for party, ns in PARTIES.items():
 two = os.path.join(tmp, "two.json"); json.dump([ENODE, "enode://" + "b" * 128 + "@10.1.2.4:30303?discport=0"], open(two, "w"))
 zero = os.path.join(tmp, "zero.json"); json.dump([], open(zero, "w"))
 for party in PARTIES:
+    mp = run(render, "node", party, "--static-nodes", two, "--allow-multi-peer")
+    check(mp.returncode == 0 and mp.stdout.count("enode://") == 2, f"{party}: --allow-multi-peer must accept 2 entries (catch-up phase only): rc={mp.returncode} {mp.stderr[:80]}")
+    check(run(render, "node", party, "--static-nodes", zero, "--allow-multi-peer").returncode != 0, f"{party}: --allow-multi-peer must still refuse an empty list")
     check(run(render, "node", party, "--static-nodes", two).returncode != 0, f"{party}: static-nodes with 2 entries must be refused (the RPC node peers ONLY with its own party's zeto node)")
     check(run(render, "node", party, "--static-nodes", zero).returncode != 0, f"{party}: static-nodes with 0 entries must be refused")
 # cluster 2: bank-c only behind --cluster 2
@@ -121,7 +124,7 @@ for stage, extra in (("net", []), ("node", ["--static-nodes", sn])):
     check(all(d["metadata"].get("labels", {}).get("cluster") == "2" for d in ds), f"cluster 2 {stage}: every object labelled cluster=2")
     if stage == "node" and ds:
         cfgc = {d["metadata"]["name"]: d for d in of(ds, "ConfigMap")}["besu-rpc-config"]["data"]["config.toml"]
-        check("\nsync-min-peers=1\n" in cfgc and "sync-min-peers=3" not in cfgc and "\ndiscovery-enabled=false\n" in cfgc, "cluster 2: sync-min-peers=1 and discovery off")
+        check("sync-min-peers" not in cfgc and "\ndiscovery-enabled=false\n" in cfgc, "cluster 2: no sync-min-peers, discovery off")
         st = of(ds, "StatefulSet")[0]
         aff = json.dumps(st["spec"]["template"]["spec"].get("affinity", {}))
         check("member-16033-node" not in aff, "cluster 2: the cluster-1 node exclusion must not be copied")

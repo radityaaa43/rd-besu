@@ -100,10 +100,7 @@ for party, ns in PARTIES.items():
         cfg = cms["besu-config"]["data"]["config.toml"]
         check('p2p-host="10.9.8.7"' in cfg and "discovery-enabled=false" in cfg and "${P2P_HOST}" not in cfg, f"{party}: config has the LB IP, discovery off, no placeholder")
         check('static-nodes-file="/config/static/static-nodes.json"' in cfg and 'node-private-key-file="/keys/nodekey"' in cfg, f"{party}: config keeps static-nodes-file and node-private-key-file paths")
-        if party == "bank-c":
-            check("\nsync-min-peers=3\n" in cfg, f"{party}: bank C sees only the 3 cluster-1 nodes (old pod IPs are unreachable cross-cluster): sync-min-peers=3 is required, Besu default 5 would never start sync")
-        else:
-            check("sync-min-peers" not in cfg, f"{party}: cluster-1 nodes keep the Besu default sync-min-peers")
+        check("sync-min-peers" not in cfg, f"{party}: sync-min-peers is ignored in FULL sync (Besu BesuCommand.java:1996-1998 @26.8.1): not set")
     if "besu-static-nodes" in cms:
         check(json.loads(cms["besu-static-nodes"]["data"]["static-nodes.json"]) == [ENODE_A, ENODE_B], f"{party}: static-nodes ConfigMap content")
     sts = of(nd, "StatefulSet")
