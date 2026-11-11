@@ -10,7 +10,7 @@ cd ../../../opa/bundle-server && python3 -m unittest test_sink test_sink_bundles
 
 Renders ConfigMap `bundle-server-conf` (the nginx.conf of `opa/bundle-server`), PVC `bundle-store` (1Gi, RWO), Deployment `bundle-server`
 (nginx serves the PVC read-only; the sink writes it and signs), Service (ClusterIP) and NetworkPolicy (ingress 8080/8081 only from `app=bank-gw` pods of the same ns).
-The Secrets are NOT rendered: the party creates `opa-bundle-signing-<party>` (key `key.pem`, RSA private key) and `sink-token` (key `token`) in its own ns.
+The Secrets are NOT rendered: the party creates `opa-bundle-signing-<party>` (key `key.pem`, RSA private key) and `bundle-sink-token` (key `token`) in its own ns.
 
 ## Data flow: who signs what
 
@@ -27,7 +27,7 @@ The Secrets are NOT rendered: the party creates `opa-bundle-signing-<party>` (ke
 
 ## Apply order (one party at a time; all CLUSTER-OP, own GO)
 
-1. Party creates Secrets `opa-bundle-signing-<party>` and `sink-token` in `rd-zeto-<party>` (keys copied from `~/.opa-keys` now, destroyed at S22).
+1. Party creates Secrets `opa-bundle-signing-<party>` and `bundle-sink-token` in `rd-zeto-<party>` (keys copied from `~/.opa-keys` now, destroyed at S22).
 2. Build the image from `Dockerfile` (python + `sink.py` + opa 1.21.1), push, pin the digest.
 3. `render.sh <party> --sink-image <ref@digest> [--storage-class X] | kubectl apply -f -`; wait for the PVC to bind and the pod Ready.
 4. Upload the unsigned source through the party gateway (needs S16 gateway + the `sink` route/rego of the other S17 task), check `GET /status` shows the revision.
@@ -37,7 +37,7 @@ The Secrets are NOT rendered: the party creates `opa-bundle-signing-<party>` (ke
 
 - The sink signs with `opa build --signing-key --verification-key-id <keyid>`, as the Publisher does (`opa/README.md:60`); a test verifies the result with the public key via `opa build --verification-key`. Revision: if the source has no `.manifest`, `--revision <revision>` is set.
 - The `sink` route of the envoy is in the `app=bank-gw` pod, so one NetworkPolicy rule covers OPA and the route. No kube-apiserver rule: Lensa reads the status through the gateway (S20), not the service proxy (the old `networkpolicy.yaml:249-251` rule is not carried over).
-- Secret name `sink-token` (task wording) differs from the live `bundle-sink-token` (`opa/k8s/bundle-server.yaml:59`, `opa/README.md:330`); the gateway pods must mount the same one.
+- Secret name was `sink-token` in G2; now `bundle-sink-token`, the live name (`opa/k8s/bundle-server.yaml:59`, `opa/README.md:330`); the gateway pods must mount the same one.
 - `PARTY_BUNDLE` is a comma list (`bi,bank` on BI) because BI's server signs two bundles with one key.
 - Sink memory limit 256Mi (was 96Mi): `opa build` runs in the sink container.
 
