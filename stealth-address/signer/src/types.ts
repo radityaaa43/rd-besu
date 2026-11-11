@@ -1,6 +1,8 @@
 import type { LoggedAnnouncement } from '../../ts/chain.ts';
 
-export type Keys = { spendKey: string; viewKey: string; identityKey: string; certKey?: string }; // names = files of the S7 mount; certKey only for role custodian (separate key + role, never a bank spend key)
+export type BankKeys = { spendKey: string; viewKey: string; identityKey: string }; // role bank: files of the S7 mount
+export type CustodianKeys = { certKey: string }; // role custodian: the cert signer holds ONLY this (separate key + role, never a bank key)
+export type Keys = BankKeys | CustodianKeys; // role-dependent, enforced by createSigner and loadKeys
 
 export type SignerConfig = {
   party: string; // the one party this instance serves, e.g. "A"
