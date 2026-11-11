@@ -26,7 +26,10 @@ metadata:
   namespace: ${NS}
   labels: {part-of: rd-stealth, party: ${PARTY}}
 spec:
-  podSelector: {}
+  # S7: excludes the Vault key store; policies are additive, so vault-ingress (vault/) is its only ingress.
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [vault]}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -53,7 +56,7 @@ metadata:
   labels: {part-of: rd-stealth, party: ${PARTY}}
 ---
 # secrets: create/update/patch only, never get/list/watch (README decision 25). Not granted here (later steps extend the Role):
-# pods/portforward, pods/exec, anything cluster-scoped.
+# pods/portforward, pods/exec (except vault-0, S7), anything cluster-scoped.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -79,6 +82,11 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create, update, patch]
+  # S7: init/unseal/configure of the Vault key store by the party operator, on the Vault pod only (get: kubectl's websocket exec starts with a GET)
+  - apiGroups: [""]
+    resources: [pods/exec]
+    resourceNames: [vault-0]
+    verbs: [create, get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

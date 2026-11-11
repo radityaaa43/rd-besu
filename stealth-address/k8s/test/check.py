@@ -61,8 +61,11 @@ for party, ns in PARTIES.items():
     res = {x for r in rules for x in r["resources"]}
     for need in ["statefulsets", "deployments", "jobs", "cronjobs", "services", "configmaps", "persistentvolumeclaims", "networkpolicies", "pods", "pods/log", "secrets"]:
         check(need in res, f"{party}: party-admin lacks resource {need}")
-    for forbidden in ["roles", "rolebindings", "serviceaccounts", "namespaces", "pods/exec", "pods/portforward"]:
+    for forbidden in ["roles", "rolebindings", "serviceaccounts", "namespaces", "pods/portforward"]:
         check(forbidden not in res, f"{party}: party-admin must not grant {forbidden}")
+    # S7: init/unseal by the party operator, exec on the Vault pod only
+    ex = [r for r in rules if "pods/exec" in r["resources"]]
+    check(len(ex) == 1 and ex[0]["resources"] == ["pods/exec"] and ex[0].get("resourceNames") == ["vault-0"] and sorted(ex[0]["verbs"]) == ["create", "get"] and ex[0]["apiGroups"] == [""], f"{party}: pods/exec only as one rule on resourceNames [vault-0], verbs create,get: {ex}")
 
 check([d["metadata"]["name"] for d in of(docs("all"), "Namespace")] == list(PARTIES.values()), "all: 3 namespaces in order bi, bank-a, bank-b")
 for args in (["bank-c"], ["probe", "bank-a", "bank-b"], []):

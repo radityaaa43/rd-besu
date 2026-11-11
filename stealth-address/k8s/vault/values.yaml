@@ -1,0 +1,46 @@
+# Values for the pinned upstream chart hashicorp/vault 0.34.1 (Vault 2.0.4). Rendered by render.sh values <party>; ${PARTY} = bi | bank-a | bank-b.
+#   helm install vault vault --repo https://helm.releases.hashicorp.com --version 0.34.1 -n rd-stealth-${PARTY} -f <rendered values>
+# Spend (README decision 28/29): one 20Gi essd PVC (class rd-retain-essd) and one small pod per party. Sizes are a first guess [unverified].
+fullnameOverride: vault
+global:
+  enabled: true
+  tlsDisable: true          # plain HTTP inside the namespace; vault-ingress limits callers to the signer. TLS = open item (README)
+injector:
+  enabled: false
+csi:
+  enabled: false
+ui:
+  enabled: false
+server:
+  image:
+    repository: hashicorp/vault
+    tag: "2.0.4"
+  authDelegator:
+    enabled: false          # replaced by cluster/auth-delegator (unique name per namespace)
+  networkPolicy:
+    enabled: false          # vault-ingress in templates/access.yaml
+  ha:
+    enabled: false
+  standalone:
+    enabled: true
+    # Shamir seal as the chart default: after a pod restart the operator unseals (README). Auto-unseal needs a KMS = product and spend, not chosen.
+    config: |-
+      listener "tcp" {
+        tls_disable = 1
+        address = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+      storage "file" {
+        path = "/vault/data"
+      }
+  dataStorage:
+    enabled: true
+    size: 20Gi
+    storageClass: rd-retain-essd   # Retain + WaitForFirstConsumer, cluster-scoped, templates/storage.yaml (user-only): deleting the PVC must not delete the keys
+    accessMode: ReadWriteOnce
+  extraLabels:
+    part-of: rd-stealth
+    party: ${PARTY}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
