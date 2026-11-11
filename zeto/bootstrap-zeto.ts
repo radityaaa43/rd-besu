@@ -1,6 +1,6 @@
 /*
  * Zeto bootstrap: deploys the Zeto-based RD (cash) and DFABI (bond) tokens alongside the existing
- * Noto/Pente ones. Both are Zeto V1 `Zeto_Anon` tokens (Paladin main + PR #1189, zeto-contracts v0.5.1,
+ * Noto/Pente ones. Both are Zeto V1 `Zeto_AnonNullifier` tokens (Paladin main + PR #1189, zeto-contracts v0.5.1,
  * V1 constructor params from examples/swap), each backed by a public SampleERC20 linked with setERC20.
  * No KYC: the V0 KYC baseline (Zeto_AnonNullifierKyc) could not do DvP on Paladin v1.0.0, and the
  * platform owner is BI, so BI (node1) owns both tokens. Supply enters the private side via public ERC20
