@@ -1,0 +1,99 @@
+# zeto S8 (final-design/zeto/PLAN.md): one PostgreSQL per party in its namespace, README decision 27 (sidecar-style Postgres, same image line
+# as today, own PVC). Rendered by ../render.sh; ${PARTY} = bi | bank-a | bank-b, ${NS} = rd-zeto-${PARTY}.
+# The Secret `paladin-pg-credentials` (keys username, password, database) is NOT in git: the party creates it, see README.
+apiVersion: v1
+kind: Service
+metadata:
+  name: paladin-pg
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  type: ClusterIP
+  selector: {app: paladin-pg}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: paladin-pg
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  serviceName: paladin-pg
+  replicas: 1
+  selector:
+    matchLabels: {app: paladin-pg}
+  template:
+    metadata:
+      labels: {app: paladin-pg, part-of: rd-zeto, party: ${PARTY}}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:17.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: password}}
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: database}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          # Sizes are a first guess: today's sidecar usage was not read [unverified]; tune before S9.
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          startupProbe:
+            exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}
+            periodSeconds: 10
+            failureThreshold: 2
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels: {part-of: rd-zeto, party: ${PARTY}}
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: alicloud-essd
+        resources:
+          requests: {storage: 20Gi}
+---
+# Only Paladin pods of this namespace reach the database. NetworkPolicies are additive, so S1's allow-same-namespace excludes app=paladin-pg.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-pg-ingress
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  podSelector:
+    matchLabels: {app: paladin-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: paladin}
+      ports:
+        - {protocol: TCP, port: 5432}

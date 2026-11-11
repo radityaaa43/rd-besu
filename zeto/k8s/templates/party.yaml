@@ -25,7 +25,10 @@ metadata:
   namespace: ${NS}
   labels: {part-of: rd-zeto, party: ${PARTY}}
 spec:
-  podSelector: {}
+  # S8: excludes the party database; policies are additive, so paladin-pg-ingress (postgres/) is its only ingress.
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: NotIn, values: [paladin-pg]}
   policyTypes: [Ingress]
   ingress:
     - from:

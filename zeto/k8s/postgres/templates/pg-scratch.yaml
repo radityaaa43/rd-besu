@@ -1,0 +1,30 @@
+# Throwaway Postgres for the restore test (PLAN S8 RED): a dump is restored here, row counts compared, pod deleted. emptyDir only.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pg-scratch
+  namespace: ${NS}
+  labels: {throwaway: zeto-s8-scratch, app: pg-scratch, part-of: rd-zeto, party: ${PARTY}}
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999}
+  containers:
+    - name: postgres
+      image: postgres:17.6
+      env:
+        - {name: PGDATA, value: /scratch/pgdata}
+        - name: POSTGRES_USER
+          valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: username}}
+        - name: POSTGRES_PASSWORD
+          valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: password}}
+        - name: POSTGRES_DB
+          valueFrom: {secretKeyRef: {name: paladin-pg-credentials, key: database}}
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {cpu: "1", memory: 1Gi}
+      volumeMounts:
+        - {name: scratch, mountPath: /scratch}
+  volumes:
+    - {name: scratch, emptyDir: {}}
