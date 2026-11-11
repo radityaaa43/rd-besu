@@ -3,14 +3,26 @@
 #   render.sh [-o DIR] <bi|bank-a|bank-b|all>   Service + StatefulSet + NetworkPolicy paladin-pg (no Secret: created by the party, README)
 #   render.sh probe <own> <other>               throwaway proof pods (psql select 1 from a Paladin pod; blocked from a control pod and from the other ns)
 #   render.sh scratch <party>                   throwaway Postgres for the restore test (emptyDir)
-# Needs bash + sed only. Never talks to a cluster. Cluster 2 (bank-c) is out of scope and refused.
+#   render.sh --cluster 2 bank-c                the same for bank C on cluster 2 (StorageClass alicloud-essd, no cluster-1 node names, affinity limited to rd-zeto-bank-c)
+# Needs bash + sed only. Never talks to a cluster. bank-c needs --cluster 2 and is not part of `all`.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 parties="bi bank-a bank-b"
 
 die() { echo "render.sh: $*" >&2; exit 2; }
 valid() { [[ " $parties " == *" $1 "* ]] || die "unknown party '$1' (allowed: $parties)"; }
-subst() { sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-zeto-$1/g" "$here/templates/$2"; }
+subst() {
+  if [[ "$1" == bank-c ]]; then
+    # cluster 2: only StorageClass alicloud-essd, no cluster-1 hostnames, and no namespaceSelector (foreign namespaces live there)
+    sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-zeto-$1/g" -e 's/alicloud-essd-wffc .*/alicloud-essd/' -e '/member-16033 (97%/d' -e '/read from the live node labels by besu/d' \
+        -e '/^        nodeAffinity:/,/^        podAntiAffinity:/{/^        podAntiAffinity:/!d}' \
+        -e "s/namespaceSelector: {}/namespaces: [rd-zeto-$1]/" "$here/templates/$2"
+  else
+    sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-zeto-$1/g" "$here/templates/$2"
+  fi
+}
+
+if [[ "${1:-}" == --cluster ]]; then [[ "${2:-}" == 2 ]] || die "--cluster supports only 2"; shift 2; [[ "${1:-}" == bank-c && $# == 1 ]] || die "--cluster 2 renders bank-c only"; subst bank-c postgres.yaml; exit 0; fi
 
 # tcp probe of paladin-pg in $2 from pod $1: OPEN, BLOCKED (timeout = policy drop), REFUSED (not a result)
 tcp_probe() {
