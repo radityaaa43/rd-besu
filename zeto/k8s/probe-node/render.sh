@@ -15,7 +15,7 @@
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
 party="${1:-}"; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
-shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; targets=(); via=""; peerns=""; txhash=""
+shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; targets=(); via=""; peerns=""; txhash=""; zetotokens=""
 [[ "${1:-}" == negative ]] && { negative=1; shift; }
 [[ "${1:-}" == lbpath ]] && { lbpath=1; shift; }
 while [[ $# -gt 0 ]]; do
@@ -24,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --via) via="${2:-}"; shift 2 ;;
     --peer-ns) peerns="${2:-}"; shift 2 ;;
     --tx-hash) txhash="${2:-}"; shift 2 ;;
+    --zeto-token) [[ "${2:-}" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "--zeto-token must be a 0x<40 hex> address"; zetotokens+="${zetotokens:+,}${2}"; shift 2 ;;
     --image) img="${2:-}"; shift 2 ;;
     --mode) mode="${2:-}"; shift 2 ;;
     --method) method="${2:-}"; shift 2 ;;
@@ -32,8 +33,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$img" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]] || die "--image must be digest-pinned (REF@sha256:<64 lowercase hex>)"
-[[ "$mode" == count || "$mode" == jq || "$mode" == ids || "$mode" == shape ]] || die "--mode must be count, jq, ids or shape"
-if [[ "$mode" == shape ]]; then [[ "$txhash" =~ ^0x[0-9a-f]{64}$ ]] || die "--mode shape needs --tx-hash 0x<64 hex>"; else [[ -z "$txhash" ]] || die "--tx-hash only with --mode shape"; fi
+[[ "$mode" == count || "$mode" == jq || "$mode" == ids || "$mode" == shape || "$mode" == schemas ]] || die "--mode must be count, jq, ids, shape or schemas"
+if [[ "$mode" == shape || "$mode" == schemas ]]; then [[ "$txhash" =~ ^0x[0-9a-f]{64}$ ]] || die "--mode shape/schemas needs --tx-hash 0x<64 hex>"; else [[ -z "$txhash" ]] || die "--tx-hash only with --mode shape or schemas"; fi
 if [[ $lbpath == 1 ]]; then
   [[ ${#targets[@]} == 1 && "${targets[0]}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$ ]] || die "lbpath needs exactly one --target IPv4:PORT (the peer's transport LB IP)"
   tip="${targets[0]%%:*}"; tport="${targets[0]##*:}"
@@ -163,6 +164,49 @@ elif [[ "$mode" == shape ]]; then
         dat=any(isinstance(y,dict) and 'data' in y for k in K if isinstance(st.get(k),list) for y in st[k])
         bad=dat or (un is None and cnt(st,'confirmed')>0)
         print('receipt %d: states %s | unavailable %s | unavailable-nil:%s | data:%s | domainReceiptError %s | domainReceipt %s%s'%(i,' '.join('%s=%d'%(k,cnt(st,k)) for k in K),' '.join('%s=%d'%(k,cnt(un,k)) for k in K),'yes' if un is None else 'no','yes' if dat else 'no',em,'yes' if x.get('domainReceipt') else 'no',' R1-FINDING' if bad else ''))
+except SystemExit: pass
+except Exception: print('ERROR')
+"
+  script="echo $(printf '%s' "$py" | base64 -w0) | base64 -d | python3 -"
+elif [[ "$mode" == schemas ]]; then
+  # Per receipt of one chain tx hash on THIS node, STRUCTURE only: the domainReceipt KEY names; for each of confirmed/spent/read/info the state entries grouped by schema (name from
+  # pstate_listSchemas + 8-char schema id) split into data-carrying (a non-null, non-empty `data`) / without data (absent, null or empty), whether the entry's contractAddress is one of the given --zeto-token addresses (zeto/other/absent);
+  # the 4 unavailable counts. Verdict: COIN-DATA = a data-carrying entry in a coin/lock schema (analyst STOP RULE, R1 break), OTHER-DATA = data in any other non-MerkleTree schema
+  # (reported, not a break by itself), OK = data only in MerkleTree schemas. No state id, hash, amount, owner or data value is ever printed.
+  py="${py_head}ZT=set(a.lower() for a in '$zetotokens'.split(',') if a)
+try:
+    f=rpc('ptx_queryTransactionReceipts',[{'limit':10,'eq':[{'field':'transactionHash','value':'$txhash'}]}])
+    if 'error' in f or not isinstance(f.get('result'),list): print('ERROR'); raise SystemExit
+    print('receipts %d'%len(f['result']))
+    names={}
+    for i,rc in enumerate(f['result'],1):
+        g=rpc('ptx_getTransactionReceiptFull',[rc['id']])
+        if 'error' in g or not isinstance(g.get('result'),dict): print('receipt %d: ERROR'%i); continue
+        x=g['result']; dom=x.get('domain') or 'zeto'
+        if dom not in names:
+            l=rpc('pstate_listSchemas',[dom])
+            if 'error' in l or not isinstance(l.get('result'),list): print('ERROR'); raise SystemExit
+            names[dom]={str(s.get('id','')):str((s.get('definition') or {}).get('name') or 'unknown') for s in l['result']}
+        st=x.get('states') if isinstance(x.get('states'),dict) else {}
+        un=st.get('unavailable') if isinstance(st.get('unavailable'),dict) else {}
+        dr=x.get('domainReceipt'); keys=','.join(sorted(dr.keys())) if isinstance(dr,dict) and dr else 'none'
+        coin=other=False; parts=[]
+        for k in ('confirmed','spent','read','info'):
+            wd={}; nd={}; ad={}
+            for y in (st.get(k) if isinstance(st.get(k),list) else []):
+                if not isinstance(y,dict): continue
+                sid=str(y.get('schema','')); nm=names[dom].get(sid,'unknown'); lab='%s(%s)'%(nm,sid[2:10])
+                has=y.get('data') not in (None,'',{},[])   # the key can be present as null/{} on an id-only stub: that carries NO data
+                d=wd if has else nd
+                d[lab]=d.get(lab,0)+1
+                ca=y.get('contractAddress'); ad[lab]=('zeto' if str(ca).lower() in ZT else 'other') if ca else 'absent'
+                if has and not nm.startswith('MerkleTree'):
+                    if re.search('coin|lock',nm,re.I) or nm=='unknown': coin=True
+                    else: other=True
+            fmt=lambda d:' '.join('%s=%d'%kv for kv in sorted(d.items())) or 'none'
+            parts.append('%s: data[%s] nodata[%s] addr[%s]'%(k,fmt(wd),fmt(nd),' '.join('%s=%s'%kv for kv in sorted(ad.items())) or 'none'))
+        ucnt=' '.join('%s=%d'%(k,len(un.get(k) or []) if isinstance(un.get(k) or [],list) else 0) for k in ('confirmed','spent','read','info'))
+        print('receipt %d: domain %s domainReceipt keys %s | %s | unavailable %s | %s'%(i,dom,keys,' | '.join(parts),ucnt,'COIN-DATA' if coin else 'OTHER-DATA' if other else 'OK'))
 except SystemExit: pass
 except Exception: print('ERROR')
 "

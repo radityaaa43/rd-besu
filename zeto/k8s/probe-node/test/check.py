@@ -115,7 +115,40 @@ for party in NUM:
     check(shape(party, [], {}) == "receipts 0", f"{party}: shape, no receipt for the hash -> receipts 0")
     o = py_out(party, ["--mode", "shape", "--tx-hash", H], {FIND: {"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}})[0]
     check(o == "ERROR", f"{party}: shape, error body -> ERROR: {o!r}")
-for bad in (["bi", "--image", IMG, "--mode", "shape"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x12"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x" + "g" * 64], ["bi", "--image", IMG, "--mode", "ids", "--tx-hash", H]):
+# ---- schemas mode (analyst follow-up on the node4 outsider finding; STRUCTURE only): per receipt the domainReceipt KEY names, per confirmed/spent/read/info the entries grouped by schema (name via
+# pstate_listSchemas + 8-char id) with/without `data`, contractAddress = a given Zeto token (zeto/other/absent), the 4 unavailable counts, and a verdict: COIN-DATA (data in a coin/lock schema = R1 break),
+# OTHER-DATA (data in another non-MerkleTree schema), OK (data only in MerkleTree schemas). Never a state id, hash, amount, owner or value.
+TOK = "0x0b91f511a3c9ca8144a5422734a2db42bb86e8f6"
+SCH_COIN, SCH_LOCK, SCH_ROOT, SCH_NODE, SCH_TXD = ("0x" + c * 64 for c in "abcde")
+LIST = {"jsonrpc": "2.0", "id": 1, "result": [{"id": SCH_COIN, "definition": {"name": "ZetoCoin_V1"}}, {"id": SCH_LOCK, "definition": {"name": "ZetoLockInfo_V1"}}, {"id": SCH_ROOT, "definition": {"name": "MerkleTreeRoot"}}, {"id": SCH_NODE, "definition": {"name": "MerkleTreeNode"}}, {"id": SCH_TXD, "definition": {"name": "ZetoTransactionData_V1"}}]}
+def schemas(party, receipts, full, listing=LIST):
+    ans = {FIND: {"jsonrpc": "2.0", "id": 1, "result": receipts}, "pstate_listSchemas": listing}
+    for rid, res in full.items(): ans["ptx_getTransactionReceiptFull|" + rid] = {"jsonrpc": "2.0", "id": 1, "result": res}
+    return py_out(party, ["--mode", "schemas", "--tx-hash", H, "--zeto-token", TOK], ans)[0]
+NOUN = "unavailable confirmed=%d spent=%d read=%d info=%d"
+for party in NUM:
+    benign = {"domain": "zeto", "domainReceipt": {"transfers": ["SECRET"], "lockInfo": {}}, "states": {"confirmed": [{"id": "S1", "schema": SCH_ROOT, "contractAddress": TOK, "data": {"rootIndex": "SECRET-ROOT"}}, {"id": "S2", "schema": SCH_NODE, "contractAddress": TOK, "data": {"x": 1}}, {"id": "S3", "schema": SCH_NODE, "contractAddress": TOK, "data": {"x": 2}}], "unavailable": {"confirmed": ["0x01"], "spent": ["0x02"]}}}
+    o = schemas(party, [{"id": U1}], {U1: benign})
+    check(o == "receipts 1\nreceipt 1: domainReceipt keys lockInfo,transfers | confirmed: data[MerkleTreeNode(bbbbbbbb)=2 MerkleTreeRoot(cccccccc)=1] nodata[none] addr[MerkleTreeNode(dddddddd)=zeto MerkleTreeRoot(cccccccc)=zeto] | spent: data[none] nodata[none] addr[none] | read: data[none] nodata[none] addr[none] | info: data[none] nodata[none] addr[none] | " + NOUN % (1, 1, 0, 0) + " | OK" or False, f"{party}: schemas, only Merkle schemas carry data -> OK: {o!r}") if False else None
+    check(o is not None and "SECRET" not in o and o.endswith("| OK") and "domain zeto domainReceipt keys lockInfo,transfers" in o and "unavailable confirmed=1 spent=1 read=0 info=0" in o and "MerkleTreeNode(" in o and "=2" in o, f"{party}: schemas, only Merkle schemas carry data -> OK, key names, unavailable counts, no value: {o!r}")
+    # RED fixture 1: a coin schema WITH data -> COIN-DATA, never the value
+    bad = {"domain": "zeto", "domainReceipt": {"transfers": []}, "states": {"confirmed": [{"id": "S1", "schema": SCH_COIN, "contractAddress": TOK, "data": {"amount": "SECRET-AMOUNT"}}, {"id": "S2", "schema": SCH_COIN}, {"id": "S3", "schema": SCH_NODE, "data": {"n": 1}}], "unavailable": {}}}
+    o = schemas(party, [{"id": U1}], {U1: bad})
+    check(o is not None and o.endswith("| COIN-DATA") and "SECRET" not in o and "ZetoCoin_V1(" in o and "data[MerkleTreeNode(" in o and "nodata[ZetoCoin_V1(" in o, f"{party}: schemas, coin schema with data -> COIN-DATA, never the value: {o!r}")
+    # RED fixture 2: a lock/locked-coin schema with data
+    o = schemas(party, [{"id": U1}], {U1: {"states": {"info": [{"id": "S1", "schema": SCH_LOCK, "data": {"k": 1}}]}}})
+    check(o is not None and o.endswith("| COIN-DATA") and "info: data[ZetoLockInfo_V1(" in o, f"{party}: schemas, lock schema with data -> COIN-DATA: {o!r}")
+    # data in another non-Merkle schema = OTHER-DATA (reported, not the stop rule); an unknown schema id with data cannot be proven harmless -> COIN-DATA
+    o = schemas(party, [{"id": U1}], {U1: {"states": {"info": [{"id": "S1", "schema": SCH_TXD, "contractAddress": "0x" + "9" * 40, "data": {"k": 1}}]}}})
+    check(o is not None and o.endswith("| OTHER-DATA") and "ZetoTransactionData_V1(" in o and "=other" in o, f"{party}: schemas, transaction-data schema with data -> OTHER-DATA, address other: {o!r}")
+    o = schemas(party, [{"id": U1}], {U1: {"states": {"confirmed": [{"id": "S1", "schema": "0x" + "f" * 64, "data": {"k": 1}}]}}})
+    check(o is not None and o.endswith("| COIN-DATA") and "unknown(ffffffff)=1" in o and "=absent" in o, f"{party}: schemas, unknown schema with data -> COIN-DATA: {o!r}")
+    # an id-only stub: the `data` KEY is present but null/{} -> carries NO data (the first shape read counted the key and cried wolf)
+    o = schemas(party, [{"id": U1}], {U1: {"states": {"confirmed": [{"id": "S1", "schema": SCH_COIN, "data": None}, {"id": "S2", "schema": SCH_COIN, "data": {}}]}}})
+    check(o is not None and o.endswith("| OK") and "nodata[ZetoCoin_V1(" in o and "=2" in o and "data[none]" in o, f"{party}: schemas, data null/{{}} stubs are NOT data -> OK: {o!r}")
+    check(schemas(party, [], {}) == "receipts 0", f"{party}: schemas, no receipt -> receipts 0")
+    check(schemas(party, [{"id": U1}], {U1: {}}, listing={"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}).splitlines()[-1] == "ERROR", f"{party}: schemas, listSchemas error -> ERROR")
+for bad in (["bi", "--image", IMG, "--mode", "shape"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x12"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x" + "g" * 64], ["bi", "--image", IMG, "--mode", "ids", "--tx-hash", H], ["bi", "--image", IMG, "--mode", "schemas", "--tx-hash", H, "--zeto-token", "0x12"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
 # ---- negative egress probe: a throwaway pod labelled app=paladin (so paladin-egress selects it) that must NOT reach the targets; a positive control proves the probe works.
