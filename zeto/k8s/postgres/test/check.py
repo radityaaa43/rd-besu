@@ -98,6 +98,10 @@ if c2ss:
     anti = c2ss[0]["spec"]["template"]["spec"]["affinity"]["podAntiAffinity"]
     terms = anti["requiredDuringSchedulingIgnoredDuringExecution"] + [t["podAffinityTerm"] for t in anti["preferredDuringSchedulingIgnoredDuringExecution"]]
     check(all("namespaceSelector" not in t and t.get("namespaces") == ["rd-zeto-bank-c"] for t in terms), "bank-c: affinity terms must name only ns rd-zeto-bank-c (no namespaceSelector over foreign namespaces)")
+csc = docs(render, "--cluster", "2", "bank-c", "--storage-class", "fabricx-essd")
+check("storageClassName: fabricx-essd" in yaml.safe_dump(csc) and "storageClassName: alicloud-essd" not in yaml.safe_dump(csc), "bank-c: --storage-class must replace the storage class")
+check(run(render, "--cluster", "2", "bank-c", "--storage-class", "bad class!").returncode != 0, "bank-c: --storage-class must be a DNS-1123 name")
+check(run(render, "bi", "--storage-class", "x").returncode != 0, "--storage-class is only for --cluster 2 bank-c")
 c2s1 = [d for d in of(docs(s1render, "--cluster", "2", "bank-c"), "NetworkPolicy") if d["metadata"]["name"] == "allow-same-namespace"]
 check(bool(c2s1) and any(e["key"] == "app" and "paladin-pg" in e["values"] for e in c2s1[0]["spec"]["podSelector"].get("matchExpressions", [])), "bank-c: S1 allow-same-namespace must exclude app=paladin-pg")
 allds = docs(render, "all")

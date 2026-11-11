@@ -3,7 +3,7 @@
 #   render.sh [-o DIR] <bi|bank-a|bank-b|all>   Service + StatefulSet + NetworkPolicy paladin-pg (no Secret: created by the party, README)
 #   render.sh probe <own> <other>               throwaway proof pods (psql select 1 from a Paladin pod; blocked from a control pod and from the other ns)
 #   render.sh scratch <party>                   throwaway Postgres for the restore test (emptyDir)
-#   render.sh --cluster 2 bank-c                the same for bank C on cluster 2 (StorageClass alicloud-essd, no cluster-1 node names, affinity limited to rd-zeto-bank-c)
+#   render.sh --cluster 2 bank-c [--storage-class NAME]   the same for bank C on cluster 2 (StorageClass alicloud-essd, no cluster-1 node names, affinity limited to rd-zeto-bank-c)
 # Needs bash + sed only. Never talks to a cluster. bank-c needs --cluster 2 and is not part of `all`.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -22,7 +22,14 @@ subst() {
   fi
 }
 
-if [[ "${1:-}" == --cluster ]]; then [[ "${2:-}" == 2 ]] || die "--cluster supports only 2"; shift 2; [[ "${1:-}" == bank-c && $# == 1 ]] || die "--cluster 2 renders bank-c only"; subst bank-c postgres.yaml; exit 0; fi
+if [[ "${1:-}" == --cluster ]]; then
+  [[ "${2:-}" == 2 ]] || die "--cluster supports only 2"; shift 2
+  [[ "${1:-}" == bank-c ]] || die "--cluster 2 renders bank-c only"; shift
+  sc=alicloud-essd
+  if [[ "${1:-}" == --storage-class ]]; then sc="${2:?--storage-class needs a name}"; [[ "$sc" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "--storage-class must be a DNS-1123 name"; shift 2; fi
+  [[ $# == 0 ]] || die "--cluster 2 bank-c [--storage-class NAME]"
+  subst bank-c postgres.yaml | sed -e "s/storageClassName: alicloud-essd$/storageClassName: $sc/"; exit 0
+fi
 
 # tcp probe of paladin-pg in $2 from pod $1: OPEN, BLOCKED (timeout = policy drop), REFUSED (not a result)
 tcp_probe() {
@@ -116,6 +123,6 @@ case "${1:-}" in
     else emit_all; fi ;;
   "") die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|all> | probe <own> <other> | scratch <party>" ;;
   *)
-    valid "$1"
+    valid "$1"; [[ $# == 1 ]] || die "unexpected arguments after $1 (--storage-class only with --cluster 2 bank-c)"
     if [[ -n "$out" ]]; then mkdir -p "$out"; subst "$1" postgres.yaml > "$out/rd-zeto-$1-pg.yaml"; else subst "$1" postgres.yaml; fi ;;
 esac
