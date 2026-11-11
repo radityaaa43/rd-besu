@@ -25,8 +25,8 @@ async function main(): Promise<boolean> {
 
   const before = { from: await bal(i1), to: await bal(i2) };
   const receipt = await transferNoto(p, token, i1, i2.verifier.lookup, amount);
-  const fromAfter = await waitForBalance("investor1", () => noto.using(i1.client).balanceOf(i1.verifier, { account: i1.verifier.lookup }), before.from - amount);
-  const toAfter = await waitForBalance("investor2", () => noto.using(i2.client).balanceOf(i2.verifier, { account: i2.verifier.lookup }), before.to + amount);
+  const fromAfter = await waitForBalance("investor1", () => noto.using(i1.client).balanceOf(i1.verifier, { account: i1.verifier.lookup }), before.from - amount, "exact");
+  const toAfter = await waitForBalance("investor2", () => noto.using(i2.client).balanceOf(i2.verifier, { account: i2.verifier.lookup }), before.to + amount, "exact");
   check(`investor1 ${token} -${amount}`, fromAfter !== undefined, `${before.from} -> ${fromAfter?.totalBalance}`);
   check(`investor2 ${token} +${amount}`, toAfter !== undefined, `${before.to} -> ${toAfter?.totalBalance}`);
 

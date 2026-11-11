@@ -134,6 +134,10 @@ async function main(): Promise<boolean> {
   for (const t of trades.filter((t) => t.status === "ROLLED_BACK")) {
     logger.log(`INFO - trade ${t.tradeId} rolled back after ${t.failedStep} (no balance effect)`);
   }
+  for (const t of trades.filter((t) => t.status === "PENDING")) {
+    // a PENDING line that was never superseded: the process died mid-trade, so funds may still be locked (recoverTrade refuses it; check the locks by hand)
+    logger.warn(`WARN - trade ${t.tradeId} is PENDING (lock ids bond ${t.bondLockId ?? "-"}, cash ${t.cashLockId ?? "-"}): a crash may have left funds locked`);
+  }
   for (const t of trades.filter((t) => t.status === "FAILED")) {
     logger.warn(`WARN - trade ${t.tradeId} FAILED at ${t.failedStep}: ${t.error}; ${t.openLocks?.length ?? 0} open lock(s) need an operator`);
   }

@@ -23,7 +23,7 @@ async function main(): Promise<boolean> {
   for (const token of ["cash", "bond"] as const) {
     const before = BigInt((await bal(token)()).totalBalance);
     const receipt = token === "cash" ? await issueCash(p, i1.verifier.lookup, amount) : await issueBond(p, i1.verifier.lookup, amount);
-    const after = await waitForBalance(`investor1 ${token}`, bal(token), before + amount);
+    const after = await waitForBalance(`investor1 ${token}`, bal(token), before + amount, "exact");
     const pass = after !== undefined;
     checks.push({ name: `investor1 ${token} +${amount}`, pass, detail: `${before} -> ${after?.totalBalance}` });
     console.log(`${pass ? "PASS" : "FAIL"} investor1 ${token} +${amount}: ${before} -> ${after?.totalBalance}`);

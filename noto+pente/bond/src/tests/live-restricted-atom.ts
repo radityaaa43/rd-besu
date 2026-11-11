@@ -110,8 +110,8 @@ async function main(): Promise<boolean> {
   const failed = events.filter((e) => e.soliditySignature.startsWith("event LegReleaseFailed"));
   check("cancel released both legs (2 LegReleased, 0 LegReleaseFailed)", released.length === 2 && failed.length === 0, `released=${released.length} failed=${failed.length}`);
 
-  const sellerBond = await waitForBalance("investor1 bond", () => p.notoBond.using(seller.client).balanceOf(seller.verifier, { account: seller.verifier.lookup }), target.sellerBond);
-  const buyerCash = await waitForBalance("investor2 cash", () => p.notoCash.using(buyer.client).balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), target.buyerCash);
+  const sellerBond = await waitForBalance("investor1 bond", () => p.notoBond.using(seller.client).balanceOf(seller.verifier, { account: seller.verifier.lookup }), target.sellerBond, "exact");
+  const buyerCash = await waitForBalance("investor2 cash", () => p.notoCash.using(buyer.client).balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), target.buyerCash, "exact");
   check("balances restored after cancel (seller bond, buyer cash)", sellerBond !== undefined && buyerCash !== undefined, `bond ${sellerBond?.totalBalance} cash ${buyerCash?.totalBalance}`);
 
   console.log(JSON.stringify({ atom: atomAddr, bondLockId, cashLockId, strangerCancel, partyExecute, cancelTx: cancel?.transactionHash, checks }));

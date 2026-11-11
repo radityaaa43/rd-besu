@@ -115,13 +115,14 @@ export function requireSuccess(receipt: ITransactionReceipt | undefined, step: s
 // Balances settle asynchronously after an atom executes; poll until they get there.
 // `side` names which way the caller's balance moves, so another credit or debit on the same account while the trade runs does not
 // turn a settled trade into a failure: a "credit" side waits for balance >= expected, a "debit" side for balance <= expected.
-// Without a side the match is exact, as before. Exact amounts are the lens's job, not this poll's.
-export type BalanceSide = "credit" | "debit";
+// "exact" is the old equality match. The side is a required argument, so a caller cannot forget it and silently get an exact match.
+// A directional wait no longer proves that THIS trade's amounts moved (another trade may have moved the same balance): the lens does.
+export type BalanceSide = "credit" | "debit" | "exact";
 export async function waitForBalance(
   label: string,
   query: () => Promise<NotoBalanceOfResult>,
   expected: number | bigint,
-  side?: BalanceSide,
+  side: BalanceSide,
   opts: { timeoutMs?: number; pollMs?: number } = {}
 ): Promise<NotoBalanceOfResult | undefined> {
   const timeoutMs = opts.timeoutMs ?? LONG_POLL_TIMEOUT;

@@ -409,12 +409,14 @@ async function main(): Promise<boolean> {
     const finalBond = await waitForBalance(
       `${inv.name} bond`,
       () => notoBond.using(invClient).balanceOf(investor, { account: investor.lookup }),
-      BOND_UNITS_PER_INVESTOR
+      BOND_UNITS_PER_INVESTOR,
+      "exact"
     );
     const finalCash = await waitForBalance(
       `${inv.name} cash`,
       () => notoCash.using(invClient).balanceOf(investor, { account: investor.lookup }),
-      INITIAL_CASH_PER_INVESTOR - CASH_PER_INVESTOR
+      INITIAL_CASH_PER_INVESTOR - CASH_PER_INVESTOR,
+      "exact"
     );
     if (!finalBond || !finalCash) return false;
     logger.log(`${inv.name}: ${finalBond.totalBalance} bond, ${finalCash.totalBalance} cash`);
@@ -438,12 +440,14 @@ async function main(): Promise<boolean> {
   const custodianBond = await waitForBalance(
     "custodian bond",
     () => notoBond.balanceOf(bondCustodian, { account: bondCustodian.lookup }),
-    BOND_SUPPLY - BOND_UNITS_PER_INVESTOR * investors.length
+    BOND_SUPPLY - BOND_UNITS_PER_INVESTOR * investors.length,
+    "exact"
   );
   const custodianCash = await waitForBalance(
     "custodian cash",
     () => notoCash.balanceOf(bondCustodian, { account: bondCustodian.lookup }),
-    CASH_PER_INVESTOR * investors.length
+    CASH_PER_INVESTOR * investors.length,
+    "exact"
   );
   if (!custodianBond || !custodianCash) return false;
   logger.log(`\nCustodian: ${custodianBond.totalBalance} bond, ${custodianCash.totalBalance} cash`);
