@@ -1,6 +1,6 @@
 name: ci
 
-# Offline checks only: forge test + opa test. No secrets, no cluster, no live chain.
+# Offline checks only: forge test + opa test + render tests (stealth, zeto k8s). No secrets, no cluster, no live chain.
 # Live tests (noto+pente/*/src/tests/live-*.ts, zeto/) are not run here.
 on: pull_request
 
@@ -72,3 +72,16 @@ jobs:
             stealth-address/k8s/gateway/render.sh envoy "$p" > "$d/$p.yaml"
             docker run --rm -v "$d:/mtls:ro" envoyproxy/envoy@sha256:b1f389c3a6148e85e9de364cb867aa2e5802153abb37ad80f1f2241d693da32a --mode validate -c "/mtls/$p.yaml"
           done
+
+  zeto-k8s:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: zeto/k8s/test.sh
+      - run: zeto/k8s/test-besu.sh
+      - run: zeto/k8s/test-vote.sh
+      - run: zeto/k8s/postgres/test.sh
+      - run: zeto/k8s/paladin/test.sh
+      - run: zeto/k8s/bundle-server/test.sh
+      - run: zeto/k8s/gateway/test.sh

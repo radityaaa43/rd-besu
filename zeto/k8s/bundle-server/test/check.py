@@ -124,6 +124,21 @@ check(run("bi", "--sink-image", "bad image").returncode == 2, "sink image with a
 check(run("bi", "--sink-image", IMG, "--storage-class", "A_b").returncode == 2, "invalid storage class name must fail with 2")
 check(run().returncode == 2, "no argument must fail with 2")
 
+# Service `bundle-server` exposes 80 -> 8080 (bundles) and 8081 -> 8081 (sink): a client URL with the pod port 8080 has no Service port and fails.
+# NetworkPolicies use 8080 on purpose (they see the pod port); URLs never may. Scan every file of this repo that can carry a bundle-server URL.
+import re
+root = os.path.abspath(os.path.join(here, "..", "..", "..", ".."))
+bad_url = re.compile(r"bundle-server[\w.-]*:8080")
+for top in ("zeto", "opa", "stealth-address"):
+    for dp, dn, fn in os.walk(os.path.join(root, top)):
+        dn[:] = [d for d in dn if d not in ("node_modules", ".git")]
+        for f in fn:
+            if f == "check.py" or not f.endswith((".sh", ".yaml", ".yml", ".md", ".rego", ".json", ".py", ".ts", ".conf")):
+                continue
+            path = os.path.join(dp, f)
+            for i, line in enumerate(open(path, errors="ignore"), 1):
+                check(not bad_url.search(line), f"{os.path.relpath(path, root)}:{i}: bundle-server URL with the pod port 8080 (Service ports are 80 and 8081)")
+
 if fails:
     print("\n".join("FAIL: " + f for f in fails), file=sys.stderr)
     sys.exit(1)
