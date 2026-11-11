@@ -83,6 +83,18 @@ for party, ns in PARTIES.items():
         check(d["metadata"].get("namespace") == ns, f"{party} net: {d['kind']}/{d['metadata']['name']} not in {ns}")
     ext = docs("net", party, "--external-cidr", "203.0.113.7/32")
     check("203.0.113.7/32" in json.dumps(ext), f"{party}: --external-cidr must add an ipBlock")
+    # live state (rd-zeto-bi 2026-11-11): CLB ACL annotations + eni backends + source ranges, and the CLB health-check source CIDR as a second rule
+    plain = json.dumps(net)
+    check("alibaba-cloud-loadbalancer" not in plain and "backend-type" not in plain and "loadBalancerSourceRanges" not in plain and "100.64.0.0/10" not in plain, f"{party}: without --acl-id / --clb-health-cidr nothing cloud-specific is rendered")
+    live = docs("net", party, "--external-cidr", "203.0.113.7/32", "--acl-id", "acl-test123", "--clb-health-cidr", "100.64.0.0/10")
+    lsvc = {d["metadata"]["name"]: d for d in of(live, "Service")}["besu-p2p"]
+    ann = lsvc["metadata"].get("annotations", {})
+    check(ann == {"service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-status": "on", "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-type": "white",
+                  "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id": "acl-test123", "service.beta.kubernetes.io/backend-type": "eni"}, f"{party}: ACL annotations {ann}")
+    check(lsvc["spec"].get("loadBalancerSourceRanges") == ["203.0.113.7/32"], f"{party}: loadBalancerSourceRanges must equal the --external-cidr list: {lsvc['spec'].get('loadBalancerSourceRanges')}")
+    ling = of(live, "NetworkPolicy")[0]["spec"]["ingress"]
+    check(len(ling) == 2 and ling[1] == {"from": [{"ipBlock": {"cidr": "100.64.0.0/10"}}], "ports": [{"protocol": "TCP", "port": 30303}]}, f"{party}: second ingress rule must be the CLB health CIDR on TCP 30303: {ling[1:]}")
+    check(run(render, "net", party, "--acl-id", "bad id").returncode != 0 and run(render, "net", party, "--acl-id", "acl-x").returncode != 0, f"{party}: --acl-id must match acl-[a-z0-9]+ and needs at least one --external-cidr")
     # stage nodeinfo
     ni = docs("nodeinfo", party)
     job = of(ni, "Job")

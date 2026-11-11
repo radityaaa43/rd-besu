@@ -3,7 +3,7 @@
 # Stages, in apply order (each is its own CLUSTER-OP sub-step):
 #   0. ./genesis.sh <party> | kubectl apply -f -          ConfigMap besu-genesis, copied byte-identical from ns besu (admin)
 #      ./nodekey.sh <party>                                Secret besu-nodekey, generated inside the namespace
-#   1. render.sh net <party> [--external-cidr CIDR]...     Services (LoadBalancer besu-p2p TCP 30303, headless, ClusterIP rpc) + NetworkPolicy
+#   1. render.sh net <party> [--external-cidr CIDR]... [--acl-id acl-X (needs a CIDR) [--clb-health-cidr 100.64.0.0/10, only after the ACL is verified]]   Services (LoadBalancer besu-p2p TCP 30303, headless, ClusterIP rpc) + NetworkPolicy
 #   2. render.sh nodeinfo <party>                          Job that prints the node public key and address (public data) from the Secret
 #   3. ./static-nodes.sh ... > static-nodes.json           IP-only enodes (old validators by pod IP, other new nodes by LB IP)
 #      render.sh node <party> --p2p-host <LB IP> --static-nodes static-nodes.json [--storage-class C]
@@ -26,7 +26,20 @@ image="hyperledger/besu:26.8.1"
 sel='{app.kubernetes.io/name: besu-validator}'
 
 net() {
-  local cidrs=() ; while [[ $# -gt 0 ]]; do case "$1" in --external-cidr) cidrs+=("${2:?--external-cidr needs a CIDR}"); shift 2 ;; *) die "net: unknown option $1" ;; esac; done
+  local cidrs=() acl="" health="" ; while [[ $# -gt 0 ]]; do case "$1" in
+    --external-cidr) cidrs+=("${2:?--external-cidr needs a CIDR}"); shift 2 ;;
+    --acl-id) acl="${2:?--acl-id needs an ACL id}"; shift 2 ;;
+    --clb-health-cidr) health="${2:?--clb-health-cidr needs a CIDR}"; shift 2 ;;
+    *) die "net: unknown option $1" ;; esac; done
+  # live state (2026-11-11): the public CLB only admits the ACL (pre-created cloud resource, whitelist) and reaches pods by ENI;
+  # the CLB health check comes from 100.64.0.0/10, add it (--clb-health-cidr) only after the ACL is verified on the listener.
+  local ann="" lbsr=""
+  if [[ -n "$acl" ]]; then
+    [[ "$acl" =~ ^acl-[a-z0-9]+$ ]] || die "net: --acl-id must match acl-[a-z0-9]+"
+    [[ -n "${cidrs[*]:-}" ]] || die "net: --acl-id needs at least one --external-cidr (loadBalancerSourceRanges)"
+    ann=$'  annotations:\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-status: "on"\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-type: white\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id: '"$acl"$'\n    service.beta.kubernetes.io/backend-type: eni\n'
+    lbsr="  loadBalancerSourceRanges:"; local c; for c in "${cidrs[@]}"; do lbsr+=$'\n'"    - $c"; done; lbsr+=$'\n'
+  fi
   cat <<YAML
 # zeto S3/S4: network objects of the Besu node of ${party} in ${ns}. Apply first: the LoadBalancer IP is what --p2p-host needs in stage 3.
 apiVersion: v1
@@ -35,9 +48,9 @@ metadata:
   name: besu-p2p
   namespace: ${ns}
   labels: {${lbl}}
-spec:
+${ann}spec:
   type: LoadBalancer
-  selector: ${sel}
+${lbsr}  selector: ${sel}
   ports:
     - {name: rlpx, port: 30303, targetPort: rlpx, protocol: TCP}
 ---
@@ -96,6 +109,9 @@ YAML
       ports:
         - {protocol: TCP, port: 30303}
 YAML
+  if [[ -n "$health" ]]; then
+    printf '    - from:\n        - ipBlock:\n            cidr: %s\n      ports:\n        - {protocol: TCP, port: 30303}\n' "$health"
+  fi
 }
 
 nodeinfo() {
