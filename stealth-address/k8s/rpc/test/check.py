@@ -85,6 +85,7 @@ for party, ns in PARTIES.items():
     if "besu-rpc-config" in cms:
         c = cms["besu-rpc-config"]["data"]["config.toml"]
         check('rpc-http-authentication-jwt-public-key-file="/jwt/public.pem"' in c and 'rpc-http-api=["ETH","NET","WEB3"]' in c and f"{ns}.svc.cluster.local" in c, f"{party}: rendered config has JWT, API list and the namespace service host")
+        check("\nsync-min-peers=3\n" in c and "sync-min-peers=1" not in c, f"{party}: cluster-1 parties keep sync-min-peers=3")
     sts = of(nd, "StatefulSet")
     check(len(sts) == 1 and sts[0]["metadata"]["name"] == "besu-rpc" and sts[0]["metadata"]["namespace"] == ns, f"{party}: one StatefulSet besu-rpc in {ns}")
     if sts:
@@ -113,6 +114,8 @@ for stage, extra in (("net", []), ("node", ["--static-nodes", sn])):
     check(bool(ds) and all(d["metadata"].get("namespace") == "rd-stealth-bank-c" for d in ds), f"cluster 2 {stage}: objects in rd-stealth-bank-c")
     check(all(d["metadata"].get("labels", {}).get("cluster") == "2" for d in ds), f"cluster 2 {stage}: every object labelled cluster=2")
     if stage == "node" and ds:
+        cfgc = {d["metadata"]["name"]: d for d in of(ds, "ConfigMap")}["besu-rpc-config"]["data"]["config.toml"]
+        check("\nsync-min-peers=1\n" in cfgc and "sync-min-peers=3" not in cfgc, "cluster 2: bank C has ONE static peer (its own zeto node), so sync-min-peers must be 1 (3 would never start the sync)")
         st = of(ds, "StatefulSet")[0]
         aff = json.dumps(st["spec"]["template"]["spec"].get("affinity", {}))
         check("member-16033-node" not in aff, "cluster 2: the cluster-1 node exclusion must not be copied")

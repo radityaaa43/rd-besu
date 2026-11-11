@@ -105,7 +105,9 @@ metadata:
 data:
   config.toml: |
 YAML
-  sed "s/\${NS}/${ns}/g" "$here/templates/config.toml" | sed 's/^/    /'
+  # bank C (cluster 2) has ONE static peer (its own zeto node): the default 3 of the template would never start the sync
+  if [[ "$party" == bank-c ]]; then sed "s/\${NS}/${ns}/g; s/^sync-min-peers=3$/sync-min-peers=1/" "$here/templates/config.toml" | sed 's/^/    /'
+  else sed "s/\${NS}/${ns}/g" "$here/templates/config.toml" | sed 's/^/    /'; fi
   echo
   cat <<YAML
 ---
