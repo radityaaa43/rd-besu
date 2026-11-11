@@ -206,3 +206,40 @@ describe('/cert on role bi', () => {
     expect([r.status, r.json.error]).toEqual([403, 'role_forbidden']);
   });
 });
+
+// Analyst Q-A / Q12 conditions on PR #62.
+describe('the ledger code path never touches the issuer key (analyst Q-A (1))', () => {
+  it('GET /ledger reads only the view copies and BI keys: no access to issuerKey after construction', async () => {
+    const chain = new FakeChain(); fund(chain, 'rd', 500n, 5);
+    let touched = 0;
+    const keys: any = { ...biKeys };
+    delete keys.issuerKey;
+    Object.defineProperty(keys, 'issuerKey', { enumerable: true, get() { touched += 1; return ISSUER; } });
+    const s = await start(chain, { cfg: biCfg, keys }); stop = s.stop;
+    touched = 0; // construction reads it once (identity account = issuer key); the request path must not
+    const r = await s.call('GET', '/ledger?kind=rd');
+    expect(r.status).toBe(200);
+    expect(r.json.rows.map((x: any) => x.bank)).toEqual(['A']);
+    expect(touched).toBe(0);
+  });
+});
+
+describe('no certificate or controller operation is ever signed with the issuer key (Q12 condition)', () => {
+  it('/cert is 403 role_forbidden for role bi and nothing is signed or sent', async () => {
+    const chain = new FakeChain(); const s = await startBi(chain);
+    const r = await s.call('POST', '/cert', { sender: issuerAddr, token: BOND, payload: '0x', expiry: '1' });
+    expect([r.status, r.json.error]).toEqual([403, 'role_forbidden']);
+    expect([chain.sent, chain.gasCalls]).toEqual([[], []]);
+  });
+  it('there is no route and no intent kind for owner/controller/minter/certificate-signer calls: 404 / 422, nothing sent', async () => {
+    const chain = new FakeChain(); const s = await startBi(chain);
+    for (const [m, p] of [['POST', '/controllers'], ['POST', '/set-controllers'], ['POST', '/transfer-ownership'], ['POST', '/add-minter'], ['POST', '/certificate-signer'], ['POST', '/sign']] as const) {
+      expect((await s.call(m, p, {})).status).toBe(404);
+    }
+    for (const kind of ['set-controllers', 'transfer-ownership', 'add-minter', 'add-certificate-signer', 'renounce-minter', 'sign-certificate']) {
+      const r = await s.call('POST', '/intent', { kind, from: 'BI', amount: '1', to: { metaAddress: A.metaAddress } });
+      expect([r.status, r.json.error]).toEqual([422, 'unknown_kind']);
+    }
+    expect([chain.sent, chain.gasCalls]).toEqual([[], []]);
+  });
+});
