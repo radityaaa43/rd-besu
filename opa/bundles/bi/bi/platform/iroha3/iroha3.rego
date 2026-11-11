@@ -13,6 +13,7 @@
 #   9-10  GET /healthz, POST /settle-grant, /dvp-native                                                     lensa
 #   11    POST /mint                                                                                        lensa, node bi only
 #   12    GET /tx/<64 hex>                                                                                  lensa; bi role at node bi only
+#   14    GET /balance?asset=<Base58> (exactly one param)                                                   lensa only
 # Query strings are allowed only in the rows that name them; a path with any other query never matches.
 package bi.platform.iroha3
 
@@ -123,6 +124,12 @@ route("lensa") if tx_detail
 route("bi") if {
 	own == "bi"
 	tx_detail
+}
+
+# Row 14 (node-build #25): the driver's signed balance read of its OWN account; one `asset` parameter, Base58 only (no 0 O I l).
+route("lensa") if {
+	method == "GET"
+	regex.match(`^/balance\?asset=[1-9A-HJ-NP-Za-km-z]{1,128}$`, path)
 }
 
 tx_detail if {

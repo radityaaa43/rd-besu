@@ -113,7 +113,7 @@ Gateways `fx-gw-1..4` (ns `fabricx`) are designed in `fabric-x/opa/DESIGN.md`. E
 ## Iroha 3 rules (`iroha3`)
 Gateway door `{target: "iroha3", node: "bi"|"bank-a"|"bank-b"|"bank-c"}`; Envoy sends method and path (with the query string), no body. All rules are in `bundles/bi/bi/platform/iroha3`; `bundles/bank/bank/platform/iroha3` is a placeholder (`allow := true`) because gw needs both packages. Tests: `test/iroha3` (PKI: `gen-pki.sh`).
 - **Roles** are the leaf CN, exactly: `lensa`, `bank-a`, `bank-b`, `bank-c`, `bi`. The leaf is verified for ClientAuth against `data.bi.config.iroha3_ca` = `{"lensa": {"<node>": PEM}, "role": {"<role>": PEM}}`: `lensa` against `lensa[<this gateway's node>]`, every other role against `role[<that role>]`. `data.json` carries `{"lensa": {}, "role": {}}` until the CAs are decided (nothing passes). No cert, two `Cert` elements, a leaf of another CA, another CN or server-only key usage: denied.
-- **Routes:** rows 1-12 of the Iroha 3 ops table are enforced (exact method and anchored path, query only in the rows that name it); row 13 (auditor :8090) is not routed, so it has no rule. Everything else is denied.
+- **Routes:** rows 1-12 and 14 (`GET /balance?asset=<Base58>`, Lensa only) of the Iroha 3 ops table are enforced (exact method and anchored path, query only in the rows that name it); row 13 (auditor :8090) is not routed, so it has no rule. Everything else is denied.
 - **Bundle read door:** `zeto/k8s/bundle-server/render.sh iroha3-access <party>` prints NetworkPolicy `bundle-server-from-iroha3` (rd-zeto-<party>): only pods `app.kubernetes.io/name=gateway` of ns `rd-iroha3-<party>`, TCP 8080 (never the 8081 sink).
 
 ## Sink door (`sink`, zeto S17)

@@ -461,6 +461,48 @@ test_extra_role_in_data_denied if {
 	not bi.allow with input as door_as("bi", "GET", "/health", pki.bank_d) with data.bi.config as cfg
 }
 
+# --- Row 14 (iroha node-build #25, D5): GET /balance?asset=<Base58>, the driver's signed read of its OWN account: Lensa only, exact path,
+# exactly one `asset` parameter, Base58 alphabet (1-9A-HJ-NP-Za-km-z: no 0 O I l). Lensa's cert is bound to the gateway's own node CA, so
+# "lensa of another party" never passes (test_lensa_cert_of_another_node_denied); BI's lens reads at node bi only because it only exists there.
+b58 := "5Zk3xYpq9WmRtHDnEv2JLbQ"
+
+test_balance_row_14_lensa_only if {
+	every node in nodes {
+		allowed(node, "lensa", "GET", concat("", ["/balance?asset=", b58]))
+		every role in ["bank-a", "bank-b", "bank-c", "bi"] {
+			not allowed(node, role, "GET", concat("", ["/balance?asset=", b58]))
+		}
+	}
+}
+
+test_balance_row_14_shape_denied if {
+	every node in nodes {
+		every p in [
+			"/balance", "/balance?", "/balance?asset=", "/balance/", concat("", ["/balance/", b58]), concat("", ["/balance/?asset=", b58]),
+			concat("", ["/balance?asset=", b58, "&asset=", b58]), concat("", ["/balance?asset=", b58, "&x=1"]), concat("", ["/balance?x=1&asset=", b58]),
+			concat("", ["/balance?asset=", b58, "&"]), concat("", ["/balance?Asset=", b58]), concat("", ["/balance?asset[]=", b58]),
+			"/balance?asset=0abc", "/balance?asset=Oabc", "/balance?asset=Iabc", "/balance?asset=labc", "/balance?asset=ab-c", "/balance?asset=ab_c", "/balance?asset=ab.c",
+			"/balance?asset=ab%20c", "/balance?asset=ab+c", "/balance?asset=ab c", "/balance?asset=ab\nc", concat("", ["/balance?asset=", b58, "#x"]),
+			concat("", ["/x/balance?asset=", b58]), concat("", ["/balance;x?asset=", b58]), concat("", ["//balance?asset=", b58]),
+			concat("", ["/balance?asset=", b58, "\n"]),
+		] {
+			not allowed(node, "lensa", "GET", p)
+		}
+		every m in ["POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "get"] {
+			not allowed(node, "lensa", m, concat("", ["/balance?asset=", b58]))
+		}
+	}
+}
+
+test_balance_row_14_base58_alphabet if {
+	allowed("bi", "lensa", "GET", "/balance?asset=123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+}
+
+test_lensa_cert_of_another_node_denied if {
+	not allowed_as("bank-a", "GET", concat("", ["/balance?asset=", b58]), lensa_leaf["bank-b"])
+	not allowed_as("bi", "GET", concat("", ["/balance?asset=", b58]), lensa_leaf["bank-a"])
+}
+
 # --- gw dispatch and the bank placeholder
 
 test_gw_dispatches_iroha3 if {
