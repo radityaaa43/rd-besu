@@ -64,10 +64,12 @@ contract DvPEscrow {
     error NotExpired();
     error NotFunded();
     error NothingToRefund();
+    error AlreadyRefunded();
 
     event Settled(bytes32 indexed tradeId);
     event Cancelled(bytes32 indexed tradeId, bool bondRefunded, uint256 rdRefunded);
     event BondRefundFailed(bytes32 indexed tradeId);
+    event BondRefunded(bytes32 indexed tradeId);
 
     address public immutable factory;
     Terms internal terms;
@@ -75,6 +77,9 @@ contract DvPEscrow {
     bytes internal refundCert;
     bool public certificatesSet;
     bool public settled;
+    // Refund tracking (read by the signer/Lensa instead of scanning logs): did the bond go back, how much RD went back in total.
+    bool public bondRefunded;
+    uint256 public rdRefunded;
 
     constructor(Terms memory terms_) {
         factory = msg.sender;
@@ -126,18 +131,48 @@ contract DvPEscrow {
         Terms memory t = terms;
         if (block.timestamp < t.expiry) revert NotExpired();
 
-        bool bondRefunded;
+        bool bondRefunded_;
         if (certificatesSet && IDvPBond(t.bond).balanceOfByPartition(t.partition, address(this)) >= t.bondAmount) {
             // The refund must not block the RD refund: if the certificate has expired the bond waits for the controller.
             try IDvPBond(t.bond).transferByPartition(t.partition, t.seller, t.bondAmount, refundCert) {
+                bondRefunded_ = true;
                 bondRefunded = true;
             } catch {
                 emit BondRefundFailed(t.tradeId);
             }
         }
         uint256 rdBalance = IDvPRd(t.rd).balanceOf(address(this));
-        if (rdBalance > 0) require(IDvPRd(t.rd).transfer(t.buyer, rdBalance), "RD refund");
-        if (!bondRefunded && rdBalance == 0) revert NothingToRefund();
-        emit Cancelled(t.tradeId, bondRefunded, rdBalance);
+        if (rdBalance > 0) {
+            rdRefunded += rdBalance;
+            require(IDvPRd(t.rd).transfer(t.buyer, rdBalance), "RD refund");
+        }
+        if (!bondRefunded_ && rdBalance == 0) revert NothingToRefund();
+        emit Cancelled(t.tradeId, bondRefunded_, rdBalance);
+    }
+
+    /// Anyone may call, from `expiry` on, while the bond is still held, not settled and not yet refunded: the bond goes
+    /// to the seller with a FRESH custodian certificate. This is the way out when `cancel()` emitted BondRefundFailed
+    /// because the stored refund certificate had expired. The destination is fixed to the seller by the terms, and the
+    /// token's validator accepts the certificate only for this escrow as msgSender and for exactly this payload
+    /// (transferByPartition(partition, seller, bondAmount, ...)), so a caller cannot redirect it.
+    function refundBond(bytes calldata freshCert) external {
+        if (settled) revert AlreadySettled();
+        if (bondRefunded) revert AlreadyRefunded();
+        Terms memory t = terms;
+        if (block.timestamp < t.expiry) revert NotExpired();
+        if (freshCert.length != 97) revert BadCertificateLength();
+        if (IDvPBond(t.bond).balanceOfByPartition(t.partition, address(this)) < t.bondAmount) revert NotFunded();
+        bondRefunded = true; // effects before the external call; a failing transfer reverts it
+        IDvPBond(t.bond).transferByPartition(t.partition, t.seller, t.bondAmount, freshCert);
+        emit BondRefunded(t.tradeId);
+    }
+
+    /// Tracking for off-chain readers. `bondStuck`: past expiry, not settled, the bond is still here and not refunded.
+    function refundStatus() external view returns (bool bondHeld, bool bondRefunded_, uint256 rdRefunded_, bool bondStuck) {
+        Terms memory t = terms;
+        bondHeld = !settled && IDvPBond(t.bond).balanceOfByPartition(t.partition, address(this)) >= t.bondAmount;
+        bondRefunded_ = bondRefunded;
+        rdRefunded_ = rdRefunded;
+        bondStuck = bondHeld && !bondRefunded && block.timestamp >= t.expiry;
     }
 }

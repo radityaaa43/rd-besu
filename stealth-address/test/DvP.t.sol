@@ -457,4 +457,97 @@ contract DvPTest {
         vm.expectRevert(DvPEscrow.OnlyFactory.selector);
         e.setCertificates(new bytes(97), new bytes(97)); // a second set is refused whoever calls
     }
+
+    // ---- refund tracking (analyst gate before S17): on-chain state + a retry path for a stuck bond ----
+
+    function test_refundStatus_of_a_fresh_escrow_is_empty() public {
+        DvPEscrow e = _create(_terms(TRADE_ID));
+        (bool held, bool refunded, uint256 rdRef, bool stuck) = e.refundStatus();
+        require(!held && !refunded && rdRef == 0 && !stuck, "nothing held, nothing refunded, not stuck");
+    }
+
+    function test_cancel_records_what_was_refunded() public {
+        DvPEscrow e = _create(_terms(TRADE_ID));
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRd(address(e), RD_AMOUNT);
+        vm.warp(expiry);
+        e.cancel();
+        (bool held, bool refunded, uint256 rdRef, bool stuck) = e.refundStatus();
+        require(!held && refunded && rdRef == RD_AMOUNT && !stuck, "both refunded, bond no longer held, not stuck");
+        require(e.bondRefunded() && e.rdRefunded() == RD_AMOUNT, "public getters");
+    }
+
+    function test_an_expired_refund_certificate_marks_the_bond_stuck_and_keeps_the_rd_refund() public {
+        DvPEscrow e = _create(_terms(TRADE_ID));
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRd(address(e), RD_AMOUNT);
+        vm.warp(expiry + WINDOW + 1);
+        e.cancel();
+        (bool held, bool refunded, uint256 rdRef, bool stuck) = e.refundStatus();
+        require(held && !refunded && rdRef == RD_AMOUNT && stuck, "bond held, not refunded, stuck; RD refunded");
+    }
+
+    function test_a_stuck_bond_is_refunded_to_the_seller_with_a_fresh_certificate_by_anyone() public {
+        Terms memory t = _terms(TRADE_ID);
+        DvPEscrow e = _create(t);
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRd(address(e), RD_AMOUNT); // with an RD leg cancel() succeeds (it reverts NothingToRefund when nothing at all moves)
+        vm.warp(expiry + WINDOW + 1);
+        e.cancel();
+        require(bond.balanceOfByPartition(TRANCHE_A, address(e)) == BOND_AMOUNT, "stuck");
+        bytes memory fresh = _refundCert(address(e), t, block.timestamp + 600, CUSTODIAN_KEY);
+        vm.prank(THIRD);
+        e.refundBond(fresh);
+        require(bond.balanceOfByPartition(TRANCHE_A, SELLER) == BOND_AMOUNT, "bond back with the seller");
+        require(bond.balanceOfByPartition(TRANCHE_A, address(e)) == 0, "escrow empty");
+        (bool held, bool refunded,, bool stuck) = e.refundStatus();
+        require(!held && refunded && !stuck, "tracking updated");
+    }
+
+    function test_refundBond_cannot_redirect_a_certificate_for_another_destination_is_refused() public {
+        Terms memory t = _terms(TRADE_ID);
+        DvPEscrow e = _create(t);
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRd(address(e), RD_AMOUNT); // with an RD leg cancel() succeeds (it reverts NothingToRefund when nothing at all moves)
+        vm.warp(expiry + WINDOW + 1);
+        e.cancel();
+        Terms memory other = _terms(TRADE_ID);
+        other.seller = THIRD; // a certificate that pays THIRD
+        bytes memory evil = _refundCert(address(e), other, block.timestamp + 600, CUSTODIAN_KEY);
+        vm.expectRevert();
+        e.refundBond(evil);
+        require(bond.balanceOfByPartition(TRANCHE_A, THIRD) == 0, "nothing reached the stranger");
+        require(bond.balanceOfByPartition(TRANCHE_A, address(e)) == BOND_AMOUNT, "still held");
+    }
+
+    function test_refundBond_cannot_run_twice_nor_after_a_successful_cancel() public {
+        Terms memory t = _terms(TRADE_ID);
+        DvPEscrow e = _create(t);
+        _fundBond(address(e), BOND_AMOUNT);
+        vm.warp(expiry);
+        e.cancel(); // refunds with the stored certificate
+        bytes memory fresh = _refundCert(address(e), t, block.timestamp + 600, CUSTODIAN_KEY);
+        vm.expectRevert(DvPEscrow.AlreadyRefunded.selector);
+        e.refundBond(fresh);
+    }
+
+    function test_refundBond_guards_not_expired_settled_not_held_bad_length() public {
+        Terms memory t = _terms(TRADE_ID);
+        DvPEscrow e = _create(t);
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRd(address(e), RD_AMOUNT);
+        bytes memory fresh = _refundCert(address(e), t, expiry + WINDOW, CUSTODIAN_KEY);
+        vm.expectRevert(DvPEscrow.NotExpired.selector);
+        e.refundBond(fresh); // before expiry
+        e.settle();
+        vm.warp(expiry);
+        vm.expectRevert(DvPEscrow.AlreadySettled.selector);
+        e.refundBond(fresh);
+        DvPEscrow e2 = _create(_terms(bytes32(uint256(2)))); // nothing funded
+        vm.expectRevert(DvPEscrow.NotFunded.selector);
+        e2.refundBond(fresh);
+        vm.expectRevert(DvPEscrow.BadCertificateLength.selector);
+        e2.refundBond(new bytes(96));
+    }
 }
+
