@@ -47,3 +47,9 @@ PLAN RED proof on the cluster (S16 VERIFY, not run here): party B's client cert,
 - `--opa-config` file (public keys of bundle owners) is produced by `opa/keys.sh` outside the repo; per-party bundle keys are S17.
 - Cloud annotations/ACL for the bank-c LoadBalancer (spend, S19) are not rendered.
 - `allow-same-namespace`: fold the `paladin` exclusion into the S1 template instead? (changes S1 tests, lead decides)
+
+## Decisions and self-checks (lead / orchestrator, 2026-11-11)
+- `allow-same-namespace` is the S1 object again: its template now excludes `app=paladin-pg` AND `app=paladin` (live objects have only paladin-pg: re-apply the S1 policy once before the gateway, otherwise Paladin 8548 stays open to every pod of the ns). The gateway render no longer emits it.
+- `bank-gw-<N>-ext` NodePort (cluster 1) exists only for the HOST Lensa until its retirement; the in-cluster Lensa uses the ClusterIP. The NodePorts are removed in the same step that retires the host Lensa (S9, user-only) and are listed in L7. Any-source ingress on 8548/8545 is accepted for cluster 1 only (node-internal; mTLS is the gate); `--lensa-cidr` narrows it.
+- bank-c: `bank-gw-4-ext` is a LoadBalancer ONLY with `--acl-id acl-gs5m5o9vb3olr19484tyg --external-cidr 8.215.62.92/32` (externalTrafficPolicy Cluster, acl-status on, acl-type white, backend-type eni); without the flags it is a NodePort. Read the ACL back on the Service after the apply.
+- S16 self-checks (quote both): POSITIVE: with the party's own client cert a Paladin read (`transport_nodeName`) through the gateway returns `node<N>`; NEGATIVE: a TLS connection without a client cert is refused at the handshake (and a cert of another party is refused).

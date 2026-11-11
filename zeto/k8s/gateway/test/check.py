@@ -51,7 +51,7 @@ for party, n in PARTIES.items():
     if not ds:
         continue
     kinds = sorted(d["kind"] for d in ds)
-    check(kinds == ["ConfigMap", "ConfigMap", "Deployment", "NetworkPolicy", "NetworkPolicy", "NetworkPolicy", "Service", "Service"], f"{party}: kinds {kinds}")
+    check(kinds == ["ConfigMap", "ConfigMap", "Deployment", "NetworkPolicy", "NetworkPolicy", "Service", "Service"], f"{party}: kinds {kinds}")
     for d in ds:
         check(d["metadata"].get("namespace") == ns, f"{party}: {d['kind']}/{d['metadata']['name']} not in {ns}")
     text = run(party).stdout
@@ -86,7 +86,7 @@ for party, n in PARTIES.items():
     if f"{gw}-ext" in svc:
         e = svc[f"{gw}-ext"]
         s = e["spec"]
-        want = "LoadBalancer" if party == "bank-c" else "NodePort"
+        want = "NodePort"  # LoadBalancer only behind --acl-id (below)
         check(s.get("type") == want, f"{party}: {gw}-ext type {s.get('type')} != {want}")
         check(s["selector"] == sel and sorted(p["port"] for p in s["ports"]) == [8545, 8548], f"{party}: {gw}-ext selector/ports")
         check(not e["metadata"].get("annotations") and "loadBalancerSourceRanges" not in s, f"{party}: {gw}-ext must carry no cloud annotations or source ranges")
@@ -116,7 +116,7 @@ for party, n in PARTIES.items():
 
     # NetworkPolicy
     np = by_name(ds, "NetworkPolicy")
-    check(set(np) == {"allow-same-namespace", "paladin-ingress", "bank-gw-ingress"}, f"{party}: NetworkPolicies {sorted(np)}")
+    check(set(np) == {"paladin-ingress", "bank-gw-ingress"}, f"{party}: NetworkPolicies {sorted(np)} (allow-same-namespace is the S1 object now)")
     if "paladin-ingress" in np:
         sp = np["paladin-ingress"]["spec"]
         check(sp["podSelector"] == {"matchLabels": {"app": "paladin"}} and sp["policyTypes"] == ["Ingress"], f"{party}: paladin-ingress selects app=paladin, Ingress only")
@@ -128,14 +128,21 @@ for party, n in PARTIES.items():
         check(peers8548 == [{"podSelector": {"matchLabels": {"app": "bank-gw"}}}, {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "paladin-operator"}}}],
               f"{party}: 8548 reachable only from app=bank-gw and the operator (same namespace, no namespaceSelector/ipBlock): {peers8548}")
         check(not any("namespaceSelector" in f or "ipBlock" in f for r in sp["ingress"] for f in r.get("from", [])), f"{party}: paladin-ingress must be same-namespace only")
-    if "allow-same-namespace" in np:
-        ex = np["allow-same-namespace"]["spec"]["podSelector"]["matchExpressions"]
-        check(ex == [{"key": "app", "operator": "NotIn", "values": ["paladin-pg", "paladin"]}] and np["allow-same-namespace"]["spec"]["ingress"] == [{"from": [{"podSelector": {}}]}],
-              f"{party}: allow-same-namespace must keep S1 shape and additionally exclude app=paladin: {ex}")
     if "bank-gw-ingress" in np:
         sp = np["bank-gw-ingress"]["spec"]
         check(sp["podSelector"] == {"matchLabels": {"app": "bank-gw"}} and sp["policyTypes"] == ["Ingress"], f"{party}: bank-gw-ingress selector")
         check(len(sp["ingress"]) == 1 and [p["port"] for p in sp["ingress"][0]["ports"]] == [8548, 8545] and "from" not in sp["ingress"][0], f"{party}: bank-gw-ingress must open only 8548/8545 (any source by default): {sp['ingress']}")
+
+    # bank-c LoadBalancer only behind --acl-id + --external-cidr (lead decision: no public LB without an ACL)
+    if party == "bank-c":
+        lb = docs("bank-c", "--acl-id", "acl-gs5m5o9vb3olr19484tyg", "--external-cidr", "8.215.62.92/32")
+        e = {d["metadata"]["name"]: d for d in lb if d["kind"] == "Service"}["bank-gw-4-ext"]
+        check(e["spec"]["type"] == "LoadBalancer" and e["spec"].get("externalTrafficPolicy") == "Cluster" and e["spec"].get("loadBalancerSourceRanges") == ["8.215.62.92/32"], f"bank-c: ext LoadBalancer shape {e['spec']}")
+        check(e["metadata"]["annotations"] == {"service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-status": "on", "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-type": "white",
+              "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id": "acl-gs5m5o9vb3olr19484tyg", "service.beta.kubernetes.io/backend-type": "eni"}, "bank-c: ACL annotations")
+        check(run("bank-c", "--acl-id", "acl-x").returncode != 0 and run("bank-c", "--external-cidr", "8.215.62.92/32").returncode != 0, "bank-c: --acl-id and --external-cidr only together")
+    else:
+        check(run(party, "--acl-id", "acl-x", "--external-cidr", "1.2.3.4/32").returncode != 0, f"{party}: LoadBalancer flags are for bank-c only")
 
     # determinism
     check(run(party).stdout == run(party).stdout, f"{party}: render not deterministic")

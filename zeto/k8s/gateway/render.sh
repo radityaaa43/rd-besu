@@ -29,7 +29,12 @@ gateway() { # gateway <party> <opa-config file> <cidr>...
   env="$("$repo/opa/mtls/envoy-mtls.sh" <(printf '%s\n' "$env"))"
   [[ "$(grep -c '^  namespace: paladin$' "$repo/opa/k8s/bank-gw-$n.yaml")" == 2 ]] || die "opa/k8s/bank-gw-$n.yaml: expected 2 'namespace: paladin' lines"
   dep="$(sed "s/^  namespace: paladin\$/  namespace: $ns/" "$repo/opa/k8s/bank-gw-$n.yaml")"
-  [[ "$p" == bank-c ]] && ext=LoadBalancer || ext=NodePort
+  ext=NodePort; local ann="" lbsr="" etp=""
+  if [[ -n "$ACL" ]]; then
+    ext=LoadBalancer; etp=$'  externalTrafficPolicy: Cluster\n'
+    ann=$'  annotations:\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-status: "on"\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-type: white\n    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id: '"$ACL"$'\n    service.beta.kubernetes.io/backend-type: eni\n'
+    lbsr="  loadBalancerSourceRanges:"; local c; for c in "${EXTCIDRS[@]}"; do lbsr+=$'\n'"    - $c"; done; lbsr+=$'\n'
+  fi
   cat <<YAML
 # zeto S16: gateway bank-gw-$n of party $p in $ns. Secret bank-gw-$n-mtls (ca.crt, tls.crt, tls.key) and bundle-sink-token are created by the party, not rendered.
 apiVersion: v1
@@ -52,36 +57,19 @@ $(indent < "$cfg")
 ---
 $dep
 ---
-# Lensa path: $ext on 8548 (Paladin) and 8545 (Besu), behind the gateway's mTLS. Cloud annotations / source ranges are added later by flags.
+# Lensa path: $ext on 8548 (Paladin) and 8545 (Besu), behind the gateway's mTLS. NodePort = host Lensa only (removed when the host Lensa is retired); LoadBalancer only behind --acl-id + --external-cidr (bank-c).
 apiVersion: v1
 kind: Service
 metadata:
   name: bank-gw-$n-ext
   namespace: $ns
   labels: {app: bank-gw, node: node$n}
-spec:
+${ann}spec:
   type: $ext
-  selector: {app: bank-gw, node: node$n}
+${lbsr}${etp}  selector: {app: bank-gw, node: node$n}
   ports:
   - {name: paladin, port: 8548, targetPort: 8548}
   - {name: besu, port: 8545, targetPort: 8545}
----
-# Supersedes the S1 object of the same name: S1's rule (every pod of the namespace reaches every pod except the database) would also open
-# Paladin RPC 8548 to any pod; NetworkPolicies only add, so app=paladin has to leave this selector and get its own rule below.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-same-namespace
-  namespace: $ns
-  labels: {part-of: rd-zeto, party: $p}
-spec:
-  podSelector:
-    matchExpressions:
-      - {key: app, operator: NotIn, values: [paladin-pg, paladin]}
-  policyTypes: [Ingress]
-  ingress:
-    - from:
-        - podSelector: {}
 ---
 # Paladin: RPC 8548 only from the gateway pods; the operator keeps 8548/8549 (as in opa/k8s/networkpolicy.yaml); metrics 6100 from the namespace.
 # Transport 9000 stays with paladin-transport-ingress (S10).
@@ -132,12 +120,18 @@ out=""
 if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
 [[ $# -ge 1 ]] || die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> [--lensa-cidr CIDR]... [--opa-config FILE]"
 sel="$1"; shift
-cidrs=(); cfg="$repo/opa/opa.yaml"
+cidrs=(); cfg="$repo/opa/opa.yaml"; ACL=""; EXTCIDRS=()
 while [[ $# -gt 0 ]]; do case "$1" in
   --lensa-cidr) c="${2:?--lensa-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --lensa-cidr '$c'"; cidrs+=("$c"); shift 2 ;;
+  --acl-id) ACL="${2:?--acl-id needs an ACL id}"; [[ "$ACL" =~ ^acl-[a-z0-9]+$ ]] || die "bad --acl-id"; shift 2 ;;
+  --external-cidr) c="${2:?--external-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --external-cidr '$c'"; EXTCIDRS+=("$c"); shift 2 ;;
   --opa-config) cfg="${2:?--opa-config needs a file}"; [[ -f "$cfg" ]] || die "--opa-config: $cfg is not a file"; shift 2 ;;
   *) die "unknown option $1" ;; esac; done
 [[ "$sel" == all ]] && sel="$parties" || num "$sel" >/dev/null
+if [[ -n "$ACL" || ${#EXTCIDRS[@]} -gt 0 ]]; then
+  [[ "$sel" == bank-c ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bank-c only"
+  [[ -n "$ACL" && ${#EXTCIDRS[@]} -gt 0 ]] || die "--acl-id and --external-cidr only together"
+fi
 [[ -z "$out" ]] || mkdir -p "$out"
 first=1
 for p in $sel; do
