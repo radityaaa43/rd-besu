@@ -30,6 +30,29 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
+      affinity:
+        # member-16033 (97% CPU requests) and member-16034 (85%) are the loaded nodes of cluster 1 (zeto CURRENT section 12). Names as written there;
+        # that they equal the kubernetes.io/hostname label is [unverified, no cluster read for this PR].
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [member-16033, member-16034]}
+        podAntiAffinity:
+          # one party database per node, across namespaces
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              namespaceSelector: {}
+              labelSelector:
+                matchLabels: {app: paladin-pg}
+          # and, if possible, not next to a Besu validator (label app.kubernetes.io/name=besu is [unverified]; preferred, so a wrong label only loses the hint)
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                namespaceSelector: {}
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: besu}
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -76,7 +99,7 @@ spec:
         labels: {part-of: rd-zeto, party: ${PARTY}}
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: alicloud-essd
+        storageClassName: alicloud-essd-wffc   # WaitForFirstConsumer: the disk is created in the zone of the node the pod lands on (alicloud-essd is Immediate)
         resources:
           requests: {storage: 20Gi}
 ---

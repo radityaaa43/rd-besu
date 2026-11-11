@@ -49,7 +49,7 @@ for party, ns in PARTIES.items():
         check(sp["selector"]["matchLabels"] == {"app": "paladin-pg"} and sp["template"]["metadata"]["labels"].get("app") == "paladin-pg", f"{party}: pod label app=paladin-pg")
         check(re.fullmatch(r"postgres:17\.\d+", c["image"]) is not None, f"{party}: image must be the pinned postgres:17.x line as today, got {c['image']}")
         vct = sp["volumeClaimTemplates"]
-        check(len(vct) == 1 and vct[0]["spec"]["resources"]["requests"]["storage"] == "20Gi" and vct[0]["spec"]["storageClassName"] == "alicloud-essd" and vct[0]["spec"]["accessModes"] == ["ReadWriteOnce"], f"{party}: one RWO PVC template 20Gi alicloud-essd (PLAN S8)")
+        check(len(vct) == 1 and vct[0]["spec"]["resources"]["requests"]["storage"] == "20Gi" and vct[0]["spec"]["storageClassName"] == "alicloud-essd-wffc" and vct[0]["spec"]["accessModes"] == ["ReadWriteOnce"], f"{party}: one RWO PVC template 20Gi alicloud-essd-wffc (WaitForFirstConsumer, PLAN S8)")
         env = {e["name"]: e for e in c["env"]}
         for name, key in (("POSTGRES_USER", "username"), ("POSTGRES_PASSWORD", "password"), ("POSTGRES_DB", "database")):
             ref = env.get(name, {}).get("valueFrom", {}).get("secretKeyRef", {})
@@ -61,6 +61,14 @@ for party, ns in PARTIES.items():
         check(set(res.get("requests", {})) >= {"cpu", "memory"} and set(res.get("limits", {})) >= {"cpu", "memory"}, f"{party}: requests and limits for cpu and memory")
         check(all(p in c for p in ("startupProbe", "livenessProbe", "readinessProbe")), f"{party}: startup, liveness and readiness probes")
         check(pod.get("automountServiceAccountToken") is False, f"{party}: no API token for the database pod")
+        aff = pod.get("affinity", {})
+        na = aff.get("nodeAffinity", {}).get("requiredDuringSchedulingIgnoredDuringExecution", {}).get("nodeSelectorTerms", [])
+        check(any(e["key"] == "kubernetes.io/hostname" and e["operator"] == "NotIn" and sorted(e["values"]) == ["member-16033", "member-16034"] for t in na for e in t.get("matchExpressions", [])), f"{party}: nodeAffinity must keep the pod off the two nodes at 97%/85% CPU requests (member-16033, member-16034; zeto CURRENT section 12)")
+        pa = aff.get("podAntiAffinity", {})
+        req = pa.get("requiredDuringSchedulingIgnoredDuringExecution", [])
+        pref = [t["podAffinityTerm"] for t in pa.get("preferredDuringSchedulingIgnoredDuringExecution", [])]
+        check(any(t["topologyKey"] == "kubernetes.io/hostname" and t.get("namespaceSelector") == {} and t["labelSelector"]["matchLabels"] == {"app": "paladin-pg"} for t in req), f"{party}: required anti-affinity against other paladin-pg pods (all namespaces) on the same node")
+        check(any(t["topologyKey"] == "kubernetes.io/hostname" and t.get("namespaceSelector") == {} for t in pref), f"{party}: preferred anti-affinity against Besu pods on the same node")
     else:
         check(False, f"{party}: exactly one StatefulSet required")
     np = of(ds, "NetworkPolicy")
