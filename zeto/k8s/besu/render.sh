@@ -114,6 +114,7 @@ spec:
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      enableServiceLinks: false   # Service besu-p2p would inject BESU_P2P_PORT=tcp://..., read by Besu as --p2p-port
       containers:
         - name: nodeinfo
           image: ${image}
@@ -217,6 +218,7 @@ spec:
       labels: {${lbl}, app.kubernetes.io/name: besu-validator}
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9545", prometheus.io/path: /metrics}
     spec:
+      enableServiceLinks: false   # Service besu-p2p would inject BESU_P2P_PORT=tcp://..., read by Besu as --p2p-port
 ${affinity}
       terminationGracePeriodSeconds: 60
       initContainers:

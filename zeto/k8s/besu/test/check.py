@@ -83,6 +83,7 @@ for party, ns in PARTIES.items():
     job = of(ni, "Job")
     check(len(job) == 1 and job[0]["metadata"]["namespace"] == ns, f"{party}: one Job besu-nodeinfo in {ns}")
     if job:
+        check(job[0]["spec"]["template"]["spec"].get("enableServiceLinks") is False, f"{party}: nodeinfo Job needs enableServiceLinks: false")
         cmd = json.dumps(job[0]["spec"]["template"]["spec"]["containers"][0])
         check("public-key export" in cmd and "export-address" in cmd and "besu-nodekey" in json.dumps(job[0]), f"{party}: nodeinfo prints public key and address from Secret besu-nodekey")
         check("nodekey" not in cmd.replace("--node-private-key-file=/keys/nodekey", "").replace("/keys/nodekey", ""), f"{party}: nodeinfo must not echo the key")
@@ -122,6 +123,7 @@ for party, ns in PARTIES.items():
             check(res["requests"]["cpu"] == "1" and res["requests"]["memory"] == "2500M", f"{party}: cluster-1 requests as the live validators (1 CPU, 2500M)")
         else:
             check(res["requests"]["memory"] != "2500M", f"{party}: bank C requests must be smaller (cluster 2 memory is tight)")
+        check(pod.get("enableServiceLinks") is False, f"{party}: enableServiceLinks must be false (Service besu-p2p injects BESU_P2P_PORT=tcp://..., which Besu reads as --p2p-port)")
         init = pod["initContainers"][0]
         check("chown" in " ".join(init["command"]), f"{party}: init container chowns /data like live")
     # refusals
