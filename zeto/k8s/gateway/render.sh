@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Render the zeto S16 manifests (final-design/zeto/PLAN.md S16: gateway per party, own mTLS CA) to stdout, or to DIR/rd-zeto-<party>-gateway.yaml with -o.
+#   render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> [--lensa-cidr CIDR]... [--opa-config FILE]
+# Per party, in namespace rd-zeto-<party> (never `paladin`): ConfigMaps bank-gw-<N>-envoy (opa/envoy/node<N>.yaml with the mTLS block of
+# opa/mtls/envoy-mtls.sh, upstreams paladin-node<N>.<ns>:8548 and besu-rpc.<ns>:8545) and bank-gw-opa-v2 (opa/opa.yaml); Deployment + Service
+# bank-gw-<N> copied from opa/k8s/bank-gw-<N>.yaml (only the namespace changes); Service bank-gw-<N>-ext (NodePort; LoadBalancer for bank-c on
+# cluster 2, no cloud annotations: those are added later by flags, like zeto/k8s/besu/render.sh net --acl-id); NetworkPolicies.
+#   --lensa-cidr   limit the gateway ports to this source (repeatable); default: any source on 8548/8545, mTLS is the gate (README, assumptions)
+#   --opa-config   ConfigMap bank-gw-opa-v2 content from FILE instead of opa/opa.yaml (the party's opa-config.yaml = opa.yaml + public keys, from opa/keys.sh)
+# NOT rendered: Secrets bank-gw-<N>-mtls (opa/mtls/gen-party-certs.sh) and bundle-sink-token (created by the party), the namespace (S1), Ingress.
+# bi=1 bank-a=2 bank-b=3 bank-c=4 (names bank-gw-<N>, node<N>). Needs bash, sed, awk. Never talks to a cluster.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+repo="$(cd "$here/../../.." && pwd)"
+parties="bi bank-a bank-b bank-c"
+
+die() { echo "render.sh: $*" >&2; exit 2; }
+num() { case "$1" in bi) echo 1 ;; bank-a) echo 2 ;; bank-b) echo 3 ;; bank-c) echo 4 ;; *) die "unknown party '$1' (allowed: $parties)" ;; esac; }
+indent() { sed 's/^/    /'; }
+
+gateway() { # gateway <party> <opa-config file> <cidr>...
+  local p="$1" cfg="$2"; shift 2
+  local n ns env dep ext
+  n="$(num "$p")"; ns="rd-zeto-$p"
+  env="$(sed -e "s/paladin-node$n\.paladin\.svc\.cluster\.local/paladin-node$n.$ns.svc.cluster.local/" \
+             -e "s/besu-node-validator-$n\.besu\.svc\.cluster\.local/besu-rpc.$ns.svc.cluster.local/" \
+             -e "s/besu-node-validator-$n:8545/besu-rpc:8545/" "$repo/opa/envoy/node$n.yaml")"
+  grep -q "paladin-node$n.$ns.svc.cluster.local" <<<"$env" && grep -q "besu-rpc.$ns.svc.cluster.local" <<<"$env" || die "opa/envoy/node$n.yaml: upstream hostnames not found, template changed?"
+  env="$("$repo/opa/mtls/envoy-mtls.sh" <(printf '%s\n' "$env"))"
+  [[ "$(grep -c '^  namespace: paladin$' "$repo/opa/k8s/bank-gw-$n.yaml")" == 2 ]] || die "opa/k8s/bank-gw-$n.yaml: expected 2 'namespace: paladin' lines"
+  dep="$(sed "s/^  namespace: paladin\$/  namespace: $ns/" "$repo/opa/k8s/bank-gw-$n.yaml")"
+  [[ "$p" == bank-c ]] && ext=LoadBalancer || ext=NodePort
+  cat <<YAML
+# zeto S16: gateway bank-gw-$n of party $p in $ns. Secret bank-gw-$n-mtls (ca.crt, tls.crt, tls.key) and bundle-sink-token are created by the party, not rendered.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bank-gw-$n-envoy
+  namespace: $ns
+data:
+  envoy.yaml: |
+$(indent <<<"$env")
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bank-gw-opa-v2
+  namespace: $ns
+data:
+  opa.yaml: |
+$(indent < "$cfg")
+---
+$dep
+---
+# Lensa path: $ext on 8548 (Paladin) and 8545 (Besu), behind the gateway's mTLS. Cloud annotations / source ranges are added later by flags.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bank-gw-$n-ext
+  namespace: $ns
+  labels: {app: bank-gw, node: node$n}
+spec:
+  type: $ext
+  selector: {app: bank-gw, node: node$n}
+  ports:
+  - {name: paladin, port: 8548, targetPort: 8548}
+  - {name: besu, port: 8545, targetPort: 8545}
+---
+# Supersedes the S1 object of the same name: S1's rule (every pod of the namespace reaches every pod except the database) would also open
+# Paladin RPC 8548 to any pod; NetworkPolicies only add, so app=paladin has to leave this selector and get its own rule below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: $ns
+  labels: {part-of: rd-zeto, party: $p}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: NotIn, values: [paladin-pg, paladin]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Paladin: RPC 8548 only from the gateway pods; the operator keeps 8548/8549 (as in opa/k8s/networkpolicy.yaml); metrics 6100 from the namespace.
+# Transport 9000 stays with paladin-transport-ingress (S10).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paladin-ingress
+  namespace: $ns
+  labels: {part-of: rd-zeto, party: $p}
+spec:
+  podSelector:
+    matchLabels: {app: paladin}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: bank-gw}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+      ports: [{protocol: TCP, port: 8548}]
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/name: paladin-operator}}
+      ports: [{protocol: TCP, port: 8549}]
+    - from:
+        - podSelector: {}
+      ports: [{protocol: TCP, port: 6100}]
+---
+# Gateway: only the two doors. Source: the Lensa path (NodePort/LB traffic arrives from node or LB addresses), any source unless --lensa-cidr is given.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bank-gw-ingress
+  namespace: $ns
+  labels: {part-of: rd-zeto, party: $p}
+spec:
+  podSelector:
+    matchLabels: {app: bank-gw}
+  policyTypes: [Ingress]
+  ingress:
+YAML
+  if [[ $# -gt 0 ]]; then
+    echo "    - from:"; local c; for c in "$@"; do printf '        - ipBlock: {cidr: %s}\n' "$c"; done
+    echo "      ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8545}]"
+  else
+    echo "    - ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8545}]"
+  fi
+}
+
+out=""
+if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
+[[ $# -ge 1 ]] || die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> [--lensa-cidr CIDR]... [--opa-config FILE]"
+sel="$1"; shift
+cidrs=(); cfg="$repo/opa/opa.yaml"
+while [[ $# -gt 0 ]]; do case "$1" in
+  --lensa-cidr) c="${2:?--lensa-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --lensa-cidr '$c'"; cidrs+=("$c"); shift 2 ;;
+  --opa-config) cfg="${2:?--opa-config needs a file}"; [[ -f "$cfg" ]] || die "--opa-config: $cfg is not a file"; shift 2 ;;
+  *) die "unknown option $1" ;; esac; done
+[[ "$sel" == all ]] && sel="$parties" || num "$sel" >/dev/null
+[[ -z "$out" ]] || mkdir -p "$out"
+first=1
+for p in $sel; do
+  if [[ -n "$out" ]]; then gateway "$p" "$cfg" "${cidrs[@]}" > "$out/rd-zeto-$p-gateway.yaml"
+  else [[ $first == 1 ]] || echo '---'; first=0; gateway "$p" "$cfg" "${cidrs[@]}"; fi
+done
