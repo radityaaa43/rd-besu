@@ -123,7 +123,7 @@ for f in k8s/*.yaml; do kubectl apply --dry-run=client -f $f; done              
 
 All four gateways `bank-gw-1..4` run in namespace `paladin`, **enforcing** (`opa.yaml` `dry-run: false`,
 `envoy/nodeN.yaml` `failure_mode_allow: false`, fail closed). Lensa's Paladin forwards (`frontend/deploy/forwards.conf`)
-go through them. The Paladin `ext_authz` timeout (3s) must stay above the Rego `http.send` timeout of the daily limit (2s).
+go through them. The Paladin `ext_authz` timeout (5s) must stay above the Rego `http.send` budget of one request: at most two sequential calls of 2s (`bi/noto/balance.rego`), so 4s. (Changed from 3s on 2026-11-11 in the repo; the live gateways keep 3s until the next gateway rollout.)
 A gateway rollout drops that node's Lensa forward for 1 to 2 minutes; systemd restarts it.
 
 Deployed 2026-11-06 (every step below was run): signed bundles from `bundle-server` (`bank-gw-opa-v2`; a BI publish reaches all

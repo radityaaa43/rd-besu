@@ -31,8 +31,9 @@ static_resources:
               transport_api_version: V3
               with_request_body: {max_request_bytes: 1048576, allow_partial_message: false}
               failure_mode_allow: false
-              # ext_authz timeout must exceed the Rego http.send timeout (2s) of the daily limit
-              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 3s}
+              # ext_authz timeout budget: one request makes at most two sequential Rego http.send calls of 2s each
+              # (bi/noto/balance.rego balance_query + states_query), so 2 x 2s = 4s < 5s
+              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 5s}
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
