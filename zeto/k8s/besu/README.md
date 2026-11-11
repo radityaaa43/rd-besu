@@ -29,7 +29,7 @@ The old pod IPs last only while the old pods live (PLAN S3 interim): re-run step
 ## Choices to read
 - Config parity with the live validators except the two lines; `--Xdns-enabled`/`--Xdns-update-enabled` (live args) are NOT used: new enodes carry IPs.
 - Live args kept: `--min-gas-price=0 --nat-method=NONE`; liveness `/liveness` after 180 s; no readiness probe (as live).
-- cluster 1: requests 1 CPU / 2500M, limits 3 CPU / 5G (as live), `nodeAffinity` off `member-16033-node` and `member-16034-node`, required pod anti-affinity among the new validators
+- cluster 1: requests 500m / 2500M (CPU 1 -> 500m by the 2026-11-12 resize, from idle samples; memory unchanged), limits 3 CPU / 5G, `nodeAffinity` off `member-16033-node` and `member-16034-node`, required pod anti-affinity among the new validators
   (`namespaceSelector part-of=rd-zeto`). bank C: requests 250m / 1500M, limits 2 / 3G (first guess, cluster 2 memory is tight [unverified]).
 - PVC 40Gi, class default `alicloud-essd-wffc` (zone follows the pod; reclaim Delete, but the StatefulSet keeps PVCs on delete/scale), `--storage-class` overrides.
 - init container `busybox:1.36` (live uses unpinned `busybox`; the pull is a new image reference on these nodes: [unverified]).

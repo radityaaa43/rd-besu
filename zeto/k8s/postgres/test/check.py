@@ -59,6 +59,7 @@ for party, ns in PARTIES.items():
         check(c["securityContext"].get("allowPrivilegeEscalation") is False, f"{party}: allowPrivilegeEscalation false")
         res = c["resources"]
         check(set(res.get("requests", {})) >= {"cpu", "memory"} and set(res.get("limits", {})) >= {"cpu", "memory"}, f"{party}: requests and limits for cpu and memory")
+        check(res["requests"] == {"cpu": "50m", "memory": "256Mi"} and res["limits"] == {"cpu": "1", "memory": "1Gi"}, f"{party}: paladin-pg requests 50m / 256Mi (resize 2026-11-12), limits unchanged 1 / 1Gi")
         check(all(p in c for p in ("startupProbe", "livenessProbe", "readinessProbe")), f"{party}: startup, liveness and readiness probes")
         check(pod.get("automountServiceAccountToken") is False, f"{party}: no API token for the database pod")
         aff = pod.get("affinity", {})
@@ -90,6 +91,7 @@ check(run(render, "--cluster", "2", "bi").returncode != 0, "--cluster 2 renders 
 c2 = docs(render, "--cluster", "2", "bank-c")
 check(sorted(d["kind"] for d in c2) == ["NetworkPolicy", "Service", "StatefulSet"], "bank-c: kinds must be Service, StatefulSet, NetworkPolicy")
 check(all(d["metadata"].get("namespace") == "rd-zeto-bank-c" for d in c2), "bank-c: every object in rd-zeto-bank-c")
+check([d for d in c2 if d["kind"] == "StatefulSet"][0]["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"] == {"cpu": "50m", "memory": "256Mi"}, "bank-c: paladin-pg requests 50m / 256Mi (resize 2026-11-12)")
 c2txt = yaml.safe_dump(c2)
 check("alicloud-essd-wffc" not in c2txt and "storageClassName: alicloud-essd" in c2txt, "bank-c: cluster 2 has only StorageClass alicloud-essd")
 check("member-160" not in c2txt and "nodeAffinity" not in c2txt, "bank-c: no cluster-1 node names in cluster 2")

@@ -77,7 +77,7 @@ spec:
             capabilities: {drop: [ALL]}
           # Sizes are a first guess: today's sidecar usage was not read [unverified]; tune before S9.
           resources:
-            requests: {cpu: 250m, memory: 512Mi}
+            requests: {cpu: 50m, memory: 256Mi}
             limits: {cpu: "1", memory: 1Gi}
           startupProbe:
             exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}

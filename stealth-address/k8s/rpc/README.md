@@ -27,7 +27,7 @@ Why (observed 2026-11-11, rd-stealth-bi): on ONE peer the replay fell from ~1.5k
 ## Choices to read
 - `host-allowlist` is `["besu-rpc","besu-rpc.<ns>.svc.cluster.local","st-gw","localhost","127.0.0.1"]`: PLAN S4 lists `st-gw` and `besu-rpc` only, but the S4 RED proof goes by port-forward (Host `127.0.0.1`/`localhost`) and in-namespace callers use the Service DNS name; none of them is `*`.
 - Liveness is `tcpSocket :8545`, not `httpGet /liveness` as on the validators: with JWT on, `/liveness` may answer 401 [unverified] and the kubelet would restart the pod in a loop.
-- The node is kept off `member-16033-node` and `member-16034-node` (CURRENT section 12). Requests 500m / 1500M, limits 2 / 3G on cluster 1; bank C 250m / 1G, limits 1 / 2G (first guesses [unverified]).
+- The node is kept off `member-16033-node` and `member-16034-node` (CURRENT section 12). Requests 100m / 768Mi (resize 2026-11-12, from idle samples), limits 2 / 3G on cluster 1; bank C 100m / 640Mi, limits 1 / 2G (first guesses [unverified]).
 - PVC 40Gi class `alicloud-essd-wffc` (PLAN says `alicloud-essd`; wffc follows the pod, as in the other PRs); the StatefulSet keeps PVCs on delete/scale.
 - Not exposed: P2P (the node only dials out), metrics, WebSocket. The zeto validator policy already admits `rd-stealth-*` on 30303 (zeto PR #18).
 

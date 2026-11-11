@@ -18,7 +18,7 @@ stage="${1:-}"; party="${2:-}"
 [[ -n "$stage" && -n "$party" ]] || die "usage: render.sh net|nodeinfo|node <bi|bank-a|bank-b|bank-c> [options]"
 shift 2
 case "$party" in
-  bi|bank-a|bank-b) ns="rd-zeto-$party"; lbl="part-of: rd-zeto, party: $party"; cpu_req='"1"'; mem_req=2500M; cpu_lim='"3"'; mem_lim=5G ;;
+  bi|bank-a|bank-b) ns="rd-zeto-$party"; lbl="part-of: rd-zeto, party: $party"; cpu_req=500m; mem_req=2500M; cpu_lim='"3"'; mem_lim=5G ;;
   bank-c) ns="rd-zeto-bank-c"; lbl="part-of: rd-zeto, party: bank-c, cluster: \"2\""; cpu_req=250m; mem_req=1500M; cpu_lim='"2"'; mem_lim=3G ;;
   *) die "unknown party '$party' (allowed: bi bank-a bank-b bank-c)" ;;
 esac

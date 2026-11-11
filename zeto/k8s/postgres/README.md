@@ -70,4 +70,4 @@ kubectl -n rd-zeto-bank-a create secret generic paladin-pg-credentials \
 
 Rollback (PLAN S8): delete the Service, StatefulSet and PVC `data-paladin-pg-0` of the party (reclaim Delete: this destroys the copy; the old database is only read).
 Backup schedule: not defined here (decision 27 picks the product; a managed service would own it); S22 requires a named backup before any delete [open].
-Resource sizes (250m / 512Mi requests, 1 CPU / 1Gi limits) and the 20Gi volume are first guesses: today's sidecar usage was not read [unverified].
+Resource sizes (50m / 256Mi requests since the 2026-11-12 resize, from idle samples; 1 CPU / 1Gi limits) and the 20Gi volume are first guesses: today's sidecar usage was not read [unverified].

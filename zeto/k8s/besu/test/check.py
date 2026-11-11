@@ -138,9 +138,9 @@ for party, ns in PARTIES.items():
         check("podAntiAffinity" in aff and "namespaceSelector" in aff, f"{party}: anti-affinity across the rd-zeto namespaces (namespaceSelector)")
         if party != "bank-c":
             check("member-16033-node" in aff and "member-16034-node" in aff and "NotIn" in aff, f"{party}: nodeAffinity keeps the pod off member-16033/16034")
-            check(res["requests"]["cpu"] == "1" and res["requests"]["memory"] == "2500M", f"{party}: cluster-1 requests as the live validators (1 CPU, 2500M)")
+            check(res["requests"] == {"cpu": "500m", "memory": "2500M"} and res["limits"] == {"cpu": "3", "memory": "5G"}, f"{party}: cluster-1 requests 500m / 2500M (resize 2026-11-12: CPU 1 -> 500m, memory unchanged), limits unchanged 3 / 5G")
         else:
-            check(res["requests"]["memory"] != "2500M", f"{party}: bank C requests must be smaller (cluster 2 memory is tight)")
+            check(res["requests"] == {"cpu": "250m", "memory": "1500M"} and res["limits"] == {"cpu": "2", "memory": "3G"}, f"{party}: bank C validator untouched by the resize (250m / 1500M, limits 2 / 3G)")
             na = pod["affinity"].get("nodeAffinity", {})
             pref = na.get("preferredDuringSchedulingIgnoredDuringExecution", [])
             check("requiredDuringSchedulingIgnoredDuringExecution" not in na, f"{party}: no REQUIRED nodeAffinity on cluster 2 (the Immediate PV zone fixes the pod zone; a hard selector can deadlock)")

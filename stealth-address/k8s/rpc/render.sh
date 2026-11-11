@@ -15,11 +15,11 @@ stage="${1:-}"; party="${2:-}"
 shift 2
 if [[ "$party" == bank-c ]]; then
   [[ $cluster == 2 ]] || die "bank-c is on cluster 2: use --cluster 2"
-  lbl="part-of: rd-stealth, party: bank-c, cluster: \"2\""; cpu_req=250m; mem_req=1G; cpu_lim='"1"'; mem_lim=2G
+  lbl="part-of: rd-stealth, party: bank-c, cluster: \"2\""; cpu_req=100m; mem_req=640Mi; cpu_lim='"1"'; mem_lim=2G
 else
   [[ $cluster == 1 ]] || die "--cluster 2 renders bank-c only"
   case "$party" in bi|bank-a|bank-b) ;; *) die "unknown party '$party' (allowed: bi bank-a bank-b, bank-c with --cluster 2)" ;; esac
-  lbl="part-of: rd-stealth, party: $party"; cpu_req=500m; mem_req=1500M; cpu_lim='"2"'; mem_lim=3G
+  lbl="part-of: rd-stealth, party: $party"; cpu_req=100m; mem_req=768Mi; cpu_lim='"2"'; mem_lim=3G
 fi
 ns="rd-stealth-$party"
 image="hyperledger/besu:26.8.1"
