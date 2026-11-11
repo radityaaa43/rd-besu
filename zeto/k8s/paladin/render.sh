@@ -5,6 +5,7 @@
 #        externalHostname = HOST (the node's own LB IP: the endpoint other nodes dial) and transports[0].tls {certName, secretName} paladin-node<N>-mtls (the CRD requires certName; no issuer).
 #   render.sh transport <party> [--external-cidr CIDR]... [--acl-id acl-X [--clb-health-cidr 100.64.0.0/10]]
 #        Service paladin-transport (LoadBalancer TCP 9000) + NetworkPolicy paladin-transport-ingress. --acl-id needs a CIDR (loadBalancerSourceRanges).
+#   render.sh probe-placement <party>              throwaway pod with the LimitRange defaultRequest (250m / 1Gi): proves a Paladin pod can be scheduled in that ns
 #   render.sh probe-listener <party>               throwaway pod carrying the node's selector labels, `nc -l 9000` only (no Paladin process)
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
 # bi=node1 bank-a=node2 bank-b=node3 bank-c=node4 (the node number is the Zeto owner key name, bi@node1 ...). bank-c is cluster 2.
@@ -77,6 +78,27 @@ YAML
   if [[ -n "$health" ]]; then printf '    - from:\n        - ipBlock:\n            cidr: %s\n      ports:\n        - {protocol: TCP, port: 9000}\n' "$health"; fi
 }
 
+probe_placement() {
+  cat <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: s9-placement
+  namespace: rd-zeto-${1}
+  labels: {throwaway: zeto-s9-placement, app: s9-placement}
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
+  containers:
+    - name: hold
+      image: busybox:1.36
+      securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+      resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 250m, memory: 1Gi}}
+      command: [sh, -c, "sleep 300"]
+YAML
+}
+
 probe_listener() {
   local p="$1"; local n; n="$(num "$p")"
   cat <<YAML
@@ -139,6 +161,7 @@ out=""
 if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
 case "${1:-}" in
   transport) shift; [[ $# -ge 1 ]] || die "usage: render.sh transport <party> [options]"; num "$1" >/dev/null; transport "$@"; exit 0 ;;
+  probe-placement) [[ $# == 2 ]] || die "usage: render.sh probe-placement <party>"; num "$2" >/dev/null; probe_placement "$2"; exit 0 ;;
   probe-listener) [[ $# == 2 ]] || die "usage: render.sh probe-listener <party>"; num "$2" >/dev/null; probe_listener "$2"; exit 0 ;;
   probe-client) [[ $# == 4 ]] || die "usage: render.sh probe-client <party> <name> <IPv4>"; num "$2" >/dev/null; probe_client "$2" "$3" "$4"; exit 0 ;;
 esac

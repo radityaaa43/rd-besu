@@ -91,6 +91,20 @@ spec:
         - name: config
           configMap: {name: paladin-operator}
 ---
+# Paladin pods get no resources from the operator: it sets none on the container (paladin_controller.go only sizes PVCs), the CR has no resources
+# field and the stub's containers are replaced wholesale on every reconcile (:297-306). The namespace default therefore comes from a LimitRange.
+# Old node1: ~940 Mi RSS, 4 m CPU idle (measured 2026-11-11), no requests/limits; first-start ZK proving peaks are unmeasured, hence limit 3Gi.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: paladin-defaults
+  namespace: ${NS}
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 250m, memory: 1Gi}
+      default: {cpu: "2", memory: 3Gi}
+---
 # Paused stub (orchestrator deviation: no rehearsal start; PLAN S9 "scaled to 0"). The Paladin CR has no replicas field. The operator creates
 # its StatefulSet only if none exists (paladin_controller.go:287-292) and on update touches only containers, volumes and template annotations/
 # labels (:297-306), never replicas. This stub therefore keeps the node unstarted while the operator generates the pldconf ConfigMap. It carries
