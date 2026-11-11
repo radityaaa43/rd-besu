@@ -8,7 +8,7 @@
 #   render.sh probe-placement <party>              throwaway pod with the LimitRange defaultRequest (250m / 1Gi): proves a Paladin pod can be scheduled in that ns
 #   render.sh probe-listener <party>               throwaway pod carrying the node's selector labels, `nc -l 9000` only (no Paladin process)
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
-#   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' transport LB IPs (/32), besu-validator 8545+8546 in the own ns,
+#   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' Paladin transport (same-cluster peers: namespaceSelector + that peer's node pods; the other cluster's peer: its LB IP /32), besu-validator 8545+8546 in the own ns,
 #                                                  paladin-pg 5432 in the own ns, kube-dns 53 UDP/TCP. NOTHING else. Apply per node, ONE at a time, with the proof (docs/R17 in the S21 text).
 #   render.sh pull-secret <party>                  ONE JSON patch line: add `ghcr-pull` to the party ns's default ServiceAccount imagePullSecrets, appended (`/imagePullSecrets/-`), so the two ACK acr-credential-* entries stay:
 #                                                  render.sh pull-secret <p> | kubectl -n rd-zeto-<p> patch serviceaccount default --type json --patch-file /dev/stdin
@@ -26,6 +26,7 @@ parties="bi bank-a bank-b bank-c"
 
 die() { echo "render.sh: $*" >&2; exit 2; }
 num() { case "$1" in bi) echo 1 ;; bank-a) echo 2 ;; bank-b) echo 3 ;; bank-c) echo 4 ;; *) die "unknown party '$1' (allowed: $parties)" ;; esac; }
+cluster_of() { case "$1" in bank-c) echo 2 ;; *) echo 1 ;; esac; }
 host_ok() { [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$1" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; }
 subst() {
   local th="${2:-}"
@@ -210,7 +211,17 @@ egress() {
   done
   for k in $parties; do [[ -n "${ip[$k]:-}" ]] || die "egress: --lb-ips must name all 4 parties (missing $k)"; done
   [[ ${#ip[@]} == 4 ]] || die "egress: --lb-ips must name exactly the 4 parties"
-  for k in $parties; do [[ "$k" == "$p" ]] || ips+="        - ipBlock: {cidr: ${ip[$k]}/32}"$'\n'; done
+  # Probe proof 2026-11-12 (bank-a -> bank-b, rd-zeto-bank-a): ipBlock <same-cluster LB>/32 = BLOCKED (the CNI matches after DNAT), namespaceSelector+podSelector = OPEN.
+  # So same-cluster peers (bi, bank-a, bank-b = cluster 1) go by namespace + that peer's node pods; ipBlock /32 ONLY for the other cluster's LB IP (bank-c = cluster 2).
+  for k in $parties; do
+    [[ "$k" == "$p" ]] && continue
+    if [[ "$(cluster_of "$k")" == "$(cluster_of "$p")" ]]; then
+      ips+="        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: rd-zeto-$k}
+          podSelector:
+            matchLabels: {app: paladin, app.kubernetes.io/name: paladin-node$(num "$k")}"$'\n'
+    else ips+="        - ipBlock: {cidr: ${ip[$k]}/32}"$'\n'; fi
+  done
   cat <<YAML
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
