@@ -93,7 +93,7 @@ for party, ns in PARTIES.items():
         s = sts[0]["spec"]
         pod = s["template"]["spec"]
         c = pod["containers"][0]
-        check(c["image"] == "hyperledger/besu:26.8.1" and s["replicas"] == 1 and s["serviceName"] == "besu-rpc-hs", f"{party}: image, replicas, serviceName")
+        check(c["image"] == "hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042" and s["replicas"] == 1 and s["serviceName"] == "besu-rpc-hs", f"{party}: image, replicas, serviceName")
         check(s["template"]["metadata"]["labels"].get("app.kubernetes.io/name") == "besu-rpc", f"{party}: pod label app.kubernetes.io/name=besu-rpc")
         argv = " ".join(c.get("args", [])) + " ".join(c.get("command", []))
         check("--Xdns" not in argv and "--nat-method=NONE" in argv and "--min-gas-price=0" in argv, f"{party}: args {argv}")

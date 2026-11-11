@@ -160,7 +160,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: envoy
-        image: envoyproxy/envoy:v1.38.9
+        image: envoyproxy/envoy:v1.38.9@sha256:b1f389c3a6148e85e9de364cb867aa2e5802153abb37ad80f1f2241d693da32a
         args: ["-c", "/config/envoy.yaml", "--log-level", "warn"]
         ports:
         - {name: door, containerPort: 8550}
@@ -173,7 +173,7 @@ spec:
         - {name: envoy, mountPath: /config, readOnly: true}
         - {name: mtls, mountPath: /mtls, readOnly: true} # empty until Secret st-gw-$n-mtls exists (the party creates it)
       - name: opa
-        image: openpolicyagent/opa:1.21.1-envoy-1-static
+        image: openpolicyagent/opa:1.21.1-envoy-1-static@sha256:c1f40d815a15c4ca0ccbdf300e0a3515fccf1d30fbd92e69917ab96bad83811d
         args:
         - run
         - --server

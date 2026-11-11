@@ -125,7 +125,7 @@ spec:
 ${pullblock}      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
       containers:
       - name: nginx
-        image: nginx:1.27-alpine
+        image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
         command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/conf/nginx.conf"]
         ports:
         - {name: bundles, containerPort: 8080}

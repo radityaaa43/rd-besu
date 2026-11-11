@@ -47,7 +47,7 @@ for party, ns in PARTIES.items():
         s = ss[0]; sp = s["spec"]; pod = sp["template"]["spec"]; c = pod["containers"][0]
         check(s["metadata"]["name"] == "paladin-pg" and sp["serviceName"] == "paladin-pg" and sp["replicas"] == 1, f"{party}: StatefulSet paladin-pg, serviceName paladin-pg, 1 replica")
         check(sp["selector"]["matchLabels"] == {"app": "paladin-pg"} and sp["template"]["metadata"]["labels"].get("app") == "paladin-pg", f"{party}: pod label app=paladin-pg")
-        check(re.fullmatch(r"postgres:17\.\d+", c["image"]) is not None, f"{party}: image must be the pinned postgres:17.x line as today, got {c['image']}")
+        check(re.fullmatch(r"postgres:17\.\d+@sha256:[0-9a-f]{64}", c["image"]) is not None, f"{party}: image must be the pinned postgres:17.x line BY DIGEST, got {c['image']}")
         vct = sp["volumeClaimTemplates"]
         check(len(vct) == 1 and vct[0]["spec"]["resources"]["requests"]["storage"] == "20Gi" and vct[0]["spec"]["storageClassName"] == "alicloud-essd-wffc" and vct[0]["spec"]["accessModes"] == ["ReadWriteOnce"], f"{party}: one RWO PVC template 20Gi alicloud-essd-wffc (WaitForFirstConsumer, PLAN S8)")
         env = {e["name"]: e for e in c["env"]}

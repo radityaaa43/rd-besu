@@ -87,4 +87,5 @@ jobs:
       - run: zeto/k8s/paladin/test.sh
       - run: zeto/k8s/bundle-server/test.sh
       - run: zeto/k8s/gateway/test.sh
+      - run: python3 -I zeto/k8s/test-image-pins.py .
       - run: zeto/k8s/probe-node/test.sh

@@ -70,7 +70,7 @@ for party, n in PARTIES.items():
         check(dep["spec"] == old["spec"], f"{party}: Deployment spec differs from opa/k8s/bank-gw-{n}.yaml")
         cs = {c["name"]: c for c in dep["spec"]["template"]["spec"]["containers"]}
         check(set(cs) == {"envoy", "opa"}, f"{party}: containers {sorted(cs)}")
-        check(cs["envoy"]["image"] == "envoyproxy/envoy:v1.38.9" and cs["opa"]["image"] == "openpolicyagent/opa:1.21.1-envoy-1-static", f"{party}: images")
+        check(cs["envoy"]["image"] == "envoyproxy/envoy:v1.38.9@sha256:b1f389c3a6148e85e9de364cb867aa2e5802153abb37ad80f1f2241d693da32a" and cs["opa"]["image"] == "openpolicyagent/opa:1.21.1-envoy-1-static@sha256:c1f40d815a15c4ca0ccbdf300e0a3515fccf1d30fbd92e69917ab96bad83811d", f"{party}: images")
         check([p["containerPort"] for p in cs["envoy"]["ports"]] == [8548, 8545], f"{party}: envoy ports")
         check("--diagnostic-addr=0.0.0.0:8282" in cs["opa"]["args"], f"{party}: opa diagnostic 8282")
         vols = {v["name"]: v for v in dep["spec"]["template"]["spec"]["volumes"]}

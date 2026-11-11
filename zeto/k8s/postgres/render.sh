@@ -47,7 +47,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999}
   containers:
     - name: probe
-      image: postgres:17.6
+      image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       resources:
         requests: {cpu: 10m, memory: 32Mi}
@@ -83,7 +83,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999}
   containers:
     - name: probe
-      image: postgres:17.6
+      image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       resources:
         requests: {cpu: 10m, memory: 32Mi}
