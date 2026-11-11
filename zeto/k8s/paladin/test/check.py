@@ -265,9 +265,19 @@ for party in ("bi", "bank-a", "bank-b", "bank-c"):
     sp = eg[0]["spec"]
     check(sp["podSelector"] == {"matchLabels": {"app": "paladin"}} and sp["policyTypes"] == ["Egress"] and "ingress" not in sp, f"{party}: selects app=paladin only, Egress only (ingress stays with paladin-ingress/paladin-transport-ingress)")
     rules = sp["egress"]
-    others = sorted(v for k, v in LB.items() if k != party)
+    # lead/orchestrator 2026-11-12 (probe proof on bank-a: ipBlock <same-cluster LB>/32 = BLOCKED, ns+pod selector = OPEN): same-cluster peers by namespaceSelector (exact ns) + podSelector (that peer's node pods),
+    # ipBlock /32 ONLY for the OTHER cluster's LB IP. bi, bank-a, bank-b = cluster 1; bank-c = cluster 2.
+    CL = {"bi": 1, "bank-a": 1, "bank-b": 1, "bank-c": 2}; NUMS = {"bi": 1, "bank-a": 2, "bank-b": 3, "bank-c": 4}
+    want_to = []
+    for k in LB:
+        if k == party: continue
+        if CL[k] == CL[party]: want_to.append({"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-zeto-{k}"}}, "podSelector": {"matchLabels": {"app": "paladin", "app.kubernetes.io/name": f"paladin-node{NUMS[k]}"}}})
+        else: want_to.append({"ipBlock": {"cidr": f"{LB[k]}/32"}})
     transport = [r for r in rules if r.get("ports") == [{"protocol": "TCP", "port": 9000}]]
-    check(len(transport) == 1 and sorted(t["ipBlock"]["cidr"] for t in transport[0]["to"]) == sorted(f"{ip}/32" for ip in others) and all(set(t) == {"ipBlock"} for t in transport[0]["to"]), f"{party}: TCP 9000 to exactly the other 3 parties' LB IPs as /32 (never its own, never a wider block)")
+    key = lambda t: json.dumps(t, sort_keys=True)
+    check(len(transport) == 1 and sorted(map(key, transport[0]["to"])) == sorted(map(key, want_to)), f"{party}: TCP 9000 = same-cluster peers by ns+pod selector, other cluster by LB /32 only, exactly {want_to}: {transport and transport[0]['to']}")
+    check(not any("ipBlock" in t and CL[next(k for k, v in LB.items() if t["ipBlock"]["cidr"] == v + "/32")] == CL[party] for r in rules for t in r.get("to", []) if t.get("ipBlock", {}).get("cidr", "").endswith("/32") and any(t["ipBlock"]["cidr"] == v + "/32" for v in LB.values())), f"{party}: never an ipBlock for a same-cluster LB IP (closed on this CNI)")
+    check(not any(t.get("podSelector") == {} or t.get("namespaceSelector") == {} or "matchExpressions" in t.get("namespaceSelector", {}) for r in rules for t in r.get("to", [])), f"{party}: no wildcard namespaceSelector, no podSelector {{}}")
     val = [r for r in rules if r.get("to") == [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "besu-validator"}}}]]
     check(len(val) == 1 and val[0]["ports"] == [{"protocol": "TCP", "port": 8545}, {"protocol": "TCP", "port": 8546}], f"{party}: besu-validator in the own ns on 8545 (jsonrpc) and 8546 (ws; templates/paladin.yaml baseLedgerEndpoint.ws)")
     pg = [r for r in rules if r.get("to") == [{"podSelector": {"matchLabels": {"app": "paladin-pg"}}}]]
