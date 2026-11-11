@@ -88,6 +88,35 @@ for party in NUM:
 for bad in (["bi", "negative", "--image", IMG], ["bi", "negative", "--image", IMG, "--target", "1.1.1.1"], ["bi", "negative", "--image", IMG, "--target", "1.1.1.1:443;id"], ["bi", "negative", "--image", IMG, "--target", "host:443"], ["bi", "negative", "--image", "busybox:1.36", "--target", "1.1.1.1:443"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
+# ---- lbpath probe (lead 2026-11-12, R17 risk; run it with --via ipblock AND --via selector, as two pods, same target): does the CNI match `ipBlock <LB>/32` for a same-cluster peer's LB IP, or only the selector form? One Pod + ONE temp NetworkPolicy
+# with a single rule, and a control (1.1.1.1:443 must be BLOCKED by that same policy, so the policy is proven to be enforced).
+for party in NUM:
+    ns = f"rd-zeto-{party}"; peer = "bank-b" if party != "bank-b" else "bank-a"
+    for via in ("ipblock", "selector"):
+        args = [party, "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", via] + (["--peer-ns", f"rd-zeto-{peer}"] if via == "selector" else [])
+        ds = docs(*args)
+        check([d["kind"] for d in ds] == ["Pod", "NetworkPolicy"], f"{party}/{via}: lbpath = Pod + ONE NetworkPolicy: {[d['kind'] for d in ds]}")
+        if len(ds) != 2: continue
+        pod, pol = ds; lab = pod["metadata"]["labels"]; c = pod["spec"]["containers"][0]
+        check(pod["metadata"]["name"] == f"lb-path-probe-{via}" and pol["metadata"]["name"] == f"lb-path-probe-{via}" and all(d["metadata"]["namespace"] == ns for d in ds), f"{party}/{via}: names + namespace")
+        check(lab.get("rd/egress-locked") == "true" and lab.get("app") == "lb-path-probe" and lab.get("probe") == f"lb-path-{via}", f"{party}/{via}: rd/egress-locked=true (excluded from allow-dns-egress after R17-0), app=lb-path-probe, never app=paladin: {lab}")
+        check(c.get("readinessProbe", {}).get("exec", {}).get("command") == ["false"] and pod["spec"].get("automountServiceAccountToken") is False and "volumes" not in pod["spec"] and "env" not in c, f"{party}/{via}: never Ready, no token, no volume, no env")
+        sp = pol["spec"]
+        check(sp["podSelector"] == {"matchLabels": {"probe": f"lb-path-{via}"}} and sp["policyTypes"] == ["Egress"] and len(sp["egress"]) == 1 and sp["egress"][0]["ports"] == [{"protocol": "TCP", "port": 9000}], f"{party}/{via}: policy selects ONLY the probe, ONE egress rule on TCP 9000: {sp}")
+        want = [{"ipBlock": {"cidr": "8.215.47.22/32"}}] if via == "ipblock" else [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-zeto-{peer}"}}, "podSelector": {"matchLabels": {"app": "paladin"}}}]
+        check(sp["egress"][0]["to"] == want, f"{party}/{via}: the rule is exactly {want}: {sp['egress'][0]['to']}")
+        cmd = c["command"][2]
+        check(cmd.count("nc -w 3") == 2 and "8.215.47.22 9000" in cmd and "1.1.1.1 443" in cmd, f"{party}/{via}: nc to the target and the 1.1.1.1:443 control only: {cmd}")
+        for ncbody, want_out in (("exit 0", ["TARGET", "OPEN", "CONTROL", "OPEN"]), ("sleep 3; exit 1", ["TARGET", "BLOCKED", "CONTROL", "BLOCKED"]), ('[ "$4" = 9000 ] && exit 1; sleep 3; exit 1', ["TARGET", "REFUSED", "CONTROL", "BLOCKED"])):
+            ncp = os.path.join(d, "nc"); open(ncp, "w").write(f"#!/bin/sh\n{ncbody}\n"); os.chmod(ncp, 0o755)
+            r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env={"PATH": d + ":/usr/bin:/bin"})
+            check(r.stdout.split() == want_out, f"{party}/{via}: behaviour {ncbody!r} -> {want_out}: {r.stdout!r}")
+for bad in (["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000"], ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", "selector"],
+            ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", "ipblock", "--peer-ns", "rd-zeto-bank-a"], ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", "selector", "--peer-ns", "rd-zeto-bi"],
+            ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", "selector", "--peer-ns", "kube-system"], ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000;id", "--via", "ipblock"],
+            ["bi", "lbpath", "--image", IMG, "--via", "ipblock"], ["bi", "lbpath", "--image", IMG, "--target", "8.215.47.22:9000", "--via", "x"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 for bad in (["bi"], ["bi", "--image", "busybox:1.36"], ["bi", "--image", IMG, "--mode", "xx"], ["bi", "--image", IMG, "--method", "x; rm"], ["bi", "--image", IMG, "--params", "[\"'; id\"]"],
             ["bank-d", "--image", IMG], ["bi", "--image", IMG, "--extra"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
