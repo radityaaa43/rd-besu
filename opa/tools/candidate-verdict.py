@@ -1,6 +1,8 @@
 #!/usr/bin/env python3 -I
 """One-command verdict on a CANDIDATE bundle set before any publish (analyst/lead 2026-11-12). Python stdlib + opa + openssl; never writes to a cluster.
-  candidate-verdict.py <candidate dir with node1..4/{bi,bank}.tar.gz> --repo <rd-besu checkout> --sha <pinned sha> [--ref tools/live-docs-2026-11-12.json] [--no-doors]
+  candidate-verdict.py <candidate dir with node1..4/{bi,bank}.tar.gz> --repo <rd-besu checkout> --sha <pinned sha, default 7e9dac3> [--ref tools/live-docs-2026-11-12.json] [--no-doors] [--source]
+  --source: the tars are SOURCE tars (what the sink takes: plain relative names, tree of opa/bundles/<kind> + <kind>/config/data.json + .manifest). Checked first (names, file SET, .manifest roots + revision),
+            then converted in a temp dir to the opa-built shape so checks (1)-(4) run unchanged.
 Checks (any failure = FAIL, exit 1):
  (1) PARITY   every rego member of every tar is byte-equal to rd-besu@sha; the file SET equals the repo set (bi and bank, nothing missing, nothing extra);
               data.json equals the repo data.json@sha in every key except the Kebijakan documents (`policy`, `platforms`; `policy` for bank).
@@ -8,10 +10,10 @@ Checks (any failure = FAIL, exit 1):
  (3) REGRESS  test/regress (in-hours writes per function, other identity deny, boundaries, report group, documents exist) on the candidate data.
  (4) DOORS    the candidate's OWN rego + data run the repo's door tests: sink, stealth, iroha3 and fabricx allowed for the right CNs and denied for the others.
 Signatures are checked separately (policy-docs.py verify) on the SIGNED bundles after the publish."""
-import json, os, re, shutil, subprocess, sys, tarfile, tempfile
+import io, json, os, re, shutil, subprocess, sys, tarfile, tempfile
 a = sys.argv[1:]
 def opt(n, d=None): return a[a.index(n) + 1] if n in a else d
-cand, repo, sha, ref = a[0], opt("--repo"), opt("--sha"), opt("--ref")
+cand, repo, sha, ref = a[0], opt("--repo"), opt("--sha") or "7e9dac3", opt("--ref")
 here = os.path.dirname(os.path.abspath(__file__)); opa_dir = os.path.join(here, "..")
 fails = []
 def fail(m): fails.append(m); print("FAIL " + m)
@@ -28,6 +30,32 @@ def rego_map(kind, mem):
         if m: out[m.group(1)] = b
     return out
 repo_tree = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "--name-only", sha, "opa/bundles"], capture_output=True, text=True).stdout.split()
+# --source: validate the SOURCE tars, then convert to the opa-built shape (/data.json, /.manifest, rego under a rooted path) so (1)-(4) are reused unchanged
+if "--source" in a:
+    conv = tempfile.mkdtemp(); roots = {k: json.loads(git(f"opa/bundles/{k}/.manifest")).get("roots") for k in ("bi", "bank")}
+    for n in (1, 2, 3, 4):
+        os.makedirs(f"{conv}/node{n}", exist_ok=True)
+        for kind in ("bi", "bank"):
+            p = f"{cand}/node{n}/{kind}.tar.gz"
+            if not os.path.exists(p): fail(f"node{n} {kind}: tar missing"); continue
+            with tarfile.open(p) as t:
+                ms = t.getmembers(); bad = [m.name for m in ms if not m.isreg() or m.name.startswith(("/", "./")) or ".." in m.name.split("/") or "\\" in m.name]
+                if bad: fail(f"node{n} {kind}: unsafe member names (the sink refuses them): {bad[:4]}"); continue
+                mem = {m.name: t.extractfile(m).read() for m in ms}
+            want = {f[len(f"opa/bundles/{kind}/"):] for f in repo_tree if f.startswith(f"opa/bundles/{kind}/")} | {f"{kind}/config/data.json", ".manifest"}
+            if set(mem) != want: fail(f"node{n} {kind}: file set differs from rd-besu@{sha[:7]} tree + {kind}/config/data.json + .manifest: missing {sorted(want - set(mem))[:4]} extra {sorted(set(mem) - want)[:4]}"); continue
+            try: man = json.loads(mem[".manifest"])
+            except ValueError: fail(f"node{n} {kind}: .manifest is not JSON"); continue
+            if man.get("roots") != roots[kind]: fail(f"node{n} {kind}: .manifest roots {man.get('roots')} != repo {roots[kind]}"); continue
+            if not man.get("revision"): fail(f"node{n} {kind}: .manifest has no revision"); continue
+            with tarfile.open(f"{conv}/node{n}/{kind}.tar.gz", "w:gz") as o:
+                def add(name, b):
+                    ti = tarfile.TarInfo(name); ti.size = len(b); o.addfile(ti, io.BytesIO(b))
+                add("/data.json", json.dumps({kind: {"config": json.loads(mem[f"{kind}/config/data.json"])}}).encode()); add("/.manifest", mem[".manifest"])
+                for name, b in mem.items():
+                    if name.endswith(".rego"): add(f"/src/{kind}/{name}", b)
+            ok(f"node{n} {kind}: source tar valid (names, file set, .manifest revision {man['revision']})")
+    cand = conv
 # (1) parity
 for n in (1, 2, 3, 4):
     for kind in ("bi", "bank"):
@@ -70,4 +98,5 @@ try:
     (ok if r.returncode == 0 else fail)("door tests (sink, stealth, iroha3, fabricx, gw) on the candidate's rego+data: " + " | ".join(last))
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
+if "--source" in a: shutil.rmtree(cand, ignore_errors=True)
 print("VERDICT: " + ("PASS" if not fails else f"FAIL ({len(fails)} checks)")); sys.exit(1 if fails else 0)
