@@ -26,7 +26,10 @@ metadata:
   namespace: ${NS}
   labels: {part-of: rd-stealth, party: ${PARTY}}
 spec:
-  podSelector: {}
+  # S7: excludes the Vault key store; policies are additive, so vault-ingress (vault/) is its only ingress.
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [vault]}
   policyTypes: [Ingress]
   ingress:
     - from:

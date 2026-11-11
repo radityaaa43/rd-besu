@@ -1,0 +1,11 @@
+# The only cluster-scoped object of S7 (applied by the cluster operator, not by party-admin): Vault's kubernetes auth calls TokenReview
+# with the signer's token, which needs system:auth-delegator for Vault's ServiceAccount. Name is unique per namespace (the chart's own
+# binding is disabled: server.authDelegator.enabled=false, its name would collide across the three parties on cluster 1).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-auth-delegator-${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: system:auth-delegator}
+subjects:
+  - {kind: ServiceAccount, name: vault, namespace: ${NS}}

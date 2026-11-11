@@ -1,0 +1,27 @@
+# stealth S7 (final-design/stealth/PLAN.md), README decision 28: Vault per party. Rendered by ../render.sh; ${PARTY} = bi | bank-a | bank-b, ${NS} = rd-stealth-${PARTY}.
+# The signer's identity: Vault's kubernetes auth role stealth-signer is bound to this ServiceAccount in this namespace only (README, bootstrap).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stealth-signer
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+automountServiceAccountToken: true
+---
+# Only the signer reaches the key store. Policies are additive, so stealth S1's allow-same-namespace excludes the Vault pod (../../templates/party.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vault-ingress
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: vault, component: server}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: stealth-signer}
+      ports:
+        - {protocol: TCP, port: 8200}
