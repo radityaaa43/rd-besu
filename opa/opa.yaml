@@ -12,6 +12,12 @@ services:
     url: http://bundle-server
   sink:
     url: http://bundle-server:8081
+    # decision_logs.service and status.service both use this service. The token is the Secret bundle-sink-token mounted at /sink-token
+    # (k8s/bank-gw-N.yaml); OPA re-reads the file on every request (opa v1.21.1 docs/configuration.md, "Services > Bearer Token",
+    # services[_].credentials.bearer.token_path). Never put the token itself in this file.
+    credentials:
+      bearer:
+        token_path: /sink-token/token
 # A bundle is only activated when its signature verifies with the key named here; a bad one keeps the old bundle.
 bundles:
   bi:

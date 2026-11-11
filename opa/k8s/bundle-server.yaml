@@ -38,7 +38,9 @@ spec:
       - name: sink
         image: python:3.12-alpine
         command: ["python", "-u", "/sink/sink.py", "8081"]
-        env: [{name: PYTHONDONTWRITEBYTECODE, value: "1"}]
+        env:
+        - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+        - {name: SINK_TOKEN_FILE, value: /sink-token/token} # POST /logs and POST /status need this bearer token
         ports:
         - {name: sink, containerPort: 8081}
         readinessProbe: {tcpSocket: {port: 8081}, periodSeconds: 5}
@@ -48,9 +50,11 @@ spec:
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         volumeMounts:
         - {name: sink, mountPath: /sink, readOnly: true}
+        - {name: sink-token, mountPath: /sink-token, readOnly: true}
       volumes:
       - {name: conf, configMap: {name: bundle-server-conf}}
       - {name: sink, configMap: {name: bundle-server-sink}}
+      - {name: sink-token, secret: {secretName: bundle-sink-token, defaultMode: 292}} # 0444: the sink runs as uid 10001; not optional
       - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
       - {name: bundles-1, configMap: {name: bank-gw-1-bundles, optional: true}}
       - {name: bundles-2, configMap: {name: bank-gw-2-bundles, optional: true}}

@@ -224,3 +224,30 @@ spec:
     - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: besu}}
     ports: [{protocol: TCP, port: 30303}, {protocol: UDP, port: 30303}]
   - ports: [{protocol: TCP, port: 9545}]
+---
+# bundle-server: admits only the OPA gateways (bundle pull on 8080, decision logs and status on 8081) and the kube-apiserver for
+# Lensa's read of GET /status (`kubectl get --raw .../services/bundle-server:sink/proxy/status`, frontend/server/src/policy/kube.ts:65).
+# Not part of the node1..4 / `-l node=all` steps: apply it with `-l node=bundle-server` as its own rollout step (README, bundle-server hardening).
+# kube-apiserver addresses: `kubectl get endpoints kubernetes -n default` (172.24.11.240 and 172.24.40.81, 2026-11-11). ASSUMPTION: the
+# API-server service proxy reaches the pod from these addresses; this is only provable on the live cluster, after applying (README).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bundle-server-ingress
+  namespace: paladin
+  labels: {node: bundle-server}
+spec:
+  podSelector:
+    matchLabels: {app: bundle-server}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector: {matchLabels: {app: bank-gw}}
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: fabricx}}
+      podSelector: {matchLabels: {app.kubernetes.io/part-of: rdbi-gw}} # fx-gw-1..4 pull the same bundles and post to the sink (fabric-x/opa/DESIGN.md:98-101)
+    ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 8081}]
+  - from:
+    - ipBlock: {cidr: 172.24.11.240/32}
+    - ipBlock: {cidr: 172.24.40.81/32}
+    ports: [{protocol: TCP, port: 8081}]
+
