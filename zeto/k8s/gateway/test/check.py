@@ -100,6 +100,9 @@ for party, n in PARTIES.items():
         sr = env["static_resources"]
         addr = {c["name"]: c["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]["address"]["socket_address"] for c in sr["clusters"] if c["name"] in ("paladin", "besu")}
         check(addr.get("paladin") == {"address": f"paladin-{node}.{ns}.svc.cluster.local", "port_value": 8548}, f"{party}: paladin upstream {addr.get('paladin')}")
+        sinkc = [c for c in sr["clusters"] if c["name"] == "sink"]
+        check(len(sinkc) == 1 and sinkc[0]["load_assignment"]["endpoints"][0]["lb_endpoints"][0]["endpoint"]["address"]["socket_address"] == {"address": f"bundle-server.{ns}.svc.cluster.local", "port_value": 8081},
+              f"{party}: sink cluster must point at bundle-server.{ns}.svc.cluster.local:8081: {sinkc}")
         check(addr.get("besu") == {"address": f"besu-rpc.{ns}.svc.cluster.local", "port_value": 8545}, f"{party}: besu upstream {addr.get('besu')}")
         ls = {l["name"]: l for l in sr["listeners"]}
         check({k: v["address"]["socket_address"]["port_value"] for k, v in ls.items()} == {"paladin": 8548, "besu": 8545}, f"{party}: listener ports")
@@ -108,8 +111,22 @@ for party, n in PARTIES.items():
             tc = fc.get("transport_socket", {}).get("typed_config", {})
             check(tc.get("require_client_certificate") is True and tc["common_tls_context"]["validation_context"]["trusted_ca"]["filename"] == "/mtls/ca.crt", f"{party}: listener {k} must require a client cert signed by /mtls/ca.crt")
             hcm = fc["filters"][0]["typed_config"]
-            ce = hcm["route_config"]["virtual_hosts"][0]["routes"][0]["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"]
+            routes = hcm["route_config"]["virtual_hosts"][0]["routes"]
+            catch = [r for r in routes if r["match"] == {"prefix": "/"}]
+            check(len(catch) == 1 and routes[-1] is catch[0], f"{party}: listener {k}: the '/' route must be the last one")
+            ce = catch[0]["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"]
             check(ce == {"target": k, "node": node}, f"{party}: listener {k} context_extensions {ce}")
+            # S17: target `sink` only on the Paladin listener, before "/", forwarded to the party's own bundle-server, ext_authz not disabled
+            sink = [r for r in routes if r is not catch[0]]
+            if k == "besu":
+                check(not sink, f"{party}: besu listener must have no sink route")
+            else:
+                check(len(sink) == 1 and routes[0] is sink[0], f"{party}: paladin listener needs exactly one sink route, first")
+                if len(sink) == 1:
+                    sr_ = sink[0]
+                    check(sr_["match"] == {"prefix": "/sink/"} and sr_["route"]["cluster"] == "sink" and sr_["route"]["prefix_rewrite"] == "/", f"{party}: sink route match/rewrite {sr_['match']} {sr_['route']}")
+                    cs_ = sr_["typed_per_filter_config"]["envoy.filters.http.ext_authz"]
+                    check(cs_["check_settings"] == {"context_extensions": {"target": "sink", "node": node}} and not cs_.get("disabled"), f"{party}: sink route ext_authz {cs_}")
             check(hcm["http_filters"][0]["typed_config"]["failure_mode_allow"] is False, f"{party}: listener {k} must fail closed")
     if "bank-gw-opa-v2" in cm:
         check(list(cm["bank-gw-opa-v2"]["data"]) == ["opa.yaml"] and yaml.safe_load(cm["bank-gw-opa-v2"]["data"]["opa.yaml"]) == opa_plain, f"{party}: bank-gw-opa-v2 must carry opa/opa.yaml unchanged")
@@ -146,6 +163,20 @@ for party, n in PARTIES.items():
 
     # determinism
     check(run(party).stdout == run(party).stdout, f"{party}: render not deterministic")
+
+# --bundle-path latest: only the two OPA resource args change (S17 per-party bundle-server); the default keeps <N>/bi.tar.gz for the old namespace
+for party, n in PARTIES.items():
+    dep = by_name(docs(party, "--bundle-path", "latest"), "Deployment").get(f"bank-gw-{n}")
+    old = existing(n)[0]
+    if dep is None:
+        check(False, f"{party}: --bundle-path latest renders no Deployment")
+        continue
+    args = next(c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "opa")["args"]
+    oargs = next(c for c in old["spec"]["template"]["spec"]["containers"] if c["name"] == "opa")["args"]
+    check(f"--set=bundles.bi.resource={n}/bi.tar.gz" in oargs and f"--set=bundles.bank.resource={n}/bank.tar.gz" in oargs, f"{party}: default Deployment must keep {n}/bi.tar.gz, {n}/bank.tar.gz")
+    check("--set=bundles.bi.resource=bi/latest.tar.gz" in args and "--set=bundles.bank.resource=bank/latest.tar.gz" in args, f"{party}: --bundle-path latest args {[a for a in args if 'resource' in a]}")
+    check([a for a in args if "resource" not in a] == [a for a in oargs if "resource" not in a], f"{party}: --bundle-path latest must change only the resource args")
+check(run("bi", "--bundle-path", "2").returncode != 0 and run("bi", "--bundle-path").returncode != 0, "--bundle-path accepts only 'latest'")
 
 # --lensa-cidr narrows the gateway policy to ipBlocks
 c = docs("bank-a", "--lensa-cidr", "203.0.113.7/32", "--lensa-cidr", "198.51.100.0/24")

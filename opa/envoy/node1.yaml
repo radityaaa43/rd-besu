@@ -1,5 +1,6 @@
 # Envoy for bank-gw-1 (Bank Indonesia, node1). Two doors, each checked by the OPA sidecar (gRPC 127.0.0.1:9191):
 #   :8548 -> paladin-node1:8548          context_extensions target=paladin
+#   :8548 /sink/ -> bundle-server:8081    context_extensions target=sink (zeto S17)
 #   :8545 -> besu-node-validator-1:8545  context_extensions target=besu
 # failure_mode_allow false: if OPA does not answer, the request is refused (fail closed). Use true only with OPA dry-run.
 static_resources:
@@ -17,6 +18,17 @@ static_resources:
             - name: paladin
               domains: ["*"]
               routes:
+              # zeto S17: the gateway's door to its own bundle-server (policy upload and status). Same ext_authz filter as the Paladin route,
+              # target sink: gw.rego needs bi.platform.sink AND bank.platform.sink, which allow only GET /sink/status and POST /sink/bundles/<name>
+              # for Lensa's (and, at a bank gateway, BI's publisher) client cert. /sink/status -> /status, /sink/bundles/<name> -> /bundles/<name>.
+              # Must stay before "/": that route would send any other /sink/... path to Paladin. The bundle upload body is a few KB, under the 1 MiB limit below.
+              - match: {prefix: "/sink/"}
+                route: {cluster: sink, timeout: 60s, prefix_rewrite: "/"}
+                typed_per_filter_config:
+                  envoy.filters.http.ext_authz:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                    check_settings:
+                      context_extensions: {target: sink, node: node1}
               - match: {prefix: "/"}
                 route: {cluster: paladin, timeout: 60s}
                 typed_per_filter_config:
@@ -77,6 +89,14 @@ static_resources:
       endpoints:
       - lb_endpoints:
         - endpoint: {address: {socket_address: {address: paladin-node1.paladin.svc.cluster.local, port_value: 8548}}}
+  - name: sink
+    type: STRICT_DNS
+    connect_timeout: 2s
+    load_assignment:
+      cluster_name: sink
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: bundle-server.paladin.svc.cluster.local, port_value: 8081}}}
   - name: besu
     type: STRICT_DNS
     connect_timeout: 2s

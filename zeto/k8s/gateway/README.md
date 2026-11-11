@@ -37,6 +37,7 @@ PLAN RED proof on the cluster (S16 VERIFY, not run here): party B's client cert,
 ## Assumptions
 - Besu upstream is `besu-rpc.<ns>` (zeto/k8s/besu/render.sh Service), not `besu-node-validator-<N>.besu` of the old envoy files.
 - Gateway pod spec, images, `--set=bundles.*.resource=<N>/...` and `bundle-server` URLs are copied unchanged (S17 may change them; bundle-server is in the same namespace).
+- S17: the Envoy ConfigMap also has the `sink` route/cluster (target `sink`, upstream `bundle-server.<ns>.svc.cluster.local:8081`, rego in `opa/bundles/*/…/platform/sink`). `--bundle-path latest` switches the two OPA resource args to `bi/latest.tar.gz`, `bank/latest.tar.gz` (per-party bundle-server); default unchanged. See `opa/README.md`, "Sink door".
 - NetworkPolicies only add, so Paladin 8548 can be closed only by narrowing S1's `allow-same-namespace` (replacement object above).
 - Operator keeps 8548/8549 as in `opa/k8s/networkpolicy.yaml`; other same-namespace pods (psql jobs, probes) lose Paladin 8548/8549 access.
 - NodePort/LB traffic source is not known (CNI SNAT unverified): default is any source on 8548/8545, mTLS is the gate. Narrow with `--lensa-cidr`.
