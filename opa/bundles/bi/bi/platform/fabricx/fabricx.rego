@@ -9,6 +9,12 @@
 #                     same caps, hours and frozen check as the initiator's side
 #   reads             balance, history, records, finality, report, usage: own node only (fxapi serves nothing else)
 # Anything else, a non-POST, an unknown token, node or op, a malformed amount: denied (default false).
+# Caller identity (S16): the rules above say WHAT may be asked; `allow` also says WHO asks. Envoy forwards the verified client leaf
+# (forward_client_cert_details SANITIZE_SET, cert: true) in x-forwarded-client-cert, and XFCC carries no issuer, so the leaf is verified here
+# against a public CA from data.bi.config.fabricx_ca (node name -> PEM; gen: Lensa = bank-gw-ca-<N>, gw = the org's Fabric-X TLS root):
+#   lensa   CN exactly `lensa`, signed directly by bank-gw-ca-<N> of THIS gateway's node: every rule above
+#   peer    CN exactly `fx-gw-<M>-peer`, signed directly by org M's TLS root, M another node: only precheck and report
+# Both need the ClientAuth key usage. No certificate, a second Cert element, a leaf from another CA, or another CN: denied.
 package bi.platform.fabricx
 
 import data.bi.clock
@@ -32,12 +38,14 @@ reads := {"balance", "history", "records", "finality", "report", "usage"}
 
 default allow := false
 
-allow if {
+default permitted := false
+
+permitted if {
 	post
 	body.op in reads
 }
 
-allow if {
+permitted if {
 	post
 	body.op == "issue"
 	data.bi.config.nodes[own].issuer
@@ -48,7 +56,7 @@ allow if {
 	amount_ok(body.amount, policy.max_mint_per_tx[token])
 }
 
-allow if {
+permitted if {
 	post
 	body.op == "award"
 	data.bi.config.nodes[own].issuer
@@ -60,7 +68,7 @@ allow if {
 	amount_ok(body.rd, policy.max_per_tx.RD)
 }
 
-allow if {
+permitted if {
 	post
 	body.op == "transfer"
 	body.from == fx_node[own]
@@ -72,14 +80,14 @@ allow if {
 	amount_ok(body.amount, policy.max_per_tx[token])
 }
 
-allow if {
+permitted if {
 	post
 	body.op == "swap"
 	body.from == fx_node[own]
 	legs_ok(body.from, body.to)
 }
 
-allow if {
+permitted if {
 	post
 	body.op == "redeem"
 	body.from == fx_node[own]
@@ -90,7 +98,7 @@ allow if {
 }
 
 # Swap: the buyer gives `get`; at the buyer's gateway (to = this party) with the same BI checks as the seller's side.
-allow if {
+permitted if {
 	post
 	body.op == "precheck"
 	body.kind == "swap"
@@ -99,7 +107,7 @@ allow if {
 }
 
 # Award: BI gives DFABI (minted), the bank pays RD.
-allow if {
+permitted if {
 	post
 	body.op == "precheck"
 	body.kind == "award"
@@ -114,6 +122,48 @@ allow if {
 	amount_ok(body.give.amount, policy.max_mint_per_tx.DFABI)
 	amount_ok(body.get.amount, policy.max_per_tx.RD)
 }
+
+allow if {
+	permitted
+	lensa_caller
+}
+
+allow if {
+	permitted
+	body.op in peer_ops
+	peer_caller
+}
+
+peer_ops := {"precheck", "report"}
+
+# The leaf Envoy forwarded: exactly one Cert element, one certificate in it.
+leaf_pem := pem if {
+	h := input.attributes.request.http.headers["x-forwarded-client-cert"]
+	count(regex.find_all_string_submatch_n(`Cert="`, h, -1)) == 1
+	pem := urlquery.decode(regex.find_all_string_submatch_n(`Cert="([^"]+)"`, h, 1)[0][1])
+	count(crypto.x509.parse_certificates(pem)) == 1
+}
+
+# The leaf, when it verifies directly against ca for client auth. Input order is [root, leaf]; the result lists the leaf first, so
+# the leaf is the one entry that is not a CA.
+verified(ca) := leaf if {
+	[ok, certs] := crypto.x509.parse_and_verify_certificates_with_options(concat("\n", [ca, leaf_pem]), {"KeyUsages": ["KeyUsageClientAuth"]})
+	ok == true
+	count(certs) == 2
+	some leaf in certs
+	not leaf.IsCA
+}
+
+lensa_caller if verified(data.bi.config.fabricx_ca.lensa[own]).Subject.CommonName == "lensa"
+
+peer_caller if {
+	some m, ca in data.bi.config.fabricx_ca.gw
+	m != own
+	m in fx_node_names
+	verified(ca).Subject.CommonName == sprintf("fx-gw-%s-peer", [trim_prefix(m, "node")])
+}
+
+fx_node_names := {n | some n, _ in fx_node}
 
 post if input.attributes.request.http.method == "POST"
 

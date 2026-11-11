@@ -92,6 +92,23 @@ for party, (own, keyid) in PARTIES.items():
     check(len(ing) == 1 and ing[0]["from"] == [{"podSelector": {"matchLabels": {"app": "bank-gw"}}}], f"{party}: ingress only from app=bank-gw of this ns (no namespaceSelector, no ipBlock): {ing}")
     check(ing and [p["port"] for p in ing[0]["ports"]] == [8080, 8081], f"{party}: ingress ports 8080, 8081")
 
+# fabricx-access <party>: the S16 gateway fx-gw-<N> of rd-fabricx-<party> reads the signed bundles (port 8080 only, never the 8081 sink)
+for n, party in enumerate(PARTIES, 1):
+    ds = docs("fabricx-access", party)
+    check(len(ds) == 1 and ds[0]["kind"] == "NetworkPolicy", f"fabricx-access {party}: exactly one NetworkPolicy, got {[d['kind'] for d in ds]}")
+    if len(ds) != 1:
+        continue
+    d = ds[0]
+    check(d["metadata"]["name"] == "bundle-server-from-fabricx" and d["metadata"].get("namespace") == f"rd-zeto-{party}", f"fabricx-access {party}: name/namespace {d['metadata']}")
+    sp = d["spec"]
+    check(sp["podSelector"] == {"matchLabels": {"app": "bundle-server"}} and sp["policyTypes"] == ["Ingress"], f"fabricx-access {party}: selects bundle-server, Ingress only")
+    frm = [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-fabricx-{party}"}}, "podSelector": {"matchLabels": {"app.kubernetes.io/name": f"fx-gw-{n}"}}}]
+    check(len(sp["ingress"]) == 1 and sp["ingress"][0]["from"] == frm, f"fabricx-access {party}: one source, namespace rd-fabricx-{party} AND pod app.kubernetes.io/name=fx-gw-{n}: {sp['ingress']}")
+    check(sp["ingress"] and sp["ingress"][0]["ports"] == [{"protocol": "TCP", "port": 8080}], f"fabricx-access {party}: TCP 8080 only (never the 8081 sink): {sp['ingress']}")
+    check("8081" not in run("fabricx-access", party).stdout, f"fabricx-access {party}: 8081 must not appear")
+check(run("fabricx-access", "bank-d").returncode == 2, "fabricx-access with an unknown party must fail with 2")
+check(run("fabricx-access").returncode == 2, "fabricx-access without a party must fail with 2")
+
 # arguments
 pull = docs("bi", "--sink-image", IMG, "--pull-secret", "ghcr-pull")
 pod = [d for d in pull if d["kind"] == "Deployment"][0]["spec"]["template"]["spec"]
