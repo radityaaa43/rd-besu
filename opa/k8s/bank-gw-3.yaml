@@ -58,7 +58,7 @@ spec:
       - {name: envoy, configMap: {name: bank-gw-3-envoy}}
       - {name: mtls, secret: {secretName: bank-gw-3-mtls, optional: true, defaultMode: 292}} # 0444: envoy runs as uid 10001
       - {name: opa, configMap: {name: bank-gw-opa-v2}}
-      - {name: sink-token, secret: {secretName: bundle-sink-token, defaultMode: 292}} # 0444; not optional: the pod waits for the Secret (README, bundle-server hardening)
+      - {name: sink-token, secret: {secretName: bundle-sink-token, optional: true, defaultMode: 292}} # 0444; optional: a missing Secret costs decision logs and status posts, never the gateway (README, bundle-server hardening)
 ---
 apiVersion: v1
 kind: Service
