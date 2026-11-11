@@ -52,6 +52,8 @@ for party, ns in PARTIES.items():
         check(dd.get("podSelector") == {} and dd.get("policyTypes") == ["Ingress"] and "ingress" not in dd, f"{party}: default-deny-ingress must select all pods, Ingress only, no rules")
         sn = np["allow-same-namespace"]["spec"]
         check(sn.get("policyTypes") == ["Ingress"] and sn["ingress"] == [{"from": [{"podSelector": {}}]}], f"{party}: allow-same-namespace must allow only podSelector {{}} of the same ns")
+        ex = sn["podSelector"].get("matchExpressions", [])
+        check(ex == [{"key": "app", "operator": "NotIn", "values": ["paladin-pg", "paladin"]}], f"{party}: allow-same-namespace must exclude app=paladin-pg and app=paladin (their own policies are the only ingress; S16 gateway/): {ex}")
         dns = np["allow-dns-egress"]["spec"]
         check(dns["policyTypes"] == ["Egress"], f"{party}: allow-dns-egress must be Egress")
         sel = dns["podSelector"].get("matchExpressions", [])
