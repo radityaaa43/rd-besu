@@ -2,6 +2,7 @@
 src = "src"
 test = "test"
 out = "out"
+solc_version = "0.8.28"
 libs = []
 
 # Must match the Pente privacy group's evmVersion (Paladin/scripts and every deploy call in this
