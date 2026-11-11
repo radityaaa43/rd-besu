@@ -28,6 +28,7 @@ Code boundary: `createSigner(cfg, deps)` takes `deps = { keys, chain: ChainPort,
 | `POST /intent` | Lensa gateway | builds, signs, submits; kinds `rd-transfer`, `bond-transfer`, `dvp-leg` |
 | `GET /holdings` | gateway | own stealth addresses with token and amounts: `scan()` result without private keys |
 | `GET /history` | gateway | own received payments, newest last, with authenticated sender when the memo opens |
+| `GET /meta-address` | gateway, operator | role bank: `{party, metaAddress, identityAddress}`: the meta-address derived from the spend + view keys (public) and the identity ACCOUNT address, the ERC-6538 registry key (`registerKeys` stores under `msg.sender`, `ERC6538Registry.sol:36-38`); never a key; role custodian: 403 `role_forbidden` (S9 proof, PLAN S9 RED) |
 | `POST /cert` | other banks' signers, role `custodian` only | custodian signs a certificate (enabled by S12; S8 ships the route returning 403 `role_forbidden` for role `bank`) |
 | `GET /health` | kubelet | 200 `{"ok":true}`; no key, no chain call |
 
