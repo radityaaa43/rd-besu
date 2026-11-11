@@ -33,4 +33,12 @@ The old pod IPs last only while the old pods live (PLAN S3 interim): re-run step
   (`namespaceSelector part-of=rd-zeto`). bank C: requests 250m / 1500M, limits 2 / 3G (first guess, cluster 2 memory is tight [unverified]).
 - PVC 40Gi, class default `alicloud-essd-wffc` (zone follows the pod; reclaim Delete, but the StatefulSet keeps PVCs on delete/scale), `--storage-class` overrides.
 - init container `busybox:1.36` (live uses unpinned `busybox`; the pull is a new image reference on these nodes: [unverified]).
-- Not here: S5a/S5b votes (RPC by port-forward with the admin kubeconfig: `party-admin` has no `pods/portforward`), gateway and Paladin pointing at `besu-rpc` (S9, S16).
+- Not here: S5a/S5b votes beyond the helper `vote.sh` (below; RPC by port-forward with the admin kubeconfig: `party-admin` has no `pods/portforward`), gateway and Paladin pointing at `besu-rpc` (S9, S16).
+
+## S5a validator vote (`vote.sh`) and the n=8 rule
+`./vote.sh --old URL x4 --new-rpc URL --address 0x<new> [--dry-run] [--timeout 300] | --withdraw` (test: `../test-vote.sh`). One address per run; order bi, bank-a, bank-b, bank-c; user-only (old-stack consensus), needs an explicit window word.
+Done 2026-11-11 22:19-22:26 CST (sha dfd79a4): set 4 -> 5 -> 6 -> 7 -> 8, each new validator sealed >= 1 block within 2n blocks (`qbft_getSignerMetrics`, the gate between votes; "in the set" alone is not enough).
+Gate fail = vote the address out at once (`qbft_proposeValidatorVote(X, false)` on more than 50% of the current set) and stop.
+
+**n=8 rule:** the old 4 validators have no path to bank-c (cluster 2); bank-c's three peers bi, bank-a and bank-b relay its QBFT messages (besu 26.8.1: QbftController.java:215-222 gossips every processed message, QbftGossiperImpl.java:80-84 relays except to sender and author,
+ValidatorPeers.java:36,79-89 sends only to connected validator peers). While the set is 8 (quorum 6), **at most one of bi, bank-a, bank-b may be down or in maintenance at a time**: two down cut bank-c off and leave the old 4 + 2 = 6, exactly the quorum, with no spare.
