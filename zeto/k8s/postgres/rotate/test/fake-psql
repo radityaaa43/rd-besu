@@ -1,0 +1,14 @@
+#!/bin/bash
+# Stand-in for psql in check.py: the "database" keeps ONE current password in $FAKE_PSQL_STATE; a login needs PGPASSWORD == it.
+cur=$(cat "$FAKE_PSQL_STATE")
+[ "${PGPASSWORD:-}" = "$cur" ] || { echo "psql: FATAL: password authentication failed" >&2; exit 2; }
+case "$*" in
+  *pg_tables*) echo 7; exit 0 ;;
+  *"select 1"*) echo 1; exit 0 ;;
+esac
+sql=$(cat)
+if [[ "$sql" =~ PASSWORD\ \'([^\']*)\' ]]; then
+  [ "${FAKE_PSQL_FAIL_ALTER:-}" = 1 ] && exit 1
+  printf '%s' "${BASH_REMATCH[1]}" > "$FAKE_PSQL_STATE"; exit 0
+fi
+exit 1
