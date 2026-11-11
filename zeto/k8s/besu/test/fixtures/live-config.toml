@@ -1,0 +1,82 @@
+# Every possible CLI should be in this file.
+#
+# Please use a plausible value, besu has to at least be able to parse it.
+# If it is a multi-valued CLI make it a TOML array.
+# If it is a number or boolean make it a number or boolean
+# All other config options are strings, and must be quoted.
+
+# Node Information
+data-path="/data/besu"
+genesis-file="/etc/genesis/genesis.json"
+logging="INFO"
+node-private-key-file="/keys/nodekey"
+
+# P2P network
+p2p-enabled=true
+discovery-enabled=true
+static-nodes-file="/config/static/static-nodes.json"
+p2p-host="0.0.0.0"
+p2p-port=30303
+max-peers=25
+
+
+
+host-allowlist=["*"]
+
+
+# JSON-RPC
+rpc-http-enabled=true
+rpc-http-host="0.0.0.0"
+rpc-http-port=8545
+rpc-http-api=["ETH","NET","WEB3","QBFT","ADMIN","TXPOOL","DEBUG","TRACE","PERM"]
+rpc-http-cors-origins=["all"]
+rpc-http-authentication-enabled=false
+rpc-http-max-active-connections=500
+revert-reason-enabled=true
+
+
+
+
+# WebSockets API
+rpc-ws-enabled=true
+rpc-ws-host="0.0.0.0"
+rpc-ws-port=8546
+rpc-ws-api=["ETH","NET","WEB3","QBFT","ADMIN","TXPOOL","DEBUG","TRACE"]
+rpc-ws-authentication-enabled=false
+
+
+
+
+
+
+# Metrics
+metrics-enabled=true
+metrics-host="0.0.0.0"
+metrics-port=9545
+
+
+
+
+# Extra performance / tuning options
+sync-mode="FULL"
+data-storage-format="BONSAI"
+receipt-compaction-enabled=true
+cache-last-blocks=1024
+tx-pool="SEQUENCED"
+tx-pool-max-size=20000
+tx-pool-limit-by-account-percentage=1.0
+tx-pool-retention-hours=1
+tx-pool-min-gas-price=0
+poa-block-txs-selection-max-time=90
+rpc-http-max-batch-size=512
+rpc-gas-cap=0
+# parallelizes tx execution within a block on the Bonsai storage format (GA
+# flag; --Xtx-validator-parallel-enabled does not exist in besu 26.8.1)
+bonsai-parallel-tx-processing-enabled=true
+# live chain was genesis'd at gasLimit 1e9; nudges +1/1024 per block toward
+# this target each time this node proposes (protocol-limited, no instant jump)
+target-gas-limit=9007199254740991
+# Xplugin-rocksdb-high-spec-enabled skipped on purpose: besu docs require
+# 32GB+ RAM and warn against <=16GB. This node's container limit is 5G
+# (host has 7.6Gi total). Enabling it here risks OOMKill once the DB grows
+# past what a short smoke test shows. Revisit if node pool moves to 32GB+.
