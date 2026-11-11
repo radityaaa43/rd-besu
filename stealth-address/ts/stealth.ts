@@ -16,10 +16,12 @@ const hashShared = (priv: string, pub: Uint8Array) => keccak256(secp256k1.getSha
 const addressOf = (spendPub: Uint8Array, h: string) =>
   computeAddress('0x' + Point.fromHex(spendPub).add(Point.BASE.multiply(BigInt(h) % N)).toHex(false));
 
+export const metaAddressOf = (spendKey: string, viewKey: string) => hexlify(concat([pubOf(spendKey), pubOf(viewKey)]));
+
 export function generateMetaAddress() {
   const spendKey = hexlify(secp256k1.utils.randomPrivateKey());
   const viewKey = hexlify(secp256k1.utils.randomPrivateKey());
-  return { spendKey, viewKey, metaAddress: hexlify(concat([pubOf(spendKey), pubOf(viewKey)])) };
+  return { spendKey, viewKey, metaAddress: metaAddressOf(spendKey, viewKey) };
 }
 
 // ephemeralKey is only for deterministic tests; production callers omit it.

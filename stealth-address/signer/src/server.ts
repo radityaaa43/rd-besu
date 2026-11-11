@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Interface, Wallet, getBytes, hexlify, isAddress, isHexString } from 'ethers';
 import { CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signCertificate } from '../../ts/bond.ts';
 import { TRANCHE_A, pay, read } from '../../ts/chain.ts';
-import { scan } from '../../ts/stealth.ts';
+import { metaAddressOf, scan } from '../../ts/stealth.ts';
 import { parseTokenMetadata } from '../../ts/token.ts';
 import type { BankKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
 
@@ -185,11 +185,13 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
-    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
     }
+    // public data only: the meta-address (spend + view PUBLIC keys) and the identity ACCOUNT address, the ERC-6538 registry key (PLAN S9 proof)
+    if (r === 'GET /meta-address') return { status: 200, body: { party: cfg.party, metaAddress: metaAddressOf(bank.spendKey, bank.viewKey), identityAddress: new Wallet(bank.identityKey).address } };
     if (r === 'GET /history') return { status: 200, body: { party: cfg.party, history: await history() } };
     if (r === 'POST /intent') {
       const body = await readBody(req);
