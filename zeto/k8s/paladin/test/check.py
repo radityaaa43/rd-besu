@@ -54,7 +54,7 @@ for party, n in PARTIES.items():
     if not ds:
         continue
     kinds = sorted(d["kind"] for d in ds)
-    check(kinds == ["ConfigMap", "Deployment", "Paladin", "Role", "RoleBinding", "ServiceAccount", "StatefulSet"], f"{party}: kinds {kinds}")
+    check(kinds == ["ConfigMap", "Deployment", "LimitRange", "Paladin", "Role", "RoleBinding", "ServiceAccount", "StatefulSet"], f"{party}: kinds {kinds}")
     for d in ds:
         check(d["kind"] not in FORBIDDEN_KINDS, f"{party}: forbidden kind {d['kind']}")
         check(d["metadata"].get("namespace") == ns, f"{party}: {d['kind']}/{d['metadata']['name']} not in {ns}")
@@ -62,6 +62,12 @@ for party, n in PARTIES.items():
     if len(by) != len(ds):
         continue
 
+    # Paladin pods get no resources from the operator (paladin_controller.go: only PVC sizes; CR has no resources field; the stub's containers are replaced at :297-306),
+    # so the namespace default comes from a LimitRange
+    lr = by["LimitRange"]
+    item = lr["spec"]["limits"][0]
+    check(lr["metadata"]["name"] == "paladin-defaults" and len(lr["spec"]["limits"]) == 1 and item["type"] == "Container", f"{party}: LimitRange paladin-defaults, one Container item")
+    check(item.get("defaultRequest") == {"cpu": "250m", "memory": "1Gi"} and item.get("default") == {"cpu": "2", "memory": "3Gi"}, f"{party}: LimitRange defaults {item}")
     # operator: namespaced only, one namespace watched, image pinned, fork digest in its ConfigMap
     role = by["Role"]
     seen = {r for rule in role["rules"] if "core.paladin.io" in rule["apiGroups"] for r in rule["resources"] if "/" not in r}
@@ -176,6 +182,14 @@ for party, n in PARTIES.items():
 pc = docs("probe-client", "bank-a", "bank-b-lb", "147.139.205.80")
 check(len(pc) == 1 and pc[0]["kind"] == "Pod" and pc[0]["metadata"]["namespace"] == "rd-zeto-bank-a" and "147.139.205.80" in json.dumps(pc[0]["spec"]["containers"][0]["command"]), "probe-client: pod in the client's ns connecting to the given IP")
 check(run("probe-client", "bank-a", "x", "not-an-ip").returncode != 0, "probe-client: target must be an IPv4")
+
+for party, n in PARTIES.items():
+    pp = docs("probe-placement", party)
+    check(len(pp) == 1 and pp[0]["kind"] == "Pod" and pp[0]["metadata"]["namespace"] == f"rd-zeto-{party}" and pp[0]["metadata"]["labels"].get("throwaway") == "zeto-s9-placement", f"{party}: probe-placement pod")
+    if pp:
+        c0 = pp[0]["spec"]["containers"][0]
+        check(c0["resources"]["requests"] == {"cpu": "250m", "memory": "1Gi"}, f"{party}: placement pod requests = the LimitRange defaultRequest: {c0['resources']}")
+        check(pp[0]["metadata"]["labels"].get("app") != "paladin", f"{party}: placement pod must not carry app=paladin (no netpol/service effect)")
 
 # gen-certs: own CA per node, CN node<N>, SAN = the LB IP; keys never inside the repo
 import tempfile, shutil

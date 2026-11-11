@@ -9,5 +9,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["ts", "script"]
+  "include": ["ts", "script", "signer"]
 }
