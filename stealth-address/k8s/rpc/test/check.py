@@ -107,6 +107,7 @@ for party, ns in PARTIES.items():
         check("member-16033-node" in aff and "member-16034-node" in aff and "NotIn" in aff, f"{party}: kept off member-16033-node / member-16034-node")
         res = c["resources"]
         check(res.get("requests", {}).get("cpu") and res["requests"].get("memory") and res.get("limits", {}).get("memory"), f"{party}: requests and limits set")
+        check(res["requests"] == {"cpu": "100m", "memory": "768Mi"} and res["limits"] == {"cpu": "2", "memory": "3G"}, f"{party}: besu-rpc requests 100m / 768Mi (resize 2026-11-12), limits unchanged 2 / 3G")
     check(run(render, "node", party).returncode != 0, f"{party}: node without --static-nodes must fail")
     check(run(render, "node", party, "--static-nodes", os.path.join(tmp, "nope.json")).returncode != 0, f"{party}: missing static-nodes file must fail")
 two = os.path.join(tmp, "two.json"); json.dump([ENODE, "enode://" + "b" * 128 + "@10.1.2.4:30303?discport=0"], open(two, "w"))
@@ -128,7 +129,7 @@ for stage, extra in (("net", []), ("node", ["--static-nodes", sn])):
         st = of(ds, "StatefulSet")[0]
         aff = json.dumps(st["spec"]["template"]["spec"].get("affinity", {}))
         check("member-16033-node" not in aff, "cluster 2: the cluster-1 node exclusion must not be copied")
-        check(st["spec"]["template"]["spec"]["containers"][0]["resources"]["requests"]["memory"] != "1500M", "cluster 2: smaller requests than cluster 1")
+        check(st["spec"]["template"]["spec"]["containers"][0]["resources"] == {"requests": {"cpu": "100m", "memory": "640Mi"}, "limits": {"cpu": "1", "memory": "2G"}}, "cluster 2: besu-rpc requests 100m / 640Mi (resize 2026-11-12), limits unchanged 1 / 2G")
 for args in (["net", "bank-c"], ["--cluster", "2", "net", "bi"], ["--cluster", "1", "net", "bank-c"], ["--cluster", "2"], ["net", "bank-d"]):
     check(run(render, *args).returncode != 0, f"render.sh {' '.join(args)} must be refused")
 
