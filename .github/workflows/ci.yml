@@ -54,3 +54,20 @@ jobs:
         with:
           version: 1.21.1
       - run: opa test --coverage bundles/bi bundles/bank test
+
+  stealth-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: stealth-address/k8s/test.sh
+      - run: stealth-address/k8s/gateway/test.sh
+      - name: envoy --mode validate on every party config (throwaway certs stand in for Secret st-gw-<N>-mtls)
+        run: |
+          d="$(mktemp -d)"; chmod 755 "$d"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$d/tls.key" -out "$d/tls.crt" -subj /CN=st-gw -days 1
+          cp "$d/tls.crt" "$d/ca.crt"; chmod 644 "$d"/*
+          for p in bi bank-a bank-b bank-c; do
+            stealth-address/k8s/gateway/render.sh envoy "$p" > "$d/$p.yaml"
+            docker run --rm -v "$d:/mtls:ro" envoyproxy/envoy@sha256:b1f389c3a6148e85e9de364cb867aa2e5802153abb37ad80f1f2241d693da32a --mode validate -c "/mtls/$p.yaml"
+          done

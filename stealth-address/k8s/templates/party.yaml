@@ -26,10 +26,11 @@ metadata:
   namespace: ${NS}
   labels: {part-of: rd-stealth, party: ${PARTY}}
 spec:
-  # S7 + S4: excludes the Vault key store and the RPC node; policies are additive, so vault-ingress (vault/) and besu-rpc-ingress (rpc/) are their only ingress.
+  # S7 + S4 + S17: excludes the Vault key store, the RPC node and the signer pods (label app=stealth-signer); policies are additive, so vault-ingress (vault/) and besu-rpc-ingress (rpc/) are their only ingress.
   podSelector:
     matchExpressions:
       - {key: app.kubernetes.io/name, operator: NotIn, values: [vault, besu-rpc]}
+      - {key: app, operator: NotIn, values: [stealth-signer]}
   policyTypes: [Ingress]
   ingress:
     - from:

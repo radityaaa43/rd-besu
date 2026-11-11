@@ -8,11 +8,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createMtlsFetch } from '../src/mtls.ts';
 
-function pki() {
+function pki(srvSan = 'subjectAltName=DNS:localhost,IP:127.0.0.1') {
   const d = mkdtempSync(join(tmpdir(), 'mtls-'));
   const sh = (...a: string[]) => execFileSync('openssl', a, { cwd: d, stdio: 'pipe' });
   sh('req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-subj', '/CN=test-ca', '-days', '2');
-  for (const [n, cn, san] of [['srv', 'localhost', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], ['cli', 'bank-signer-A', 'subjectAltName=DNS:bank-signer-A']] as const) {
+  for (const [n, cn, san] of [['srv', 'localhost', srvSan], ['cli', 'bank-signer-A', 'subjectAltName=DNS:bank-signer-A']] as const) {
     sh('req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', `${n}.key`, '-out', `${n}.csr`, '-subj', `/CN=${cn}`);
     execFileSync('sh', ['-c', `printf '${san}\\n' > ${n}.ext && openssl x509 -req -in ${n}.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out ${n}.crt -days 2 -extfile ${n}.ext`], { cwd: d, stdio: 'pipe' });
   }
@@ -39,5 +39,21 @@ describe('createMtlsFetch (node:https, client cert)', () => {
       const noCert = createMtlsFetch({ key: '', cert: '', ca: k.ca });
       await expect(noCert(url)).rejects.toThrow();
     } finally { await new Promise<void>((r) => server.close(() => r())); }
+  });
+
+  it('servername sets the SNI and the identity the server cert is verified against (gateway passthrough: dial an IP or gateway host, name the custodian)', async () => {
+    const k = pki('subjectAltName=DNS:custodian-1');
+    let sni = '';
+    const server = createServer({ key: k.srvKey, cert: k.srvCrt, ca: k.ca, requestCert: true, rejectUnauthorized: true }, (_req, res) => res.end('ok'));
+    server.on('tlsClientError', () => {});
+    server.on('secureConnection', (s) => { sni = (s as import('node:tls').TLSSocket).servername || ''; });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const url = `https://127.0.0.1:${(server.address() as AddressInfo).port}/x`;
+    try {
+      await expect(createMtlsFetch({ key: k.cliKey, cert: k.cliCrt, ca: k.ca })(url)).rejects.toThrow();
+      const res = await createMtlsFetch({ key: k.cliKey, cert: k.cliCrt, ca: k.ca, servername: 'custodian-1' })(url);
+      expect(res.status).toBe(200);
+      expect(sni).toBe('custodian-1');
+    } finally { server.close(); }
   });
 });
