@@ -1,19 +1,21 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { Interface, Wallet, getBytes, hexlify, isAddress, isHexString } from 'ethers';
 import { CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signCertificate } from '../../ts/bond.ts';
-import { TRANCHE_A, pay, read } from '../../ts/chain.ts';
+import { TRANCHE_A, biRows, pay, read } from '../../ts/chain.ts';
 import { metaAddressOf, scan } from '../../ts/stealth.ts';
 import { parseTokenMetadata } from '../../ts/token.ts';
-import type { BankKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
+import type { BankKeys, BiKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
 
 // ABIs inline (analyst verdict 2): the image has no forge output. Signatures: src/RupiahDigital.sol, src/DfabiBond.sol, ERC1400.
 const rdAbi = new Interface([
   'function sendStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)',
   'function transfer(address to, uint256 amount)',
+  'function mintStealth(address stealthAddress, uint256 amount, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)',
 ]);
 const bondAbi = new Interface([
   'function transferByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo, bytes data)',
   'function transferByPartition(bytes32 partition, address to, uint256 value, bytes data)',
+  'function issueByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)',
 ]);
 const SEL_STEALTH = bondAbi.getFunction('transferByPartitionStealth')!.selector;
 const SEL_PLAIN = bondAbi.getFunction('transferByPartition')!.selector;
@@ -58,7 +60,10 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   const names = Object.keys(keys).sort().join(',');
   if (cfg.role === 'custodian' && names !== 'certKey') throw new Error(`role custodian needs keys {certKey} and no bank key, got {${names}}`);
   if (cfg.role === 'bank' && names !== 'identityKey,spendKey,viewKey') throw new Error(`role bank needs keys {identityKey,spendKey,viewKey} and no certKey, got {${names}}`);
-  const bank = keys as BankKeys; // only dereferenced on role bank routes
+  if (cfg.role === 'bi' && names !== 'issuerKey,spendKey,viewCopies,viewKey') throw new Error(`role bi needs keys {issuerKey,spendKey,viewKey,viewCopies} and no certKey, got {${names}}`);
+  const bi = keys as BiKeys; // only dereferenced on role bi routes
+  // role bi acts as a bank for holdings/history/meta-address with its own receive keys; its identity account is the issuer key (as in the Lensa adapter).
+  const bank = (cfg.role === 'bi' ? { spendKey: bi.spendKey, viewKey: bi.viewKey, identityKey: bi.issuerKey } : keys) as BankKeys;
   const certKey = (keys as CustodianKeys).certKey;
 
   // Everything this party owns, from its own RPC: scan() result joined with its announcement.
@@ -87,8 +92,28 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   async function intent(body: any) {
     if (body.from !== cfg.party) throw new HttpError(403, 'wrong_party', 'intent is for another party');
     const kind = body.kind;
-    if (kind !== 'rd-transfer' && kind !== 'bond-transfer' && kind !== 'dvp-leg') throw new HttpError(422, 'unknown_kind');
+    if (kind !== 'rd-transfer' && kind !== 'bond-transfer' && kind !== 'dvp-leg' && kind !== 'rd-mint' && kind !== 'bond-issue') throw new HttpError(422, 'unknown_kind');
+    if ((kind === 'rd-mint' || kind === 'bond-issue') && cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'only the BI signer mints or issues');
     const amount = parseAmount(body.amount);
+
+    // Issuer calls: signed by the issuer ACCOUNT (not a stealth address), no holding to spend, no certificate (the minter is exempt). No cert or controller op is
+    // ever signed with this key here (analyst Q12): /cert stays custodian-only.
+    if (kind === 'rd-mint' || kind === 'bond-issue') {
+      const token = kind === 'rd-mint' ? cfg.rd : cfg.bond;
+      const partition = kind === 'bond-issue' ? (body.partition ?? TRANCHE_A) : undefined;
+      if (partition !== undefined && !(typeof partition === 'string' && isHexString(partition, 32))) throw new HttpError(422, 'bad_request', 'partition must be 32 bytes hex');
+      let p: ReturnType<typeof pay>;
+      try { p = pay(cfg.chainId, body?.to?.metaAddress, bi.issuerKey, token, amount, partition); }
+      catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
+      const data = kind === 'rd-mint'
+        ? rdAbi.encodeFunctionData('mintStealth', [p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo])
+        : bondAbi.encodeFunctionData('issueByPartitionStealth', [partition, p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo]);
+      const issuer = new Wallet(bi.issuerKey);
+      const [nonce, gasPrice, gasLimit] = await Promise.all([chain.nonce(issuer.address), chain.gasPrice(), chain.estimateGas({ from: issuer.address, to: token, data })]);
+      const rawTx = await issuer.signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to: token, data, value: 0n });
+      const txHash = await chain.sendRawTransaction(rawTx);
+      return { status: 200, body: { kind, from: issuer.address, txHash, rawTx }, note: `tx=${txHash}` };
+    }
 
     // What to send: token + partition the funds must sit in, and a builder for the calldata (cert is the last bond argument).
     let token: string, partition: string | undefined, build: (cert?: string) => string;
@@ -152,6 +177,17 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     return rows;
   }
 
+  // BI's detective view (S10, DELTA 3): every payment resolved to a bank by that bank's VIEW-key copy, with amount and authenticated sender. Never a spend key.
+  async function ledger(kind: 'rd' | 'bond') {
+    const token = kind === 'rd' ? cfg.rd : cfg.bond;
+    const anns = (await chain.announcements(cfg.fromBlock)).filter((a) => {
+      const bond = parseBondMetadata(a.metadata);
+      const m = bond ?? parseTokenMetadata(a.metadata);
+      return m && (kind === 'bond') === !!bond && sameAddr(m.token, token);
+    });
+    return biRows(cfg.chainId, anns, bi.viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx }));
+  }
+
   // Custodian: sign only what the rules (a)-(d) of the analyst verdict allow. Nonce and domain come from the chain.
   async function cert(req: IncomingMessage) {
     if (cfg.role !== 'custodian') throw new HttpError(403, 'role_forbidden', '/cert is served by the custodian only');
@@ -185,13 +221,19 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
-    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
     }
     // public data only: the meta-address (spend + view PUBLIC keys) and the identity ACCOUNT address, the ERC-6538 registry key (PLAN S9 proof)
     if (r === 'GET /meta-address') return { status: 200, body: { party: cfg.party, metaAddress: metaAddressOf(bank.spendKey, bank.viewKey), identityAddress: new Wallet(bank.identityKey).address } };
+    if (r === 'GET /ledger') {
+      if (cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'the ledger view is the BI signer\'s');
+      const kind = new URL(req.url ?? '/', 'http://x').searchParams.get('kind');
+      if (kind !== 'rd' && kind !== 'bond') throw new HttpError(422, 'bad_request', 'kind must be rd or bond');
+      return { status: 200, body: { kind, rows: await ledger(kind) } };
+    }
     if (r === 'GET /history') return { status: 200, body: { party: cfg.party, history: await history() } };
     if (r === 'POST /intent') {
       const body = await readBody(req);
