@@ -68,4 +68,15 @@ describe('(5) cert-request client', () => {
     expect(BigInt(body.expiry)).toBe(NOW + 600n); // chainNow + 600 (ts/chain.ts:82)
     expect(hexlify(getBytes(body.payload))).toBe(body.payload);
   });
+
+  it('verdict 8: estimateGas runs only AFTER the real certificate is inserted (the 97-byte placeholder reverts)', async () => {
+    const stub = await stubCert(); cleanup.push(stub.close);
+    const chain = new FakeChain(); fund(chain, 'bond', 300n);
+    const s = await start(chain, { cert: createCertClient({ url: stub.url }) }); cleanup.push(s.stop);
+    const r = await s.call('POST', '/intent', { kind: 'bond-transfer', from: 'A', to: { metaAddress: B.metaAddress }, amount: '100' });
+    expect(r.status).toBe(200);
+    expect(chain.gasCalls).toHaveLength(1);
+    expect(chain.gasCalls[0].data.toLowerCase()).toContain(stub.certificate.slice(2).toLowerCase()); // real cert inside the estimated calldata
+    expect(chain.gasCalls[0].data.toLowerCase()).not.toContain('00'.repeat(CERTIFICATE_LENGTH));
+  });
 });

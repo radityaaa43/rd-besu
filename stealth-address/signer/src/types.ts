@@ -1,6 +1,6 @@
 import type { LoggedAnnouncement } from '../../ts/chain.ts';
 
-export type Keys = { spendKey: string; viewKey: string; identityKey: string }; // names = files of the S7 mount
+export type Keys = { spendKey: string; viewKey: string; identityKey: string; certKey?: string }; // names = files of the S7 mount; certKey only for role custodian (separate key + role, never a bank spend key)
 
 export type SignerConfig = {
   party: string; // the one party this instance serves, e.g. "A"
@@ -10,6 +10,7 @@ export type SignerConfig = {
   bond: string; // DfabiBond address
   fromBlock: number; // announcements are read from here on
   certTtlSeconds?: number; // default 600 (ts/chain.ts:82)
+  bankSigners?: string[]; // custodian only: subjects of the mTLS client certs registered as bank signers
 };
 
 // Everything the service needs from its own RPC node. Production adapts ethers' JsonRpcProvider; tests use a fake.
@@ -20,6 +21,10 @@ export interface ChainPort {
   gasPrice(): Promise<bigint>;
   estimateGas(tx: { from: string; to: string; data: string }): Promise<bigint>;
   now(): Promise<bigint>; // latest block timestamp, unix seconds
+  // custodian reads these from the chain, never from the request (analyst verdict 1):
+  bondDomainSeparator(): Promise<string>; // token.generateDomainSeparator()
+  usedCertificateNonce(token: string, sender: string): Promise<bigint>; // validator.usedCertificateNonce
+  isEscrow(address: string): Promise<boolean>; // created by OUR DvPFactory
   sendRawTransaction(raw: string): Promise<string>; // returns the tx hash
 }
 
@@ -28,4 +33,7 @@ export interface CertClient {
   request(r: CertRequest): Promise<string>; // 97-byte certificate, hex
 }
 
-export type SignerDeps = { keys: Keys; chain: ChainPort; log: (line: string) => void; cert?: CertClient };
+import type { IncomingMessage } from 'node:http';
+// mTLS identity of the caller as seen by the TLS terminator (undefined = no client certificate)
+export type PeerIdentity = (req: IncomingMessage) => { subject: string } | undefined;
+export type SignerDeps = { keys: Keys; chain: ChainPort; log: (line: string) => void; cert?: CertClient; peer?: PeerIdentity };

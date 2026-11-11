@@ -54,6 +54,23 @@ describe('(2) intent for another party is rejected', () => {
   });
 });
 
+describe('verdict 4/5: holdings and no aggregation', () => {
+  it('holdings list every scan match including balance 0', async () => {
+    const chain = new FakeChain(); const spent = fund(chain, 'rd', 500n, 1); chain.balances.set((RD + spent).toLowerCase(), 0n);
+    const s = await start(chain); stop = s.stop;
+    const r = await s.call('GET', '/holdings');
+    expect(r.json.holdings.map((h: { stealthAddress: string; amount: string }) => [h.stealthAddress, h.amount])).toEqual([[spent, '0']]);
+  });
+
+  it('no single holding covers the amount -> 422 insufficient_holdings, no aggregation, nothing sent', async () => {
+    const chain = new FakeChain(); fund(chain, 'rd', 60n, 1); fund(chain, 'rd', 60n, 2);
+    const s = await start(chain); stop = s.stop;
+    const r = await s.call('POST', '/intent', rdIntent);
+    expect([r.status, r.json.error]).toEqual([422, 'insufficient_holdings']);
+    expect(chain.sent).toEqual([]);
+  });
+});
+
 describe('(3) GET /holdings equals scan()', () => {
   it('lists exactly the stealth addresses scan() finds, in order, with no private key field', async () => {
     const chain = new FakeChain();
