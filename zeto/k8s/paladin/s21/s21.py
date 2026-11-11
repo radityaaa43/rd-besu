@@ -110,11 +110,12 @@ def wait_ready_failfast(cfg, ns, pod, secs):
     return wp.returncode == 0, (wp.stderr.read().strip()[:120] if wp.returncode else '')
 
 
-def safe_logs(cfg, ns, pod, tail=4):
-    """last log lines of a Paladin pod WITHOUT the fork's `REMOVE: DSN=...` line (it prints the DB password); also drops any postgres:// URL"""
-    out = kc(cfg, '-n', ns, 'logs', pod, '-c', 'paladin', '--tail=60').stdout.splitlines()
-    keep = [re.sub(r'postgres://\S+', 'postgres://<dropped>', l) for l in out if 'DSN=' not in l]
-    return ' | '.join(l[-160:] for l in keep[-tail:])
+def proof3(cfg, ns, pod):
+    """R14 proof 3 (counts only, no log output): the new node's log has no postgres://user:password@ and no `REMOVE: DSN` line."""
+    out = kc(cfg, '-n', ns, 'logs', pod, '-c', 'paladin').stdout
+    a = len(re.findall(r'postgres://[^@\s]*:[^@\s]*@', out)); b = out.count('REMOVE: DSN')
+    log(f'PROOF3 {ns}/{pod}: log lines with postgres://..:..@ = {a}; "REMOVE: DSN" lines = {b} (counts only, log not printed)')
+    if a or b: stop(f'{pod}: the log shows the DSN (proof 3 failed): stop, rollback')
 
 
 def c1_read(n):
@@ -197,10 +198,16 @@ if cmd in ('l3', 'l4'):
         if d: log(f'{cmd.upper()} node{n}: delete {locked(cfg, "-n", ns, "delete", "netpol", "rehearsal-no-9000-egress")}')
         log(f'{cmd.upper()} node{n}: {locked(cfg, "-n", ns, "scale", "sts", f"paladin-node{n}", "--replicas=1")}')
         ok, why = wait_ready_failfast(cfg, ns, f'paladin-node{n}-0', 900)
-        if not ok: stop(f'node{n}: new pod not Ready: {why}; last log lines (DSN line dropped): {safe_logs(cfg, ns, f"paladin-node{n}-0")}')
+        if not ok: stop(f'node{n}: new pod not Ready: {why}')
         log(f'{cmd.upper()} node{n} ({p}): ' + kc(cfg, '-n', ns, 'get', 'pod', f'paladin-node{n}-0', '--no-headers', '-o', 'wide').stdout.split('\n')[0][:150])
+        proof3(cfg, ns, f'paladin-node{n}-0')
     with cf.ThreadPoolExecutor(3) as ex: list(ex.map(up, group))
     log(f'{cmd.upper()} DONE {len(group)} node(s)'); sys.exit(0)
+
+if cmd == 'proof3':
+    for n, p, cfg in NODES:
+        if pod_exists(cfg, f'rd-zeto-{p}', f'paladin-node{n}-0'): proof3(cfg, f'rd-zeto-{p}', f'paladin-node{n}-0')
+    sys.exit(0)
 
 if cmd == 'gate':
     old = json.load(open(f'{BK}/old-verifiers.json')); bad = []
