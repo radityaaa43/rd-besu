@@ -2,6 +2,8 @@
 # The (iv) node-read PROBE POD (analyst ruling 2026-11-12): the only party-credential way to read a Paladin node's RPC (party-admin has no pods/exec,
 # pods/portforward or services/proxy). Created by that party's party-admin in its own ns; read the result with pods/log under the same credential; delete the pod after.
 #   render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]
+#   render.sh <party> negative --image REF@sha256:<64 hex> --target IPv4:PORT [--target …]   R17 negative probe: Pod egress-negative-probe (app=paladin, never Ready) that must print T<n> BLOCKED for each target and CONTROL OPEN (paladin-pg:5432)
+#   render.sh <party> lbpath --image REF@sha256:<64 hex> --target <peer LB IPv4>:PORT --via ipblock|selector [--peer-ns rd-zeto-<other party>]   R17: Pod lb-path-probe-<via> + ONE NetworkPolicy (the single rule under test) -> prints TARGET OPEN|REFUSED|BLOCKED + CONTROL BLOCKED
 # Pod `node-probe`: label rd/egress-locked=true (allow-dns-egress excludes it, so its own NetworkPolicy is the only egress policy: R17-0 must be live first; quote the
 # union of ALL selecting Egress policies before relying on it), image by digest, no ServiceAccount token, no Secret/env/volume, runAsNonRoot, RO rootfs, drop ALL,
 # deadline 60 s. NetworkPolicy node-probe: egress only to paladin-node<N>:8548 of its own ns + kube-dns 53 (a Service name is used); ingress none.
@@ -13,9 +15,14 @@
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
 party="${1:-}"; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
-shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'
+shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; targets=(); via=""; peerns=""
+[[ "${1:-}" == negative ]] && { negative=1; shift; }
+[[ "${1:-}" == lbpath ]] && { lbpath=1; shift; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --target) targets+=("${2:-}"); shift 2 ;;
+    --via) via="${2:-}"; shift 2 ;;
+    --peer-ns) peerns="${2:-}"; shift 2 ;;
     --image) img="${2:-}"; shift 2 ;;
     --mode) mode="${2:-}"; shift 2 ;;
     --method) method="${2:-}"; shift 2 ;;
@@ -25,6 +32,93 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$img" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]] || die "--image must be digest-pinned (REF@sha256:<64 lowercase hex>)"
 [[ "$mode" == count || "$mode" == jq ]] || die "--mode must be count or jq"
+if [[ $lbpath == 1 ]]; then
+  [[ ${#targets[@]} == 1 && "${targets[0]}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$ ]] || die "lbpath needs exactly one --target IPv4:PORT (the peer's transport LB IP)"
+  tip="${targets[0]%%:*}"; tport="${targets[0]##*:}"
+  case "$via" in
+    ipblock) [[ -z "$peerns" ]] || die "--via ipblock takes no --peer-ns"; rule="        - ipBlock: {cidr: $tip/32}" ;;
+    selector) [[ "$peerns" =~ ^rd-zeto-(bi|bank-a|bank-b|bank-c)$ && "$peerns" != "rd-zeto-$party" ]] || die "--via selector needs --peer-ns rd-zeto-<another party>"
+      rule="        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: $peerns}
+          podSelector:
+            matchLabels: {app: paladin}" ;;
+    *) die "--via must be ipblock or selector" ;;
+  esac
+  ns="rd-zeto-$party"
+  cmd="t0=\$(date +%s); if nc -w 3 $tip $tport </dev/null >/dev/null 2>&1; then echo TARGET OPEN; elif [ \$((\$(date +%s)-t0)) -lt 2 ]; then echo TARGET REFUSED; else echo TARGET BLOCKED; fi; if nc -w 3 1.1.1.1 443 </dev/null >/dev/null 2>&1; then echo CONTROL OPEN; else echo CONTROL BLOCKED; fi"
+  cat <<YAML
+# R17 same-cluster LB path: does this CNI match the policy rule below for the peer's transport LB IP? OPEN = yes, BLOCKED = no, REFUSED = reached but nothing listens.
+# The control (1.1.1.1:443) must print BLOCKED: it proves this pod's only egress policy is enforced. Pod is never Ready and no Service selects its labels.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lb-path-probe-$via
+  namespace: $ns
+  labels: {"rd/egress-locked": "true", app: lb-path-probe, probe: lb-path-$via, part-of: rd-zeto, party: $party}
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 60
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: $img
+      command: [sh, -c, "$cmd"]
+      readinessProbe: {exec: {command: ["false"]}, periodSeconds: 5}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lb-path-probe-$via
+  namespace: $ns
+  labels: {part-of: rd-zeto, party: $party}
+spec:
+  podSelector:
+    matchLabels: {probe: lb-path-$via}
+  policyTypes: [Egress]
+  egress:
+    - to:
+$rule
+      ports:
+        - {protocol: TCP, port: $tport}
+YAML
+  exit 0
+fi
+if [[ $negative == 1 ]]; then
+  [[ ${#targets[@]} -ge 1 && ${#targets[@]} -le 4 ]] || die "negative needs 1-4 --target IPv4:PORT"
+  nc_cmd=""; i=0
+  for t in "${targets[@]}"; do
+    [[ "$t" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$ ]] || die "--target '$t' must be IPv4:PORT"
+    i=$((i+1)); nc_cmd+="if nc -w 3 ${t%%:*} ${t##*:} </dev/null >/dev/null 2>&1; then echo T$i OPEN; else echo T$i BLOCKED; fi; "
+  done
+  nc_cmd+="if nc -w 3 paladin-pg 5432 </dev/null >/dev/null 2>&1; then echo CONTROL OPEN; else echo CONTROL BLOCKED; fi"
+  ns="rd-zeto-$party"
+  cat <<YAML
+# The paladin-egress policy is the policy under test: this pod carries app=paladin so that it is SELECTED by it. It must never become a Service endpoint:
+# readiness probe that never passes + no Service selector is a subset of its labels. Read the endpoints of every paladin Service before and after the run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: egress-negative-probe
+  namespace: $ns
+  labels: {app: paladin, probe: egress-negative, part-of: rd-zeto, party: $party}
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 60
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: $img
+      command: [sh, -c, "$nc_cmd"]
+      readinessProbe: {exec: {command: ["false"]}, periodSeconds: 5}
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+YAML
+  exit 0
+fi
 [[ "$method" =~ ^[a-z]+_[A-Za-z]+$ ]] || die "--method must look like ptx_queryPendingTransactions"
 [[ "$params" =~ ^[][{}\",:\ 0-9A-Za-z._-]+$ ]] || die "--params may only contain JSON-safe characters (no quotes ' ; \$ \` etc.)"
 ns="rd-zeto-$party"; url="http://paladin-node$n:8548"
