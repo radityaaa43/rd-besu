@@ -1,6 +1,7 @@
 // Process entrypoint (S9 wires it into the Deployment). Not unit-tested: needs a real RPC node and key files.
 // Env: PARTY, ROLE (bank|custodian|bi), PORT, CHAIN_ID, RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY, FROM_BLOCK, RPC_URL,
-// RPC_JWT_KEY_FILE (optional: the node's RS256 private key; the signer mints <= 900 s tokens from it), KEYS_DIR (bank: files spendKey, viewKey, identityKey; bi: issuerKey, spendKey, viewKey + viewcopies/<id>.viewKey and .metaAddress; custodian: file certKey ONLY),
+// RPC_JWT_KEY_FILE (optional: the node's RS256 private key; the signer mints <= 900 s tokens from it), KEYS_DIR (bank: files spendKey, viewKey, identityKey; bi: issuerKey, spendKey, viewKey + the view copies <id>.viewKey and <id>.metaAddress from VIEWCOPIES_DIR (default ${KEYS_DIR}/viewcopies; a missing directory means no copies); custodian: file certKey ONLY),
+// VIEWCOPIES_DIR (bi only, optional): directory of the per-bank view copies, e.g. the mount of the optional Secret stealth-bi-viewcopies.
 // bank and bi: CERT_URL + optional CERT_SERVERNAME + TLS_DIR (client.key, client.crt, ca.crt); custodian: TLS_DIR (server.key, server.crt, ca.crt) + BANK_SIGNERS (comma list of "CN=...").
 import { readFileSync } from 'node:fs';
 import { createServer as createHttps } from 'node:https';
@@ -23,7 +24,7 @@ const cfg: SignerConfig = {
   bankSigners: process.env.BANK_SIGNERS?.split(',').map((s) => s.trim()).filter(Boolean),
 };
 const dir = env('KEYS_DIR');
-const keys = loadKeys(role, dir); // role custodian: certKey ONLY; role bank: spend/view/identity, never certKey
+const keys = loadKeys(role, dir, undefined, undefined, process.env.VIEWCOPIES_DIR || undefined); // role custodian: certKey ONLY; role bank: spend/view/identity, never certKey
 
 const jwt = process.env.RPC_JWT_KEY_FILE ? createRpcTokenSource(readFileSync(process.env.RPC_JWT_KEY_FILE, 'utf8')) : undefined;
 const chain = createChainPort({

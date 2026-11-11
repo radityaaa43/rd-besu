@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # Render the stealth signer Deployments (signer/SPEC.md "Placement (binding)", ../S17.md) to stdout. Never talks to a cluster; the live apply needs its own GO.
 #   render.sh <bank-a|bank-b|bank-c> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME]
+#   render.sh bi --image REF --chain-env FILE --cert-url URL [--pull-secret NAME]
 #   render.sh custodian --image REF --chain-env FILE --bank-signers "CN=a,CN=b" [--pull-secret NAME]
 # bank-<x> -> ns rd-stealth-bank-<x> (PARTY=A|B|C): Deployment + Service stealth-signer (ClusterIP 8080), role bank.
 # custodian -> ns rd-stealth-bi (PARTY=BI): Deployment stealth-custodian (mTLS 9443), role custodian, NO Service.
-# `bi` (the BI signer, ROLE=bi) is not rendered: it needs code that does not exist yet (S10).
+# bi -> ns rd-stealth-bi (PARTY=BI): Deployment + Service stealth-signer (ClusterIP 8080), role bi. Reaches the custodian /cert door through the BI gateway like the banks.
 #   --image       must be digest pinned (...@sha256:<64 hex>).
 #   --chain-env   KEY=VALUE lines (blank lines and # comments allowed). EXACTLY: CHAIN_ID, FROM_BLOCK (digits); RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY
 #                 (0x + 40 hex). No other key is accepted, so nothing secret can be smuggled into a plain env value.
-#   --cert-url    bank only: https://host[:port] of the custodian /cert door (the BI gateway, SNI custodian-1 passthrough).
+#   --cert-url    bank and bi (required): https://host[:port] of the custodian /cert door (the BI gateway, SNI custodian-1 passthrough).
 #   --bank-signers custodian only: the registered bank signer client-cert subjects.
 # Secrets are created by the party operator and NEVER rendered (names + exact key names the pods mount, all 0440):
 #   bank      stealth-keys (spendKey, viewKey, identityKey) -> /keys | stealth-signer-mtls (client.key, client.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
+#   bi        stealth-bi-keys (issuerKey, spendKey, viewKey) -> /keys | stealth-bi-viewcopies (OPTIONAL; every key of it, <id>.viewKey + <id>.metaAddress, S11 fills it) -> /viewcopies
+#             (env VIEWCOPIES_DIR) | stealth-signer-mtls (client.key, client.crt, ca.crt; the client cert CN must be in the custodian's BANK_SIGNERS list) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
 #   custodian stealth-cert-key (certKey) -> /keys | stealth-custodian-mtls (server.key, server.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
-# A bank pod never references stealth-cert-key; the custodian pod never references stealth-keys.
-# gateway/render.sh expects: Service stealth-signer:8080 (pod labels app=stealth-signer role=bank) and Service stealth-custodian:9443 (role=custodian, rendered there).
+# A bank pod never references stealth-cert-key; the bi pod never references stealth-cert-key or stealth-keys; the custodian pod never references stealth-keys.
+# gateway/render.sh expects: Service stealth-signer:8080 (pod labels app=stealth-signer role=bank) and Service stealth-custodian:9443 (role=custodian, rendered there); its stealth-signer-ingress selects role In [bank, bi].
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
-usage="usage: render.sh <bank-a|bank-b|bank-c> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME]"
+usage="usage: render.sh <bank-a|bank-b|bank-c|bi> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME]"
 
 [[ $# -ge 1 ]] || die "$usage"
 sel="$1"; shift
@@ -26,8 +29,8 @@ case "$sel" in
   bank-b) party=B; ns=rd-stealth-bank-b; lp=bank-b ;;
   bank-c) party=C; ns=rd-stealth-bank-c; lp=bank-c ;;
   custodian) party=BI; ns=rd-stealth-bi; lp=bi ;;
-  bi) die "role bi is S10, not rendered" ;;
-  *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c custodian)" ;;
+  bi) party=BI; ns=rd-stealth-bi; lp=bi ;;
+  *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c bi custodian)" ;;
 esac
 
 IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; HAVE_CERT=0; HAVE_SIGNERS=0
@@ -48,12 +51,12 @@ done
 [[ -n "$CHAINENV" ]] || die "--chain-env FILE is required"
 [[ -f "$CHAINENV" ]] || die "--chain-env: not a file"
 if [[ "$sel" == custodian ]]; then
-  [[ $HAVE_CERT -eq 0 ]] || die "--cert-url is for banks only"
+  [[ $HAVE_CERT -eq 0 ]] || die "--cert-url is for banks and bi only"
   [[ $HAVE_SIGNERS -eq 1 ]] || die "--bank-signers is required for custodian"
   [[ "$SIGNERS" =~ ^CN=[A-Za-z0-9._-]+(,CN=[A-Za-z0-9._-]+)*$ ]] || die "bad --bank-signers (comma list of CN=<name>)"
 else
   [[ $HAVE_SIGNERS -eq 0 ]] || die "--bank-signers is for custodian only"
-  [[ $HAVE_CERT -eq 1 ]] || die "--cert-url is required for banks"
+  [[ $HAVE_CERT -eq 1 ]] || die "--cert-url is required for banks and bi"
   [[ "$CERT" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --cert-url (https://host[:port], no path)"
 fi
 [[ -z "${HAVE_PULL:-}" ]] || [[ "$PULL" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] || die "bad --pull-secret (DNS-1123 name)"
@@ -83,12 +86,16 @@ chainenv() { # the seven public chain constants, quoted (CHAIN_ID would otherwis
   for k in CHAIN_ID RD BOND ANNOUNCER VALIDATOR DVP_FACTORY FROM_BLOCK; do printf '        - {name: %s, value: "%s"}\n' "$k" "${CH[$k]}"; done
 }
 pull() { [[ -z "${HAVE_PULL:-}" ]] || printf '      imagePullSecrets:\n      - {name: %s}\n' "$PULL"; }
+secret_all() { # secret_all <volume> <secret> : OPTIONAL Secret, every key appears as a readOnly-mounted 0440 file (no items)
+  printf '      - name: %s\n        secret:\n          secretName: %s\n          optional: true\n          defaultMode: 288 # 0440\n' "$1" "$2"
+}
 secret() { # secret <volume> <secret> <key>... : readOnly-mounted 0440 (288) items, nothing else from the Secret
   local v="$1" s="$2" k; shift 2
   printf '      - name: %s\n        secret:\n          secretName: %s\n          defaultMode: 288 # 0440\n          items:\n' "$v" "$s"
   for k in "$@"; do printf '          - {key: %s, path: %s}\n' "$k" "$k"; done
 }
 
+mounts=""
 if [[ "$sel" == custodian ]]; then
   name=stealth-custodian; role=custodian; port=9443; pname=mtls
   probe='tcpSocket: {port: 9443}' # the https listener demands a client cert, so no httpGet
@@ -100,6 +107,14 @@ else
   roleenv="        - {name: CERT_URL, value: \"$CERT\"}
         - {name: CERT_SERVERNAME, value: custodian-1}"
   vols="$(secret keys stealth-keys spendKey viewKey identityKey; secret tls stealth-signer-mtls client.key client.crt ca.crt)"
+  if [[ "$sel" == bi ]]; then
+    role=bi
+    roleenv="$roleenv
+        - {name: VIEWCOPIES_DIR, value: /viewcopies}"
+    vols="$(secret keys stealth-bi-keys issuerKey spendKey viewKey; secret_all viewcopies stealth-bi-viewcopies; secret tls stealth-signer-mtls client.key client.crt ca.crt)"
+    mounts='        - {name: viewcopies, mountPath: /viewcopies, readOnly: true}
+'
+  fi
 fi
 
 cat <<YAML
@@ -144,7 +159,7 @@ $(chainenv)
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         volumeMounts:
         - {name: keys, mountPath: /keys, readOnly: true}
-        - {name: tls, mountPath: /tls, readOnly: true}
+${mounts}        - {name: tls, mountPath: /tls, readOnly: true}
         - {name: rpc-jwt, mountPath: /rpc-jwt, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes:
@@ -161,10 +176,10 @@ kind: Service
 metadata:
   name: stealth-signer
   namespace: $ns
-  labels: {app: stealth-signer, role: bank, part-of: rd-stealth, party: $lp}
+  labels: {app: stealth-signer, role: $role, part-of: rd-stealth, party: $lp}
 spec:
   type: ClusterIP
-  selector: {app: stealth-signer, role: bank}
+  selector: {app: stealth-signer, role: $role}
   ports:
   - {name: http, port: 8080, targetPort: 8080}
 YAML
