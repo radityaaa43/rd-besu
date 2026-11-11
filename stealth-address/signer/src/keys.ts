@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { scanView } from '../../ts/stealth.ts';
+import { isAddress } from 'ethers';
+import { scanView, type ViewKeyHolder } from '../../ts/stealth.ts';
 import type { BankKeys, BiKeys, CustodianKeys, Keys } from './types.ts';
 
 // Role-dependent key loading (analyst verdict placement): the custodian reads certKey ONLY, a bank reads spend/view/identity and never certKey,
@@ -24,4 +25,18 @@ export function loadKeys(role: 'bank' | 'custodian' | 'bi', dir: string, read: (
     return { issuerKey: get('issuerKey'), spendKey: get('spendKey'), viewKey: get('viewKey'), viewCopies };
   }
   return { spendKey: get('spendKey'), viewKey: get('viewKey'), identityKey: get('identityKey') };
+}
+
+// S11 compare job: the per-bank view copies of the optional Secret stealth-bi-viewcopies plus the PUBLIC `<id>.identityAddress` (the ERC-6538 registry key).
+// Same rules as the BI branch of loadKeys (absent directory = no copies, a missing file is an error naming it), but a copy that does not match is NOT refused here:
+// compareViewKeys reports it as bad_copy.
+export function loadViewCopiesWithIdentity(dir: string, read: (p: string) => string = (p) => readFileSync(p, 'utf8'), list: (dir: string) => string[] = (d) => readdirSync(d)): (ViewKeyHolder & { identityAddress: string })[] {
+  let names: string[];
+  try { names = list(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; return []; }
+  const at = (name: string) => { try { return read(`${dir}/${name}`).trim(); } catch { throw new Error(`view copy file ${name} missing or unreadable in ${dir}`); } };
+  return names.filter((n) => n.endsWith('.viewKey')).map((n) => n.slice(0, -'.viewKey'.length)).sort().map((id) => {
+    const identityAddress = at(`${id}.identityAddress`);
+    if (!isAddress(identityAddress)) throw new Error(`${id}.identityAddress is not an address`);
+    return { id, viewKey: at(`${id}.viewKey`), metaAddress: at(`${id}.metaAddress`), identityAddress };
+  });
 }

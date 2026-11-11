@@ -3,6 +3,7 @@
 #   render.sh <bank-a|bank-b|bank-c> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME]
 #   render.sh bi --image REF --chain-env FILE --cert-url URL [--pull-secret NAME]
 #   render.sh custodian --image REF --chain-env FILE --bank-signers "CN=a,CN=b" [--pull-secret NAME]
+#   render.sh compare --image REF --chain-env FILE --registry 0xADDR [--pull-secret NAME]
 # bank-<x> -> ns rd-stealth-bank-<x> (PARTY=A|B|C): Deployment + Service stealth-signer (ClusterIP 8080), role bank.
 # custodian -> ns rd-stealth-bi (PARTY=BI): Deployment stealth-custodian (mTLS 9443), role custodian, NO Service.
 # bi -> ns rd-stealth-bi (PARTY=BI): Deployment + Service stealth-signer (ClusterIP 8080), role bi. Reaches the custodian /cert door through the BI gateway like the banks.
@@ -11,16 +12,22 @@
 #                 (0x + 40 hex). No other key is accepted, so nothing secret can be smuggled into a plain env value.
 #   --cert-url    bank and bi (required): https://host[:port] of the custodian /cert door (the BI gateway, SNI custodian-1 passthrough).
 #   --bank-signers custodian only: the registered bank signer client-cert subjects.
+# compare -> ns rd-stealth-bi: CronJob stealth-viewkey-compare (every 5 min, same image, command signer/src/compareMain.ts once), S11 detective compare of the registered viewing keys.
+#   Pod labels app=stealth-viewkey role=compare (NOT app=stealth-signer: it serves no port and is not admitted by the signer NetworkPolicy). Only CHAIN_ID is read from --chain-env
+#   (the same exactly-7-keys file serves every stage). --registry (required, compare only): the ERC-6538 registry, 0x + 40 hex.
 # Secrets are created by the party operator and NEVER rendered (names + exact key names the pods mount, all 0440):
 #   bank      stealth-keys (spendKey, viewKey, identityKey) -> /keys | stealth-signer-mtls (client.key, client.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
 #   bi        stealth-bi-keys (issuerKey, spendKey, viewKey) -> /keys | stealth-bi-viewcopies (OPTIONAL; every key of it, <id>.viewKey + <id>.metaAddress, S11 fills it) -> /viewcopies
 #             (env VIEWCOPIES_DIR) | stealth-signer-mtls (client.key, client.crt, ca.crt; the client cert CN must be in the custodian's BANK_SIGNERS list) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
+#   compare   stealth-compare-jwt (token: a READ-ONLY JWT, eth:call/blockNumber/chainId, minted by signer/src/mintCompareToken.ts; NOT the node key) -> /rpc-jwt (env RPC_TOKEN_FILE=/rpc-jwt/token)
+#             | stealth-bi-viewcopies (OPTIONAL; <id>.viewKey, <id>.metaAddress, <id>.identityAddress for bi bank-a bank-b bank-c) -> /viewcopies (env VIEWCOPIES_DIR). Never the node key, any issuer/spend/cert key or a client cert.
 #   custodian stealth-cert-key (certKey) -> /keys | stealth-custodian-mtls (server.key, server.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
-# A bank pod never references stealth-cert-key; the bi pod never references stealth-cert-key or stealth-keys; the custodian pod never references stealth-keys.
+# A bank pod never references stealth-cert-key; the bi pod never references stealth-cert-key or stealth-keys; the custodian pod never references stealth-keys;
+# the compare pod references only stealth-compare-jwt and stealth-bi-viewcopies.
 # gateway/render.sh expects: Service stealth-signer:8080 (pod labels app=stealth-signer role=bank) and Service stealth-custodian:9443 (role=custodian, rendered there); its stealth-signer-ingress selects role In [bank, bi].
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
-usage="usage: render.sh <bank-a|bank-b|bank-c|bi> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME]"
+usage="usage: render.sh <bank-a|bank-b|bank-c|bi> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME] | render.sh compare --image REF --chain-env FILE --registry 0xADDR [--pull-secret NAME]"
 
 [[ $# -ge 1 ]] || die "$usage"
 sel="$1"; shift
@@ -30,10 +37,11 @@ case "$sel" in
   bank-c) party=C; ns=rd-stealth-bank-c; lp=bank-c ;;
   custodian) party=BI; ns=rd-stealth-bi; lp=bi ;;
   bi) party=BI; ns=rd-stealth-bi; lp=bi ;;
-  *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c bi custodian)" ;;
+  compare) party=BI; ns=rd-stealth-bi; lp=bi ;;
+  *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c bi custodian compare)" ;;
 esac
 
-IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; HAVE_CERT=0; HAVE_SIGNERS=0
+IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; REGISTRY=""; HAVE_CERT=0; HAVE_SIGNERS=0; HAVE_REGISTRY=0
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || die "option $1 needs a value"
   case "$1" in
@@ -42,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --cert-url) CERT="$2"; HAVE_CERT=1 ;;
     --bank-signers) SIGNERS="$2"; HAVE_SIGNERS=1 ;;
     --pull-secret) PULL="$2"; HAVE_PULL=1 ;;
+    --registry) REGISTRY="$2"; HAVE_REGISTRY=1 ;;
     *) die "unknown option $1" ;;
   esac
   shift 2
@@ -50,11 +59,18 @@ done
 [[ "$IMAGE" =~ ^[A-Za-z0-9._/:@-]+$ && "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || die "--image must be digest pinned (REF@sha256:<64 hex>, chars A-Za-z0-9._/:@-)"
 [[ -n "$CHAINENV" ]] || die "--chain-env FILE is required"
 [[ -f "$CHAINENV" ]] || die "--chain-env: not a file"
-if [[ "$sel" == custodian ]]; then
+if [[ "$sel" == compare ]]; then
+  [[ $HAVE_CERT -eq 0 ]] || die "--cert-url is for banks and bi only"
+  [[ $HAVE_SIGNERS -eq 0 ]] || die "--bank-signers is for custodian only"
+  [[ $HAVE_REGISTRY -eq 1 ]] || die "--registry is required for compare"
+  [[ "$REGISTRY" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "bad --registry (0x + 40 hex)"
+elif [[ "$sel" == custodian ]]; then
+  [[ $HAVE_REGISTRY -eq 0 ]] || die "--registry is for compare only"
   [[ $HAVE_CERT -eq 0 ]] || die "--cert-url is for banks and bi only"
   [[ $HAVE_SIGNERS -eq 1 ]] || die "--bank-signers is required for custodian"
   [[ "$SIGNERS" =~ ^CN=[A-Za-z0-9._-]+(,CN=[A-Za-z0-9._-]+)*$ ]] || die "bad --bank-signers (comma list of CN=<name>)"
 else
+  [[ $HAVE_REGISTRY -eq 0 ]] || die "--registry is for compare only"
   [[ $HAVE_SIGNERS -eq 0 ]] || die "--bank-signers is for custodian only"
   [[ $HAVE_CERT -eq 1 ]] || die "--cert-url is required for banks and bi"
   [[ "$CERT" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --cert-url (https://host[:port], no path)"
@@ -94,6 +110,58 @@ secret() { # secret <volume> <secret> <key>... : readOnly-mounted 0440 (288) ite
   printf '      - name: %s\n        secret:\n          secretName: %s\n          defaultMode: 288 # 0440\n          items:\n' "$v" "$s"
   for k in "$@"; do printf '          - {key: %s, path: %s}\n' "$k" "$k"; done
 }
+
+if [[ "$sel" == compare ]]; then
+  # A batch job: no port, no probe, no Service. Its pod labels differ from the signer's on purpose (no signer NetworkPolicy admission).
+  cat <<YAML
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: stealth-viewkey-compare
+  namespace: $ns
+  labels: {app: stealth-viewkey, role: compare, part-of: rd-stealth, party: $lp}
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240 # shorter than the 5 min schedule
+      template:
+        metadata:
+          labels: {app: stealth-viewkey, role: compare}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+$(pull | sed 's/^/    /')
+          containers:
+          - name: compare
+            image: "$IMAGE"
+            command: ["node","--experimental-transform-types","signer/src/compareMain.ts","once"]
+            env:
+            - {name: RPC_URL, value: "http://besu-rpc:8545"}
+            - {name: RPC_TOKEN_FILE, value: /rpc-jwt/token}
+            - {name: CHAIN_ID, value: "${CH[CHAIN_ID]}"}
+            - {name: REGISTRY, value: "$REGISTRY"}
+            - {name: VIEWCOPIES_DIR, value: /viewcopies}
+            resources:
+              requests: {cpu: 50m, memory: 128Mi}
+              limits: {memory: 512Mi}
+            securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+            volumeMounts:
+            - {name: viewcopies, mountPath: /viewcopies, readOnly: true}
+            - {name: rpc-jwt, mountPath: /rpc-jwt, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          volumes:
+$(secret_all viewcopies stealth-bi-viewcopies | sed 's/^/    /')
+$(secret rpc-jwt stealth-compare-jwt token | sed 's/^/    /')
+          - {name: tmp, emptyDir: {}}
+YAML
+  exit 0
+fi
 
 mounts=""
 if [[ "$sel" == custodian ]]; then
