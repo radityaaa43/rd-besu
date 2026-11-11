@@ -124,6 +124,10 @@ def run(*args):
 
 c2 = docs("--cluster", "2", "bank-c")
 check(bool(c2), "cluster 2: no objects rendered")
+# P6 parity (2026-11-12): the live rd-zeto-bank-c Role lacked batch/jobs while the three cluster-1 Roles had it. The cluster-2 render must carry the SAME party-admin rules as a cluster-1 party.
+_role = lambda ds: [d for d in ds if d["kind"] == "Role" and d["metadata"]["name"] == "party-admin"]
+_rules = lambda ds: sorted((tuple(r["apiGroups"]), tuple(r["resources"]), tuple(r["verbs"])) for r in _role(ds)[0]["rules"]) if _role(ds) else None
+check(_rules(c2) is not None and _rules(c2) == _rules(docs("bi")), "bank-c (cluster 2) party-admin Role rules must equal a cluster-1 party's (incl. batch jobs)")
 if c2:
     check([n["metadata"]["name"] for n in of(c2, "Namespace")] == ["rd-zeto-bank-c"], "cluster 2: Namespace must be exactly rd-zeto-bank-c")
     lab = (of(c2, "Namespace") or [{"metadata": {}}])[0]["metadata"].get("labels", {})
