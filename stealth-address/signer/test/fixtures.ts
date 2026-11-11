@@ -6,7 +6,7 @@ import { buildBondMetadata } from '../../ts/bond.ts';
 import { generateMetaAddress, deriveStealth, scan } from '../../ts/stealth.ts';
 import { buildTokenMetadata } from '../../ts/token.ts';
 import { createSigner } from '../src/server.ts';
-import type { ChainPort, CertClient, Keys, PeerIdentity, SignerConfig } from '../src/types.ts';
+import type { BankKeys, ChainPort, CertClient, Keys, PeerIdentity, SignerConfig } from '../src/types.ts';
 
 export const CHAIN_ID = 1337n;
 export const RD = '0x00000000000000000000000000000000000000d1';
@@ -14,7 +14,7 @@ export const BOND = '0x00000000000000000000000000000000000000b1';
 export const NOW = 1_800_000_000n;
 
 // Party A: the reference vector of ts/stealth.test.ts:6-11 (spend 0x11.., view 0x22..) plus an identity key.
-export const A: Keys & { metaAddress: string } = {
+export const A: BankKeys & { metaAddress: string } = {
   spendKey: '0x' + '11'.repeat(32),
   viewKey: '0x' + '22'.repeat(32),
   identityKey: '0x' + '44'.repeat(32),
@@ -74,13 +74,13 @@ export const scanA = (chain: FakeChain) => scan(chain.anns, A.viewKey, A.spendKe
 export type Rec = { logs: string[]; bodies: string[] };
 
 // Start the signer on 127.0.0.1:0 (loopback only, no outside network). Every response body and log/console line is recorded.
-export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig>; peer?: PeerIdentity; keys?: Partial<Keys> } = {}) {
+export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig>; peer?: PeerIdentity; keys?: Keys } = {}) {
   const rec: Rec = { logs: [], bodies: [] };
   for (const m of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     vi.spyOn(console, m).mockImplementation((...a: unknown[]) => { rec.logs.push(a.map(String).join(' ')); });
   }
   const { metaAddress: _m, ...keys } = A;
-  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys: { ...keys, ...opts.keys }, chain, log: (l) => rec.logs.push(l), cert: opts.cert, peer: opts.peer });
+  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys: opts.keys ?? keys, chain, log: (l) => rec.logs.push(l), cert: opts.cert, peer: opts.peer });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (method: string, path: string, body?: unknown) => {

@@ -4,7 +4,7 @@ import { CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signC
 import { TRANCHE_A, pay, read } from '../../ts/chain.ts';
 import { scan } from '../../ts/stealth.ts';
 import { parseTokenMetadata } from '../../ts/token.ts';
-import type { SignerConfig, SignerDeps } from './types.ts';
+import type { BankKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
 
 // ABIs inline (analyst verdict 2): the image has no forge output. Signatures: src/RupiahDigital.sol, src/DfabiBond.sol, ERC1400.
 const rdAbi = new Interface([
@@ -55,12 +55,16 @@ function parseAmount(v: unknown): bigint {
 export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   const { keys, chain, log } = deps;
   const ttl = BigInt(cfg.certTtlSeconds ?? 600);
-  if (cfg.role === 'custodian' && !keys.certKey) throw new Error('role custodian needs keys.certKey');
+  const names = Object.keys(keys).sort().join(',');
+  if (cfg.role === 'custodian' && names !== 'certKey') throw new Error(`role custodian needs keys {certKey} and no bank key, got {${names}}`);
+  if (cfg.role === 'bank' && names !== 'identityKey,spendKey,viewKey') throw new Error(`role bank needs keys {identityKey,spendKey,viewKey} and no certKey, got {${names}}`);
+  const bank = keys as BankKeys; // only dereferenced on role bank routes
+  const certKey = (keys as CustodianKeys).certKey;
 
   // Everything this party owns, from its own RPC: scan() result joined with its announcement.
   async function mine() {
     const anns = await chain.announcements(cfg.fromBlock);
-    return scan(anns, keys.viewKey, keys.spendKey).flatMap((f) => {
+    return scan(anns, bank.viewKey, bank.spendKey).flatMap((f) => {
       const ann = anns.find((a) => sameAddr(a.stealthAddress, f.stealthAddress))!;
       const bond = parseBondMetadata(ann.metadata);
       const rd = bond ? null : parseTokenMetadata(ann.metadata);
@@ -104,7 +108,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       token = kind === 'rd-transfer' ? cfg.rd : cfg.bond;
       partition = kind === 'bond-transfer' ? (body.partition ?? TRANCHE_A) : undefined;
       let p: ReturnType<typeof pay>;
-      try { p = pay(cfg.chainId, body?.to?.metaAddress, keys.identityKey, token, amount, partition); }
+      try { p = pay(cfg.chainId, body?.to?.metaAddress, bank.identityKey, token, amount, partition); }
       catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
       build = kind === 'rd-transfer'
         ? () => rdAbi.encodeFunctionData('sendStealth', [p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo])
@@ -142,7 +146,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   async function history() {
     const rows = [];
     for (const h of await mine()) {
-      const r = read(cfg.chainId, h.ann, keys.viewKey, h.kind);
+      const r = read(cfg.chainId, h.ann, bank.viewKey, h.kind);
       rows.push({ txHash: h.ann.txHash, blockNumber: h.ann.blockNumber, stealthAddress: h.found.stealthAddress, token: h.token, amount: r.amount.toString(), sender: r.sender });
     }
     return rows;
@@ -168,7 +172,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     let allowed = selector === SEL_STEALTH;
     if (selector === SEL_PLAIN && payload.length >= 68) allowed = await chain.isEscrow(hexlify(payload.slice(48, 68))); // `to` word of transferByPartition
     if (!allowed) throw new HttpError(422, 'selector_not_allowed', 'call is not on the allowlist');
-    const certificate = signCertificate(keys.certKey!, {
+    const certificate = signCertificate(certKey, {
       domainSeparator: await chain.bondDomainSeparator(), msgSender: b.sender, token: cfg.bond, payload: b.payload, expiry,
       nonce: await chain.usedCertificateNonce(cfg.bond, b.sender),
     });
@@ -181,6 +185,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
