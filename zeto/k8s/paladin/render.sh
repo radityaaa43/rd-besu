@@ -8,6 +8,14 @@
 #   render.sh probe-placement <party>              throwaway pod with the LimitRange defaultRequest (250m / 1Gi): proves a Paladin pod can be scheduled in that ns
 #   render.sh probe-listener <party>               throwaway pod carrying the node's selector labels, `nc -l 9000` only (no Paladin process)
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
+#   render.sh pull-secret <party>                  ONE JSON patch line: add `ghcr-pull` to the party ns's default ServiceAccount imagePullSecrets, appended (`/imagePullSecrets/-`), so the two ACK acr-credential-* entries stay:
+#                                                  render.sh pull-secret <p> | kubectl -n rd-zeto-<p> patch serviceaccount default --type json --patch-file /dev/stdin
+#   render.sh pull-test <party> --image REF        throwaway Deployment pull-test-paladin (1 replica, container pull-test, REF digest-pinned, NO imagePullSecrets, NO serviceAccountName) = proof of the pull before the window.
+#                                                  Apply it, wait for the container status to show an imageID (waiting reason ImagePullBackOff/ErrImagePull = FAIL), then `scale deploy/pull-test-paladin --replicas=0`;
+#                                                  the container may crash afterwards (no config), only the pull matters.
+#   Why: the Paladin node pods (StatefulSet paladin-node<N>, created by the operator) pull the PRIVATE ghcr fork image and ended in ImagePullBackOff because their imagePullSecrets held only the two ACK
+#   acr-credential-* Secrets. The Paladin CRD spec has no imagePullSecrets field and the operator has no handling for it, so the pod runs as SA `default` of rd-zeto-<party> and uses that SA's
+#   imagePullSecrets. The Secret ghcr-pull (kubernetes.io/dockerconfigjson) already exists in each party ns; the fix is the SA patch above, never the CR (the render of the CR has no imagePullSecrets).
 # bi=node1 bank-a=node2 bank-b=node3 bank-c=node4 (the node number is the Zeto owner key name, bi@node1 ...). bank-c is cluster 2.
 # Needs bash + sed only. Never talks to a cluster. CRDs are NOT rendered (cluster 2 already has them, owned by another project).
 set -euo pipefail
@@ -157,12 +165,43 @@ spec:
 YAML
 }
 
+pull_secret() { printf '%s\n' '[{"op":"add","path":"/imagePullSecrets/-","value":{"name":"ghcr-pull"}}]'; }
+
+pull_test() {
+  local p="$1" img="$2"
+  [[ "$img" =~ ^[A-Za-z0-9._/:@-]+$ && "$img" =~ @sha256:[0-9a-f]{64}$ ]] || die "pull-test: --image must be digest-pinned (REF@sha256:<64 lowercase hex>, chars A-Za-z0-9._/:@-)"
+  cat <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pull-test-paladin
+  namespace: rd-zeto-${p}
+  labels: {app: pull-test-paladin, throwaway: zeto-s21-pull-test, part-of: rd-zeto, party: ${p}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: pull-test-paladin}
+  template:
+    metadata:
+      labels: {app: pull-test-paladin, throwaway: zeto-s21-pull-test, part-of: rd-zeto, party: ${p}}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: pull-test
+          image: ${img}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 512Mi}}
+YAML
+}
+
 out=""
 if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
 case "${1:-}" in
   transport) shift; [[ $# -ge 1 ]] || die "usage: render.sh transport <party> [options]"; num "$1" >/dev/null; transport "$@"; exit 0 ;;
   probe-placement) [[ $# == 2 ]] || die "usage: render.sh probe-placement <party>"; num "$2" >/dev/null; probe_placement "$2"; exit 0 ;;
   probe-listener) [[ $# == 2 ]] || die "usage: render.sh probe-listener <party>"; num "$2" >/dev/null; probe_listener "$2"; exit 0 ;;
+  pull-secret) [[ $# == 2 ]] || die "usage: render.sh pull-secret <party>"; num "$2" >/dev/null; pull_secret; exit 0 ;;
+  pull-test) [[ $# == 4 && "$3" == --image ]] || die "usage: render.sh pull-test <party> --image REF"; num "$2" >/dev/null; pull_test "$2" "$4"; exit 0 ;;
   probe-client) [[ $# == 4 ]] || die "usage: render.sh probe-client <party> <name> <IPv4>"; num "$2" >/dev/null; probe_client "$2" "$3" "$4"; exit 0 ;;
 esac
 [[ $# == 1 || ( $# == 3 && "$2" == --transport-host ) ]] || die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> [--transport-host HOST]"
