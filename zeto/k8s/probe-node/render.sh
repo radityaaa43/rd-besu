@@ -189,7 +189,9 @@ try:
             names[dom]={str(s.get('id','')):str((s.get('definition') or {}).get('name') or 'unknown') for s in l['result']}
         st=x.get('states') if isinstance(x.get('states'),dict) else {}
         un=st.get('unavailable') if isinstance(st.get('unavailable'),dict) else {}
-        dr=x.get('domainReceipt'); keys=','.join(sorted(dr.keys())) if isinstance(dr,dict) and dr else 'none'
+        dr=x.get('domainReceipt')
+        dsc=lambda k,v: k+'{'+','.join(sk+':'+('filled' if sv else 'empty') for sk,sv in sorted(v.items()))+'}' if isinstance(v,dict) and v else k+':'+('filled' if v else 'empty')
+        keys=','.join(dsc(k,v) for k,v in sorted(dr.items())) if isinstance(dr,dict) and dr else 'none'   # key names + nested key names, each only filled/empty, never a value
         coin=other=False; parts=[]
         for k in ('confirmed','spent','read','info'):
             wd={}; nd={}; ad={}
