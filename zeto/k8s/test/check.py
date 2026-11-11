@@ -70,7 +70,7 @@ for party, ns in PARTIES.items():
         sec = [r for r in rules if "secrets" in r["resources"]]
         check(len(sec) == 1 and sorted(sec[0]["verbs"]) == ["create", "patch", "update"], f"{party}: secrets verbs must be exactly create,update,patch: {sec}")
         res = {x for r in rules for x in r["resources"]}
-        for need in ["statefulsets", "deployments", "services", "configmaps", "persistentvolumeclaims", "networkpolicies", "pods", "pods/log", "secrets"]:
+        for need in ["statefulsets", "deployments", "services", "configmaps", "persistentvolumeclaims", "networkpolicies", "pods", "pods/log", "secrets", "jobs"]:
             check(need in res, f"{party}: party-admin lacks resource {need}")
         for forbidden in ["roles", "rolebindings", "serviceaccounts", "namespaces", "pods/exec", "pods/portforward"]:
             check(forbidden not in res, f"{party}: party-admin must not grant {forbidden}")
