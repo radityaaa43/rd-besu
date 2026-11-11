@@ -1,12 +1,16 @@
 import type { LoggedAnnouncement } from '../../ts/chain.ts';
+import type { ViewKeyHolder } from '../../ts/stealth.ts';
 
 export type BankKeys = { spendKey: string; viewKey: string; identityKey: string }; // role bank: files of the S7 mount
 export type CustodianKeys = { certKey: string }; // role custodian: the cert signer holds ONLY this (separate key + role, never a bank key)
-export type Keys = BankKeys | CustodianKeys; // role-dependent, enforced by createSigner and loadKeys
+// role bi: the issuer account key (RupiahDigital.issuer / DFABI minter; also BI's identity account, as in the Lensa adapter), BI's own receive keys, and one
+// VIEW-key copy per bank (S11 fills them; never a spend key).
+export type BiKeys = { issuerKey: string; spendKey: string; viewKey: string; viewCopies: ViewKeyHolder[] };
+export type Keys = BankKeys | CustodianKeys | BiKeys; // role-dependent, enforced by createSigner and loadKeys
 
 export type SignerConfig = {
   party: string; // the one party this instance serves, e.g. "A"
-  role: 'bank' | 'custodian'; // /cert is enabled for 'custodian' only (S12)
+  role: 'bank' | 'custodian' | 'bi'; // /cert is enabled for 'custodian' only (S12); 'bi' = the S10 BI signer (issuer key, own receive keys, per-bank view copies)
   chainId: bigint;
   rd: string; // RupiahDigital address
   bond: string; // DfabiBond address
