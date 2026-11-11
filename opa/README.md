@@ -328,7 +328,7 @@ What changes: (1) the sink (`bundle-server/sink.py`) requires `Authorization: Be
 `SINK_TOKEN_FILE` unset it behaves as before. The gateways' OPA sends the token: `opa.yaml` `services.sink.credentials.bearer.token_path: /sink-token/token`
 (opa v1.21.1 docs/configuration.md, "Services > Bearer Token"; `decision_logs` and `status` both use service `sink`; OPA re-reads the file on every request).
 The token is the Secret `bundle-sink-token`, made by `keys.sh` in `$OPA_KEYS_DIR/sink-token` (outside the repo, never overwritten), mounted at `/sink-token` in
-bundle-server's sink container and in every gateway's `opa` container (`k8s/bundle-server.yaml`, `k8s/bank-gw-N.yaml`; not optional, so a pod waits for the Secret).
+bundle-server's sink container and in every gateway's `opa` container (`k8s/bundle-server.yaml`, `k8s/bank-gw-N.yaml`). The sink's volume is not optional (a missing Secret stops the sink: it fails closed); the gateways' volumes are `optional: true` (a missing Secret costs their decision logs and status posts, and a Publisher confirm shows "Gagal", but never the gateway itself).
 (2) NetworkPolicy `bundle-server-ingress` (`k8s/networkpolicy.yaml`, label `node=bundle-server`): ingress only from `app=bank-gw` pods and the `fx-gw` pods of ns
 `fabricx` on 8080 and 8081, and from the two kube-apiserver addresses on 8081. (3) The sink is in memory by decision: it keeps the last status per gateway and writes decision logs to stdout.
 
