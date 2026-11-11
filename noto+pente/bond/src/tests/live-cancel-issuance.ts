@@ -147,8 +147,8 @@ async function main(): Promise<boolean> {
     const failed = evs.filter((e) => e.soliditySignature.startsWith("event LegReleaseFailed")).length;
     check(`${label}: cancel released both legs (2 LegReleased, 0 LegReleaseFailed)`, released === 2 && failed === 0, `released=${released} failed=${failed}`);
 
-    const cashBack = await waitForBalance(`${invName} cash`, () => p.notoCash.using(inv.client).balanceOf(inv.verifier, { account: inv.verifier.lookup }), pre.invCash);
-    const bondBack = await waitForBalance("custodian bond", () => p.notoBond.balanceOf(p.bondCustodian, { account: p.bondCustodian.lookup }), pre.custBond);
+    const cashBack = await waitForBalance(`${invName} cash`, () => p.notoCash.using(inv.client).balanceOf(inv.verifier, { account: inv.verifier.lookup }), pre.invCash, "exact");
+    const bondBack = await waitForBalance("custodian bond", () => p.notoBond.balanceOf(p.bondCustodian, { account: p.bondCustodian.lookup }), pre.custBond, "exact");
     check(`${label}: investor cash back, custodian bond back`, cashBack !== undefined && bondBack !== undefined, `${invName} cash ${cashBack?.totalBalance} (pre ${pre.invCash}), custodian bond ${bondBack?.totalBalance} (pre ${pre.custBond})`);
     const after = { unsold: await priv("availableUnitsPrivate"), locked: await waitPriv("lockedBalanceOf", { account: custodianAddr }, "0"), pubStatus: await publicStatus() };
     check(`${label}: unsold units unchanged, BondTracker locked balance 0, public tracker status unchanged and not COMPLETE`,

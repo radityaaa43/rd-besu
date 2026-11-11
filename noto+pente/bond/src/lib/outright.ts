@@ -264,6 +264,8 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
 
     step = "settle";
     log(`[${step}] waiting for balances`);
+    // Directional waits: they confirm each balance reached its side of the expected value, not that THIS trade's exact amounts moved
+    // (a concurrent trade on the same account can move it too); the lens checks the amounts.
     const settled = await Promise.all([
       waitForBalance(`${seller.name} bond`, () => bond.token.balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerBond - units, "debit"),
       waitForBalance(`${seller.name} cash`, () => notoCash.using(seller.client).balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerCash + consideration, "credit"),

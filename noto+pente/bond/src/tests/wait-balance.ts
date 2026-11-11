@@ -18,9 +18,9 @@ async function main() {
   // a credit that never arrives still times out (and a debit that never happens)
   assert.strictEqual(await quiet(() => waitForBalance("missing credit", at(900n), 1000n, "credit", fast)), undefined);
   assert.strictEqual(await quiet(() => waitForBalance("missing debit", at(1000n), 950n, "debit", fast)), undefined);
-  // no side: exact match only, as before
-  assert.ok(await waitForBalance("exact", at(1000n), 1000n, undefined, fast));
-  assert.strictEqual(await quiet(() => waitForBalance("exact miss", at(1100n), 1000n, undefined, fast)), undefined);
+  // "exact": equality only, as before
+  assert.ok(await waitForBalance("exact", at(1000n), 1000n, "exact", fast));
+  assert.strictEqual(await quiet(() => waitForBalance("exact miss", at(1100n), 1000n, "exact", fast)), undefined);
   // the balance arrives late: polling continues until it does
   let n = 0;
   const late = async () => ({ totalBalance: n++ < 3 ? "900" : "1000", totalStates: "1", overflow: false });
