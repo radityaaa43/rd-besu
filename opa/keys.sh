@@ -14,6 +14,8 @@ for id in $IDS; do
   [ -f "$DIR/$id.pem" ] || openssl genrsa -out "$DIR/$id.pem" 2048 2>/dev/null
   openssl rsa -in "$DIR/$id.pem" -pubout -out "$DIR/$id.pub" 2>/dev/null
 done
+# Bearer token of the bundle-server sink (decision logs, bundle status). Never overwritten; create the Secret from it (README).
+[ -f "$DIR/sink-token" ] || { openssl rand -hex 32 > "$DIR/sink-token"; }
 {
   cat "$HERE/opa.yaml"
   echo "keys:"

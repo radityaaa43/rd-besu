@@ -53,10 +53,12 @@ spec:
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         volumeMounts:
         - {name: opa, mountPath: /config, readOnly: true}
+        - {name: sink-token, mountPath: /sink-token, readOnly: true} # services.sink.credentials.bearer.token_path (opa.yaml)
       volumes:
       - {name: envoy, configMap: {name: bank-gw-2-envoy}}
       - {name: mtls, secret: {secretName: bank-gw-2-mtls, optional: true, defaultMode: 292}} # 0444: envoy runs as uid 10001
       - {name: opa, configMap: {name: bank-gw-opa-v2}}
+      - {name: sink-token, secret: {secretName: bundle-sink-token, defaultMode: 292}} # 0444; not optional: the pod waits for the Secret (README, bundle-server hardening)
 ---
 apiVersion: v1
 kind: Service
