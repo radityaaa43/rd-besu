@@ -192,6 +192,73 @@ for a in (bank_args(), cust_args()):
     ds = docs(*a)
     check(ds and "viewcopies" not in yaml.dump(ds[0]).lower(), f"{a[0]}: no viewcopies volume/env")
 
+# compare (S11 viewing-key compare CronJob, ns rd-stealth-bi)
+REGISTRY = "0x" + "6" * 40
+
+
+def compare_args(image=IMG, chain=GOOD, registry=REGISTRY):
+    return ["compare", "--image", image, "--chain-env", chain, "--registry", registry]
+
+
+ds = docs(*compare_args())
+check([(d["kind"], d["metadata"]["name"]) for d in ds] == [("CronJob", "stealth-viewkey-compare")], f"compare: exactly one CronJob stealth-viewkey-compare (got {[(d['kind'], d['metadata']['name']) for d in ds]})")
+if len(ds) == 1:
+    cj = ds[0]
+    check(cj["apiVersion"] == "batch/v1", "compare: apiVersion batch/v1")
+    check(cj["metadata"]["namespace"] == "rd-stealth-bi", "compare: namespace rd-stealth-bi")
+    check(cj["metadata"]["labels"] == {"app": "stealth-viewkey", "role": "compare", "part-of": "rd-stealth", "party": "bi"}, "compare: CronJob labels")
+    s = cj["spec"]
+    check(s["schedule"] == "*/5 * * * *", "compare: schedule */5 * * * *")
+    check(s["concurrencyPolicy"] == "Forbid", "compare: concurrencyPolicy Forbid")
+    check(s["successfulJobsHistoryLimit"] == 3 and s["failedJobsHistoryLimit"] == 3, "compare: history limits 3/3")
+    js = s["jobTemplate"]["spec"]
+    check(js["backoffLimit"] == 0, "compare: backoffLimit 0")
+    check(isinstance(js.get("activeDeadlineSeconds"), int) and js["activeDeadlineSeconds"] == 240 and js["activeDeadlineSeconds"] < 300, f"compare: activeDeadlineSeconds 240 (< the 300 s schedule; got {js.get('activeDeadlineSeconds')})")
+    tpl = js["template"]
+    check(tpl["metadata"]["labels"] == {"app": "stealth-viewkey", "role": "compare"}, "compare: pod labels exactly app=stealth-viewkey role=compare (not admitted by the signer NetworkPolicy)")
+    pod = tpl["spec"]
+    check(pod["restartPolicy"] == "Never", "compare: restartPolicy Never")
+    check(pod["automountServiceAccountToken"] is False, "compare: automountServiceAccountToken false")
+    check(pod["securityContext"] == {"runAsNonRoot": True, "runAsUser": 10001, "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}}, "compare: pod securityContext")
+    for bad in ("hostNetwork", "hostPID", "hostIPC"):
+        check(not pod.get(bad), f"compare: no {bad}")
+    check("imagePullSecrets" not in pod, "compare: no imagePullSecrets without --pull-secret")
+    check(len(pod["containers"]) == 1 and pod["containers"][0]["name"] == "compare", "compare: one container named compare")
+    c = pod["containers"][0]
+    check(c["image"] == IMG, "compare: image is the given digest ref")
+    check(c["command"] == ["node", "--experimental-transform-types", "signer/src/compareMain.ts", "once"], f"compare: command (got {c.get('command')})")
+    check(c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, "compare: container securityContext")
+    check(c["resources"] == {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}}, "compare: resources")
+    check("ports" not in c and "readinessProbe" not in c and "livenessProbe" not in c and "envFrom" not in c, "compare: no ports, probes or envFrom (a batch job serves nothing)")
+    env = {e["name"]: e.get("value") for e in c["env"]}
+    check(all("valueFrom" not in e and "value" in e for e in c["env"]), "compare: env are plain values")
+    check(env == {"RPC_URL": "http://besu-rpc:8545", "RPC_TOKEN_FILE": "/rpc-jwt/token", "CHAIN_ID": CHAIN["CHAIN_ID"], "REGISTRY": REGISTRY, "VIEWCOPIES_DIR": "/viewcopies"}, f"compare: env exactly RPC_URL RPC_TOKEN_FILE CHAIN_ID REGISTRY VIEWCOPIES_DIR (got {env})")
+    vols = {v["name"]: v for v in pod["volumes"]}
+    check(set(vols) == {"viewcopies", "rpc-jwt", "tmp"}, f"compare: volumes exactly viewcopies, rpc-jwt, tmp (got {sorted(vols)})")
+    check(vols.get("viewcopies") == {"name": "viewcopies", "secret": {"secretName": "stealth-bi-viewcopies", "optional": True, "defaultMode": 0o440}}, "compare: viewcopies = optional Secret stealth-bi-viewcopies, 0440, no items")
+    check(secret_items(vols["rpc-jwt"]) == ("stealth-compare-jwt", ["token"], {0o440}), "compare: rpc-jwt = Secret stealth-compare-jwt (a read-only token), item token only, 0440")
+    check("emptyDir" in vols["tmp"], "compare: tmp is emptyDir")
+    check({m["name"]: (m["mountPath"], m.get("readOnly", False)) for m in c["volumeMounts"]} == {"viewcopies": ("/viewcopies", True), "rpc-jwt": ("/rpc-jwt", True), "tmp": ("/tmp", False)}, "compare: mounts viewcopies, rpc-jwt readOnly, tmp")
+    dump = yaml.dump(cj)
+    for bad in ("stealth-bi-keys", "stealth-keys", "stealth-cert-key", "stealth-signer-mtls", "stealth-custodian-mtls", "stealth-rpc-jwt", "private.pem", "RPC_JWT_KEY_FILE"):
+        check(bad not in dump, f"compare: never references {bad} (no node key, no issuer/spend/cert key, no client cert)")
+ds = docs(*compare_args(), "--pull-secret", "regcred")
+check(ds and ds[0]["spec"]["jobTemplate"]["spec"]["template"]["spec"].get("imagePullSecrets") == [{"name": "regcred"}], "compare: --pull-secret sets imagePullSecrets")
+rejects("compare missing --registry", "compare", "--image", IMG, "--chain-env", GOOD)
+for bad in ("0x123", "6" * 40, "0x" + "g" * 40, "0x" + "6" * 41, ""):
+    rejects(f"compare --registry {bad!r}", *compare_args(registry=bad))
+rejects("compare missing --image", "compare", "--chain-env", GOOD, "--registry", REGISTRY)
+rejects("compare non-digest image", *compare_args(image="registry.example/rd-stealth-signer:latest"))
+rejects("compare missing --chain-env", "compare", "--image", IMG, "--registry", REGISTRY)
+rejects("compare chain-env missing RD", *compare_args(chain=chain_file("c-m.env", RD=None)))
+f = chain_file("c-x.env"); open(f, "a").write("spendKey=0x" + "a" * 64 + "\n")
+rejects("compare chain-env extra key", *compare_args(chain=f))
+rejects("compare with --cert-url", *compare_args(), "--cert-url", CERT_URL)
+rejects("compare with --bank-signers", *compare_args(), "--bank-signers", SIGNERS)
+rejects("compare bad --pull-secret", *compare_args(), "--pull-secret", "Reg_Cred")
+for a in (bi_args(), bank_args(), cust_args()):
+    rejects(f"{a[0]} with --registry", *a, "--registry", REGISTRY)
+
 # rejections
 rejects("bi with no further args", "bi")
 rejects("bi missing --cert-url", "bi", "--image", IMG, "--chain-env", GOOD)
