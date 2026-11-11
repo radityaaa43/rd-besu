@@ -85,7 +85,21 @@ for party, ns in PARTIES.items():
     sel = same[0]["spec"]["podSelector"].get("matchExpressions", []) if same else []
     check(any(e["key"] == "app" and e["operator"] == "NotIn" and "paladin-pg" in e["values"] for e in sel), f"{party}: S1 allow-same-namespace must exclude app=paladin-pg, else paladin-pg-ingress restricts nothing")
 
-check(run(render, "bank-c").returncode != 0, "render.sh bank-c must fail (cluster 2 is out of scope)")
+check(run(render, "bank-c").returncode != 0, "render.sh bank-c without --cluster 2 must fail")
+check(run(render, "--cluster", "2", "bi").returncode != 0, "--cluster 2 renders bank-c only")
+c2 = docs(render, "--cluster", "2", "bank-c")
+check(sorted(d["kind"] for d in c2) == ["NetworkPolicy", "Service", "StatefulSet"], "bank-c: kinds must be Service, StatefulSet, NetworkPolicy")
+check(all(d["metadata"].get("namespace") == "rd-zeto-bank-c" for d in c2), "bank-c: every object in rd-zeto-bank-c")
+c2txt = yaml.safe_dump(c2)
+check("alicloud-essd-wffc" not in c2txt and "storageClassName: alicloud-essd" in c2txt, "bank-c: cluster 2 has only StorageClass alicloud-essd")
+check("member-160" not in c2txt and "nodeAffinity" not in c2txt, "bank-c: no cluster-1 node names in cluster 2")
+c2ss = of(c2, "StatefulSet")
+if c2ss:
+    anti = c2ss[0]["spec"]["template"]["spec"]["affinity"]["podAntiAffinity"]
+    terms = anti["requiredDuringSchedulingIgnoredDuringExecution"] + [t["podAffinityTerm"] for t in anti["preferredDuringSchedulingIgnoredDuringExecution"]]
+    check(all("namespaceSelector" not in t and t.get("namespaces") == ["rd-zeto-bank-c"] for t in terms), "bank-c: affinity terms must name only ns rd-zeto-bank-c (no namespaceSelector over foreign namespaces)")
+c2s1 = [d for d in of(docs(s1render, "--cluster", "2", "bank-c"), "NetworkPolicy") if d["metadata"]["name"] == "allow-same-namespace"]
+check(bool(c2s1) and any(e["key"] == "app" and "paladin-pg" in e["values"] for e in c2s1[0]["spec"]["podSelector"].get("matchExpressions", [])), "bank-c: S1 allow-same-namespace must exclude app=paladin-pg")
 allds = docs(render, "all")
 check([d["metadata"]["namespace"] for d in of(allds, "StatefulSet")] == list(PARTIES.values()), "all: one StatefulSet per party in order bi, bank-a, bank-b")
 
