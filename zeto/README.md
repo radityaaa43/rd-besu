@@ -334,3 +334,22 @@ registers a corrected DFABI record as version 2 and checks that a non-registrar 
 
 Result on ACK (2026-10-16): 8/8 checks pass. The registry is not a Zeto contract, so the
 v1.0.0 poison-pill does not apply. The PUBLIC-tx read-back returns `bytes32` without a `0x` prefix.
+
+## Lock check (S21 gate)
+
+`lock-check.ts` runs the V1 lock lifecycle for ONE party on its own node, through that party's own gateway and identity:
+`createLock` -> `prepareSpendLock` -> `delegateLock` (to the owner's own eth address, so it can still cancel) -> `cancelLock`.
+It prints the balance after each step and exits 1 on any failed step (with a best-effort cleanup `cancelLock` if a lock exists).
+It runs against the LIVE node: it moves 1 unit into a lock and cancels it, net zero.
+
+```bash
+LENSA_GW_MTLS_DIR=<dir with ca.crt, lensa.crt, lensa.key> \
+LOCK_CHECK_URL=https://<party gateway>:8548 \
+LOCK_CHECK_TOKEN=<RD Zeto token address> \
+LOCK_CHECK_OWNER=bankA@node2 LOCK_CHECK_TO=bankB@node3 LOCK_CHECK_AMOUNT=1 \
+npm run lock-check
+```
+
+`LOCK_CHECK_OWNER`, `LOCK_CHECK_TO` and `LOCK_CHECK_AMOUNT` show their defaults. `LOCK_CHECK_TO` is resolved through the owner's
+node, so it also proves cross-node identity resolution. `LOCK_CHECK_SERVERNAME` sets the TLS servername only if the gateway cert needs it.
+Expected last line: `L6 zeto LOCK: PASS`. A failure prints `L6 zeto LOCK: FAIL <step>: <message>`.
