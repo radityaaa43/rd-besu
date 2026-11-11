@@ -95,6 +95,10 @@ for party, ns in PARTIES.items():
         cfg = cms["besu-config"]["data"]["config.toml"]
         check('p2p-host="10.9.8.7"' in cfg and "discovery-enabled=false" in cfg and "${P2P_HOST}" not in cfg, f"{party}: config has the LB IP, discovery off, no placeholder")
         check('static-nodes-file="/config/static/static-nodes.json"' in cfg and 'node-private-key-file="/keys/nodekey"' in cfg, f"{party}: config keeps static-nodes-file and node-private-key-file paths")
+        if party == "bank-c":
+            check("\nsync-min-peers=3\n" in cfg, f"{party}: bank C sees only the 3 cluster-1 nodes (old pod IPs are unreachable cross-cluster): sync-min-peers=3 is required, Besu default 5 would never start sync")
+        else:
+            check("sync-min-peers" not in cfg, f"{party}: cluster-1 nodes keep the Besu default sync-min-peers")
     if "besu-static-nodes" in cms:
         check(json.loads(cms["besu-static-nodes"]["data"]["static-nodes.json"]) == [ENODE_A, ENODE_B], f"{party}: static-nodes ConfigMap content")
     sts = of(nd, "StatefulSet")
@@ -123,6 +127,10 @@ for party, ns in PARTIES.items():
             check(res["requests"]["cpu"] == "1" and res["requests"]["memory"] == "2500M", f"{party}: cluster-1 requests as the live validators (1 CPU, 2500M)")
         else:
             check(res["requests"]["memory"] != "2500M", f"{party}: bank C requests must be smaller (cluster 2 memory is tight)")
+            na = pod["affinity"].get("nodeAffinity", {})
+            pref = na.get("preferredDuringSchedulingIgnoredDuringExecution", [])
+            check("requiredDuringSchedulingIgnoredDuringExecution" not in na, f"{party}: no REQUIRED nodeAffinity on cluster 2 (the Immediate PV zone fixes the pod zone; a hard selector can deadlock)")
+            check(len(pref) == 1 and pref[0]["preference"]["matchExpressions"] == [{"key": "topology.kubernetes.io/zone", "operator": "In", "values": ["ap-southeast-1a"]}], f"{party}: PREFERRED zone ap-southeast-1a only: {pref}")
         check(pod.get("enableServiceLinks") is False, f"{party}: enableServiceLinks must be false (Service besu-p2p injects BESU_P2P_PORT=tcp://..., which Besu reads as --p2p-port)")
         init = pod["initContainers"][0]
         check("chown" in " ".join(init["command"]), f"{party}: init container chowns /data like live")
