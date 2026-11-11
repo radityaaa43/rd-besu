@@ -21,6 +21,10 @@ bundles:
   bank:
     service: bundle-server
     polling: {min_delay_seconds: 5, max_delay_seconds: 15}
+    # Default key `bi` fails closed (a bank-signed bundle does not verify) if a gateway forgets its
+    # --set=bundles.bank.signing.keyid=<bank-a|b|c|bi> in k8s/bank-gw-N.yaml, which overrides it.
+    # persist stays off: no volume in the gateway pod, and a restart must fetch and verify a fresh signed bundle.
+    signing: {keyid: bi}
 decision_logs:
   console: true
   service: sink
