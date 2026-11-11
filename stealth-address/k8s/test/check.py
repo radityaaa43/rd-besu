@@ -74,6 +74,31 @@ with tempfile.TemporaryDirectory() as td:
     want = ["rd-stealth-bank-a.yaml", "rd-stealth-bank-b.yaml", "rd-stealth-bi.yaml"]
     check(os.path.isdir(d) and sorted(os.listdir(d)) == want, f"-o must write {want}")
 
+# ---- cluster 2 (L0-SG): bank-c only, behind --cluster 2 ----
+c2 = docs("--cluster", "2", "bank-c")
+check(bool(c2), "cluster 2: no objects rendered")
+if c2:
+    check([n["metadata"]["name"] for n in of(c2, "Namespace")] == ["rd-stealth-bank-c"], "cluster 2: Namespace must be exactly rd-stealth-bank-c")
+    lab = (of(c2, "Namespace") or [{"metadata": {}}])[0]["metadata"].get("labels", {})
+    check(lab.get("part-of") == "rd-stealth" and lab.get("party") == "bank-c" and lab.get("cluster") == "2", f"cluster 2: ns labels part-of=rd-stealth, party=bank-c, cluster=2: {lab}")
+    for d in c2:
+        check(d["metadata"].get("labels", {}).get("cluster") == "2", f"cluster 2: {d['kind']}/{d['metadata']['name']} must carry label cluster=2")
+        if d["kind"] != "Namespace":
+            check(d["metadata"].get("namespace") == "rd-stealth-bank-c", f"cluster 2: {d['kind']}/{d['metadata']['name']} not in rd-stealth-bank-c")
+    check({d["metadata"]["name"] for d in of(c2, "NetworkPolicy")} == NETPOLS, "cluster 2: the same 3 NetworkPolicies")
+    check({d["metadata"]["name"] for d in of(c2, "ServiceAccount")} == {"party-admin"} and {d["metadata"]["name"] for d in of(c2, "Role")} == {"party-admin"} and len(of(c2, "RoleBinding")) == 1, "cluster 2: only party-admin SA/Role/RoleBinding")
+    check(not of(c2, "ClusterRole") and not of(c2, "ClusterRoleBinding"), "cluster 2: no cluster-scoped RBAC")
+    ref = {d["metadata"]["name"]: d for d in of(docs("bank-a"), "Role")}["party-admin"]["rules"]
+    check({d["metadata"]["name"]: d for d in of(c2, "Role")}.get("party-admin", {}).get("rules") == ref, "cluster 2: party-admin rules equal the cluster-1 rules")
+    ref_np = {d["metadata"]["name"]: d for d in of(docs("bank-a"), "NetworkPolicy")}
+    np2 = {d["metadata"]["name"]: d for d in of(c2, "NetworkPolicy")}
+    check(all(np2.get(n, {}).get("spec") == ref_np[n]["spec"] for n in NETPOLS), "cluster 2: policy specs equal the cluster-1 specs")
+nso = docs("--cluster", "2", "--ns-only", "bank-c")
+check([d["kind"] for d in nso] == ["Namespace"] and nso[0]["metadata"]["name"] == "rd-stealth-bank-c" and nso[0]["metadata"]["labels"].get("cluster") == "2", f"cluster 2 --ns-only: exactly the Namespace doc with cluster=2: {[d['kind'] for d in nso]}")
+for args in (["bank-c"], ["--cluster", "2", "bi"], ["--cluster", "2", "bank-a"], ["--cluster", "2", "all"], ["--cluster", "1", "bank-c"], ["--cluster", "3", "bank-c"], ["--cluster", "2"], ["--ns-only", "bi"], ["--cluster", "2", "probe", "bank-c"]):
+    check(run(*args).returncode != 0, f"render.sh {' '.join(args)} must be refused (bank-c needs --cluster 2 and only bank-c is allowed with it; no probe: no Paladin node)")
+check("bank-c" not in run("all").stdout, "cluster 1 `all` must not contain bank-c")
+
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)
