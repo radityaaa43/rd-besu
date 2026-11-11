@@ -45,6 +45,7 @@ def prune(v, key=None):
 
 
 live = json.load(open(os.path.join(here, "fixtures", "live-domains-registries.json")))
+crd = json.load(open(os.path.join(here, "fixtures", "paladin-crd-spec.json")))  # paladin@v1.0.0 operator/config/crd/bases/core.paladin.io_paladins.yaml
 
 for party, n in PARTIES.items():
     ns = f"rd-zeto-{party}"
@@ -53,7 +54,7 @@ for party, n in PARTIES.items():
     if not ds:
         continue
     kinds = sorted(d["kind"] for d in ds)
-    check(kinds == ["ConfigMap", "Deployment", "Paladin", "Role", "RoleBinding", "ServiceAccount"], f"{party}: kinds {kinds}")
+    check(kinds == ["ConfigMap", "Deployment", "Paladin", "Role", "RoleBinding", "ServiceAccount", "StatefulSet"], f"{party}: kinds {kinds}")
     for d in ds:
         check(d["kind"] not in FORBIDDEN_KINDS, f"{party}: forbidden kind {d['kind']}")
         check(d["metadata"].get("namespace") == ns, f"{party}: {d['kind']}/{d['metadata']['name']} not in {ns}")
@@ -92,7 +93,18 @@ for party, n in PARTIES.items():
     check(db.get("mode") == "preConfigured" and db.get("passwordSecret") == "paladin-pg-credentials" and db.get("migrationMode") == "auto" and "pvcTemplate" not in db, f"{party}: database {db}")
     sg = s["secretBackedSigners"]
     check(sg == [{"name": "signer-1", "secret": f"node{n}.keys", "type": "autoHDWallet", "derivationType": "bip32", "keySelector": ".*", "keySelectorMustNotMatch": False}], f"{party}: secretBackedSigners {sg}")
-    check(not s.get("domains") and not s.get("registries"), f"{party}: domains/registries are static in spec.config, no label selectors to PaladinDomain/PaladinRegistry CRs")
+    check(s.get("domains") == [] and s.get("registries") == [], f"{party}: domains/registries must be present and empty (CRD requires them; static in spec.config, no selectors to PaladinDomain/PaladinRegistry CRs)")
+    check(set(crd["specRequired"]) <= set(s), f"{party}: CR spec lacks CRD-required fields {sorted(set(crd['specRequired']) - set(s))}")
+    check(set(s) <= set(crd["specProperties"]), f"{party}: CR spec has fields unknown to the CRD {sorted(set(s) - set(crd['specProperties']))}")
+    # paused stub: the operator creates its StatefulSet only if absent (paladin_controller.go:287-292) and never updates replicas (:297-306)
+    sts = by["StatefulSet"]
+    lab = {"app": "paladin", "app.kubernetes.io/instance": f"node{n}", "app.kubernetes.io/name": f"paladin-node{n}", "app.kubernetes.io/part-of": "paladin"}
+    check(sts["metadata"]["name"] == f"paladin-node{n}" and sts["spec"]["replicas"] == 0, f"{party}: stub StatefulSet must be paladin-node{n} with replicas 0")
+    check(sts["spec"]["selector"]["matchLabels"] == lab and sts["spec"]["template"]["metadata"]["labels"] == lab, f"{party}: stub selector/pod labels must equal the operator's")
+    check(sts["spec"].get("serviceName", "") == "" and "ownerReferences" not in sts["metadata"], f"{party}: stub serviceName empty (as operator-created) and no ownerReference")
+    check(sts["spec"]["template"]["spec"]["containers"][0]["name"] == "paladin" and sts["spec"]["template"]["spec"]["containers"][0]["image"] == FORK, f"{party}: stub container paladin with the fork digest")
+    order = [d["kind"] for d in ds]
+    check(order.index("StatefulSet") < order.index("Paladin"), f"{party}: stub StatefulSet must come BEFORE the Paladin CR in the render")
     tr = s.get("transports", [])
     check(len(tr) == 1 and tr[0]["name"] == "grpc" and tr[0]["plugin"] == {"type": "c-shared", "library": "/app/transports/libgrpc.so"} and "tls" not in tr[0], f"{party}: one grpc transport without tls (tls is S10)")
     check(tr and json.loads(tr[0]["configJSON"]) == {"port": 9000, "address": "0.0.0.0"}, f"{party}: transport configJSON must be port 9000 on 0.0.0.0")
