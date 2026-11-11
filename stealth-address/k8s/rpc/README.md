@@ -16,7 +16,7 @@ S1 change in this PR: `templates/party.yaml` `allow-same-namespace` is `NotIn [v
 ## Order (per party; bank C after the zeto S4 LB IPs, with `--cluster 2` and the cluster-2 credential)
 1. `./genesis.sh <p> | kubectl apply -f -` (admin); `KUBECONFIG=<party kubeconfig> ./nodekey.sh <p>`; `KUBECONFIG=<party kubeconfig> ./jwt.sh <p>`.
 2. `./render.sh net <p> | kubectl apply -f -`.
-3. `./static-nodes.sh --peer enode://<zeto validator id>@<its besu-p2p LB IP>:30303 ... > static-nodes.json` (all zeto validators of cluster 1; bank C adds its own `rd-zeto-bank-c` node).
+3. `./static-nodes.sh --peer enode://<id of the OWN party's zeto besu-validator-0>@<its pod IP>:30303 > static-nodes.json` (exactly ONE entry, user decision 2026-11-11: each bank's RPC node peers only with that bank's own zeto node; `render.sh node` refuses any other count; bank C: its own zeto pod in `rd-zeto-bank-c`).
 4. `./render.sh node <p> --static-nodes static-nodes.json [--storage-class C] | kubectl apply -f -` (bank C: `--cluster 2 ... bank-c` and the cluster-2 storage class).
 5. Proofs (PLAN S4 RED), admin kubeconfig, port-forward. Interim only (S9 re-generates the pair inside the namespace): in ONE step, `umask 077; kubectl -n rd-stealth-<p> get secret stealth-rpc-jwt -o jsonpath='{.data.private\.pem}' | base64 -d > /dev/shm/k.pem; T=$(./mint-token.sh --key-file /dev/shm/k.pem --ttl 600 --permissions 'eth:*,net:*,web3:*'); rm -f /dev/shm/k.pem` (the key never leaves `/dev/shm`, never reaches disk or the chat). Then `eth_chainId` with `$T` -> `0x539`, without -> 401, `admin_peers` with `$T` -> not enabled.
 
