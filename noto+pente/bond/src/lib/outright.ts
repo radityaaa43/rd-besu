@@ -248,10 +248,10 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
     step = "settle";
     log(`[${step}] waiting for balances`);
     const settled = await Promise.all([
-      waitForBalance(`${seller.name} bond`, () => bond.token.balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerBond - units),
-      waitForBalance(`${seller.name} cash`, () => notoCash.using(seller.client).balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerCash + consideration),
-      waitForBalance(`${buyer.name} bond`, () => notoBond.using(buyer.client).balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerBond + units),
-      waitForBalance(`${buyer.name} cash`, () => cash.token.balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerCash - consideration),
+      waitForBalance(`${seller.name} bond`, () => bond.token.balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerBond - units, "debit"),
+      waitForBalance(`${seller.name} cash`, () => notoCash.using(seller.client).balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerCash + consideration, "credit"),
+      waitForBalance(`${buyer.name} bond`, () => notoBond.using(buyer.client).balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerBond + units, "credit"),
+      waitForBalance(`${buyer.name} cash`, () => cash.token.balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerCash - consideration, "debit"),
     ]);
     if (settled.some((b) => b === undefined)) throw new Error("balances did not settle to expected values");
   } catch (err) {
@@ -267,8 +267,8 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
       try {
         trade.rollbackAtomAddress = await rollback(p, [bond, cash], key, log);
         const restored = await Promise.all([
-          waitForBalance(`${seller.name} bond`, () => bond.token.balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerBond),
-          waitForBalance(`${buyer.name} cash`, () => cash.token.balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerCash),
+          waitForBalance(`${seller.name} bond`, () => bond.token.balanceOf(seller.verifier, { account: seller.verifier.lookup }), before.sellerBond, "credit"),
+          waitForBalance(`${buyer.name} cash`, () => cash.token.balanceOf(buyer.verifier, { account: buyer.verifier.lookup }), before.buyerCash, "credit"),
         ]);
         if (restored.some((b) => b === undefined)) throw new Error("balances did not return to pre-trade values");
         trade.status = "ROLLED_BACK";
@@ -371,7 +371,7 @@ export async function recoverTrade(
     recovered.rollbackAtomAddress = await rollback(p, legs, (s) => `${p.notoBond.address}-${trade.tradeId}-recover-${s}`, log);
     const restored = await Promise.all(
       legs.map((leg, i) =>
-        waitForBalance(`${leg.owner.name} ${leg.name}`, () => leg.token.balanceOf(leg.owner.verifier, { account: leg.owner.verifier.lookup }), before[i] + leg.amount)
+        waitForBalance(`${leg.owner.name} ${leg.name}`, () => leg.token.balanceOf(leg.owner.verifier, { account: leg.owner.verifier.lookup }), before[i] + leg.amount, "credit")
       )
     );
     if (restored.some((b) => b === undefined)) throw new Error("balances did not return to pre-trade values");

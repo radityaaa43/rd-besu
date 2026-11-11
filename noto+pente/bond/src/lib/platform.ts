@@ -112,21 +112,38 @@ export function requireSuccess(receipt: ITransactionReceipt | undefined, step: s
   return receipt;
 }
 
-// Balances settle asynchronously after an atom executes; poll until they match.
+// Balances settle asynchronously after an atom executes; poll until they get there.
+// `side` names which way the caller's balance moves, so another credit or debit on the same account while the trade runs does not
+// turn a settled trade into a failure: a "credit" side waits for balance >= expected, a "debit" side for balance <= expected.
+// Without a side the match is exact, as before. Exact amounts are the lens's job, not this poll's.
+export type BalanceSide = "credit" | "debit";
 export async function waitForBalance(
   label: string,
   query: () => Promise<NotoBalanceOfResult>,
-  expected: number | bigint
+  expected: number | bigint,
+  side?: BalanceSide,
+  opts: { timeoutMs?: number; pollMs?: number } = {}
 ): Promise<NotoBalanceOfResult | undefined> {
+  const timeoutMs = opts.timeoutMs ?? LONG_POLL_TIMEOUT;
+  const pollMs = opts.pollMs ?? POLL_INTERVAL;
+  const want = BigInt(expected);
+  const reached = (total: string): boolean => {
+    let got: bigint;
+    try { got = BigInt(total); } catch { return false; }
+    return side === "credit" ? got >= want : side === "debit" ? got <= want : got === want;
+  };
   const startTime = Date.now();
   while (true) {
     const balance = await query();
-    if (balance.totalBalance === String(expected)) return balance;
-    if (Date.now() - startTime > LONG_POLL_TIMEOUT) {
-      console.error(`${label}: expected ${expected}, still ${balance.totalBalance} after ${LONG_POLL_TIMEOUT / 1000}s`);
+    if (reached(balance.totalBalance)) {
+      if (balance.totalBalance !== String(want)) console.log(`${label}: ${side} side reached, expected ${side === "credit" ? ">=" : "<="} ${want}, now ${balance.totalBalance}`);
+      return balance;
+    }
+    if (Date.now() - startTime > timeoutMs) {
+      console.error(`${label}: expected ${side === "credit" ? ">=" : side === "debit" ? "<=" : ""}${want}, still ${balance.totalBalance} after ${timeoutMs / 1000}s`);
       return undefined;
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
 
