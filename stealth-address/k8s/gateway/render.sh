@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Render the stealth S17 gateway manifests (final-design/stealth/PLAN.md S17, ../S17.md) to stdout. Never talks to a cluster.
-#   render.sh <bi|bank-a|bank-b|bank-c> [--acl-id acl-X --external-cidr CIDR...]
-#   render.sh envoy <party>        the Envoy config only (CI runs `envoy --mode validate` on it)
-# Per party in rd-stealth-<party>: ConfigMap st-gw-<N>-envoy, Service st-gw-<N> (ClusterIP 8550), NetworkPolicies st-gw-ingress, stealth-signer-ingress.
+#   render.sh <bi|bank-a|bank-b|bank-c> [--opa-config FILE] [--acl-id acl-X --external-cidr CIDR...]
+#   render.sh envoy <party>          the Envoy config only (CI runs `envoy --mode validate` on it)
+#   render.sh bundle-access <party>  NetworkPolicy bundle-server-from-stealth in rd-zeto-<party> (the only object outside rd-stealth-<party>)
+# Per party in rd-stealth-<party>: ConfigMaps st-gw-<N>-envoy and st-gw-opa, Deployment st-gw-<N> (envoy + OPA, labels app=st-gw,node=node<N>), Service st-gw-<N>
+# (ClusterIP 8550), NetworkPolicies st-gw-ingress, stealth-signer-ingress.
+#   --opa-config   OPA config from FILE instead of opa/opa.yaml (the party's opa-config.yaml = opa.yaml + the public keys, from opa/keys.sh). It is rewritten for
+#                  this gateway: bundles come from bundle-server.rd-zeto-<party> (zeto S17), the sink service, its bearer token, status and decision-log service are
+#                  dropped (a gateway without a token cannot write to a sink; decisions go to the console).
+# The st-gw OPA pulls bi/latest.tar.gz and bank/latest.tar.gz (signing key id = the party). NOT rendered: the besu read door (S17.md: the RPC node needs a JWT).
 # bi only: SNI passthrough chain custodian-1 -> Service stealth-custodian (ClusterIP 9443) + NetworkPolicy stealth-custodian-ingress. The pod terminates mTLS itself,
 # so the signer sees the bank's client cert (S8 verdict rule a); OPA is not in that path.
 # R1 (bank-c's /cert reach): `bi --acl-id ... --external-cidr ...` adds Service st-gw-1-ext, a NEW LoadBalancer with the EXISTING ACL id annotated in the first apply
 # (never loadbalancer-id: no shared CLB). Without the flags no external Service exists.
-# NOT rendered (next PR): the st-gw Deployment + OPA config + rego bank.stealth, the besu read door; the Secrets (the parties create st-gw-<N>-mtls, signer secrets).
+# NOT rendered: the Secrets (the parties create st-gw-<N>-mtls and the signer secrets).
 # bi=1 bank-a=2 bank-b=3 bank-c=4. Needs bash.
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
@@ -120,6 +126,80 @@ admin:
 YAML
 }
 
+opaconf() { # opaconf <party> : $CFG rewritten for the stealth gateway
+  awk -v url="http://bundle-server.rd-zeto-$1" '
+    /^    url: http:\/\/bundle-server$/ { print "    url: " url; next }
+    /^  sink:$/ { skip = 1; next }
+    skip && /^    / { next }
+    { skip = 0 }
+    /^  service: sink$/ { next }
+    /^# bundle status/ { next }
+    /^status:$/ { next }
+    { print }' "$CFG"
+}
+
+deployment() { # deployment <party>
+  local p="$1" n ns; n="$(num "$p")"; ns="rd-stealth-$p"
+  cat <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: st-gw-$n
+  namespace: $ns
+  labels: {app: st-gw, node: node$n, part-of: rd-stealth, party: $p}
+spec:
+  replicas: 1
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+  selector:
+    matchLabels: {app: st-gw, node: node$n}
+  template:
+    metadata:
+      labels: {app: st-gw, node: node$n}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.38.9
+        args: ["-c", "/config/envoy.yaml", "--log-level", "warn"]
+        ports:
+        - {name: door, containerPort: 8550}
+        readinessProbe: {tcpSocket: {port: 8550}, periodSeconds: 5}
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: envoy, mountPath: /config, readOnly: true}
+        - {name: mtls, mountPath: /mtls, readOnly: true} # empty until Secret st-gw-$n-mtls exists (the party creates it)
+      - name: opa
+        image: openpolicyagent/opa:1.21.1-envoy-1-static
+        args:
+        - run
+        - --server
+        - --addr=localhost:8181
+        - --diagnostic-addr=0.0.0.0:8282
+        - --authorization=basic
+        - --config-file=/config/opa.yaml
+        - --set=labels.gateway=st-gw-$n
+        - --set=bundles.bi.resource=bi/latest.tar.gz
+        - --set=bundles.bank.resource=bank/latest.tar.gz
+        - --set=bundles.bank.signing.keyid=$p
+        readinessProbe: {httpGet: {path: "/health?plugins&bundles", port: 8282}, periodSeconds: 5}
+        livenessProbe: {httpGet: {path: /health, port: 8282}, periodSeconds: 10}
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: opa, mountPath: /config, readOnly: true}
+      volumes:
+      - {name: envoy, configMap: {name: st-gw-$n-envoy}}
+      - {name: mtls, secret: {secretName: st-gw-$n-mtls, optional: true, defaultMode: 292}} # 0444: envoy runs as uid 10001
+      - {name: opa, configMap: {name: st-gw-opa}}
+YAML
+}
+
 netpol() { # netpol <name> <ns> <party> <selector-yaml (indented 4)> <ingress-yaml (indented 2)>
   cat <<YAML
 ---
@@ -151,6 +231,18 @@ metadata:
 data:
   envoy.yaml: |
 $(envoy "$p" | indent)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: st-gw-opa
+  namespace: $ns
+  labels: {part-of: rd-stealth, party: $p}
+data:
+  opa.yaml: |
+$(opaconf "$p" | indent)
+---
+$(deployment "$p")
 ---
 apiVersion: v1
 kind: Service
@@ -211,11 +303,35 @@ YAML
   fi
 }
 
-[[ $# -ge 1 ]] || die "usage: render.sh <bi|bank-a|bank-b|bank-c> [--acl-id acl-X --external-cidr CIDR...] | render.sh envoy <party>"
+[[ $# -ge 1 ]] || die "usage: render.sh <bi|bank-a|bank-b|bank-c> [--opa-config FILE] [--acl-id acl-X --external-cidr CIDR...] | render.sh envoy <party> | render.sh bundle-access <party>"
 if [[ "$1" == envoy ]]; then [[ $# -eq 2 ]] || die "usage: render.sh envoy <party>"; num "$2" >/dev/null; envoy "$2"; exit 0; fi
+if [[ "$1" == bundle-access ]]; then
+  [[ $# -eq 2 ]] || die "usage: render.sh bundle-access <party>"; num "$2" >/dev/null
+  cat <<YAML
+# S17: st-gw of rd-stealth-$2 pulls its signed bundles from bundle-server (port 8080 only; never the 8081 sink). Additive to bundle-server-ingress (zeto).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bundle-server-from-stealth
+  namespace: rd-zeto-$2
+  labels: {app: bundle-server, part-of: rd-stealth}
+spec:
+  podSelector:
+    matchLabels: {app: bundle-server}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rd-stealth-$2}}
+      podSelector: {matchLabels: {app: st-gw}}
+    ports: [{protocol: TCP, port: 8080}]
+YAML
+  exit 0
+fi
 sel="$1"; shift; num "$sel" >/dev/null
+here="$(cd "$(dirname "$0")" && pwd)"; CFG="$here/../../../opa/opa.yaml"
 ACL=""; CIDRS=()
 while [[ $# -gt 0 ]]; do case "$1" in
+  --opa-config) CFG="${2:?--opa-config needs a file}"; [[ -f "$CFG" ]] || die "--opa-config: $CFG is not a file"; shift 2 ;;
   --acl-id) ACL="${2:?--acl-id needs an ACL id}"; [[ "$ACL" =~ ^acl-[a-z0-9]+$ ]] || die "bad --acl-id"; shift 2 ;;
   --external-cidr) c="${2:?--external-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --external-cidr '$c'"; CIDRS+=("$c"); shift 2 ;;
   *) die "unknown option $1" ;; esac; done
