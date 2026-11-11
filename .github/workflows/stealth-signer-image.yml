@@ -1,0 +1,41 @@
+# Builds the stealth signer image (stealth-address/signer/Dockerfile) and pushes it to ghcr.io (private by default). Manual only.
+# CI-only build (team rule: no local docker). The pushed digest is pinned in the S9 Deployment; same shape as bundle-sink-image.yml.
+# No cluster access, no secrets beyond the job's GITHUB_TOKEN (packages: write for this repository's package).
+name: stealth-signer-image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Refuse key-like files in the build context
+        run: |
+          bad=$(git ls-files stealth-address | grep -E -i '(\.pem|\.key|\.p12|\.pfx|\.jks)$|/\.env|/(spendKey|viewKey|identityKey|certKey)$' || true)
+          if [ -n "$bad" ]; then echo "key-like files tracked under stealth-address:"; echo "$bad"; exit 1; fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: stealth-address
+          file: stealth-address/signer/Dockerfile
+          push: true
+          sbom: true
+          provenance: mode=max
+          tags: ghcr.io/${{ github.repository_owner }}/rd-stealth-signer:${{ github.sha }}
+      - name: Digest in the job summary
+        run: |
+          echo "image ghcr.io/${{ github.repository_owner }}/rd-stealth-signer@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "tag ${{ github.sha }} (package is private by default; the digest is what the S9 Deployment pins)" >> "$GITHUB_STEP_SUMMARY"
