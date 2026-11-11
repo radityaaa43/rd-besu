@@ -102,6 +102,19 @@ check(ports == [("rd-zeto-bank-a", "8549"), ("rd-zeto-bank-b", "9000")], f"probe
 check(any(d["kind"] == "NetworkPolicy" and d["metadata"]["namespace"] == "rd-zeto-bank-b" for d in pr), "probe: needs a throwaway ingress-allow for 9000 in the other ns")
 check(all(d["metadata"].get("labels", {}).get("throwaway") == "zeto-s1-probe" for d in pr), "probe: every object must carry label throwaway=zeto-s1-probe (delete by label)")
 
+# probe split: listeners first (so they can be waited on), then the probe pods
+pl = docs("probe-listeners", "bank-a", "bank-b")
+pp = docs("probe-pods", "bank-a", "bank-b")
+check(sorted(d["metadata"]["name"] for d in of(pl, "Pod")) == ["probe-listener-8549", "probe-listener-9000"] and not any(d["metadata"]["name"].startswith("probe-p") or d["metadata"]["name"] == "probe-control" for d in of(pl, "Pod")), "probe-listeners: must emit only the two listener pods")
+check(sorted(d["metadata"]["name"] for d in of(pp, "Pod")) == ["probe-control", "probe-paladin"] and len(pp) == 2, "probe-pods: must emit only probe-paladin and probe-control")
+# result words: a refused connection is not a policy block; retry so a late listener cannot fake a proof
+for d in of(pp, "Pod"):
+    script = d["spec"]["containers"][0]["command"][-1]
+    check("except ConnectionRefusedError" in script and '"REFUSED"' in script, f"{d['metadata']['name']}: ConnectionRefusedError must print REFUSED")
+    check("except socket.timeout" in script and '"BLOCKED"' in script, f"{d['metadata']['name']}: only socket.timeout may print BLOCKED")
+    check("range(3)" in script and "time.sleep(2)" in script, f"{d['metadata']['name']}: needs 3 attempts with a 2 s gap")
+    check(script.index("except ConnectionRefusedError") < script.index("except OSError as e"), f"{d['metadata']['name']}: ConnectionRefusedError must be caught before the generic OSError")
+
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)

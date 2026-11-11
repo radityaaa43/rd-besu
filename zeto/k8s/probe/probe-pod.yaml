@@ -3,7 +3,8 @@
 #   probe-paladin   OTHER-9000 BLOCKED   <- the proof: rehearsal-no-9000-egress works
 #   probe-paladin   OWN-8549   OPEN      (same-namespace traffic and the 1-8999 range work)
 #   probe-control   OTHER-9000 OPEN      (control: the listener is reachable, so BLOCKED above comes from the policy, not from ingress)
-# probe-paladin OTHER-9000 OPEN = the CNI ignores endPort: S1 stops and goes to lead. DNS-FAIL = DNS egress is broken: not a result.
+# probe-paladin OTHER-9000 OPEN = the CNI ignores endPort: S1 stops and goes to lead. REFUSED, ERROR or DNS-FAIL are not results (listener not ready,
+# routing or DNS problem): fix and rerun. 3 attempts, 2 s apart; the last attempt is printed.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -25,15 +26,25 @@ spec:
         - -c
         - |
           import os, socket, time
+          # OPEN = connected; REFUSED = reached the host but nothing listens (NOT a policy proof); BLOCKED = timeout (what a drop looks like).
           def probe(label, host, port):
               try:
                   socket.gethostbyname(host)
               except OSError:
                   print(os.environ["WHO"], label, "DNS-FAIL", flush=True); return
-              try:
-                  socket.create_connection((host, port), timeout=5).close(); r = "OPEN"
-              except OSError:
-                  r = "BLOCKED"
+              r = "ERROR"
+              for attempt in range(3):
+                  try:
+                      socket.create_connection((host, port), timeout=5).close(); r = "OPEN"
+                  except ConnectionRefusedError:
+                      r = "REFUSED"
+                  except socket.timeout:
+                      r = "BLOCKED"
+                  except OSError as e:
+                      r = "ERROR " + type(e).__name__
+                  if r == "OPEN":
+                      break
+                  time.sleep(2)
               print(os.environ["WHO"], label, r, flush=True)
           probe("OTHER-9000", os.environ["OTHER"], 9000)
           probe("OWN-8549", os.environ["OWN"], 8549)

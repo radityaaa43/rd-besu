@@ -7,7 +7,7 @@ Manifests only. Nothing here talks to a cluster; applying them is a separate, ap
 | `templates/party.yaml` | Namespace `rd-zeto-<party>` (labels `part-of=rd-zeto`, `party=<party>`), NetworkPolicies `default-deny-ingress`, `allow-same-namespace`, `allow-dns-egress`, `rehearsal-no-9000-egress`, ServiceAccount + Role + RoleBinding `party-admin` |
 | `templates/lensa-publisher.yaml` | `bi` only, INTERIM until S20: ServiceAccount + Role + RoleBinding `lensa-publisher` (`get services/proxy` on `bundle-server`) |
 | `probe/listeners.yaml`, `probe/probe-pod.yaml` | Throwaway egress proof (PLAN S1 RED). All objects carry `throwaway=zeto-s1-probe` |
-| `render.sh` | `render.sh [-o DIR] <bi\|bank-a\|bank-b\|all>`, `render.sh probe <own> <other>` |
+| `render.sh` | `render.sh [-o DIR] <bi\|bank-a\|bank-b\|all>`, `render.sh probe[-listeners\|-pods] <own> <other>` |
 | `test.sh`, `test/check.py` | Offline assertions on the rendered output (names, labels, verbs, port ranges); needs bash + python3 + PyYAML |
 
 Parties: `bi`, `bank-a`, `bank-b` (cluster 1). `bank-c` is cluster 2 (S2) and `render.sh` refuses it.
@@ -17,11 +17,17 @@ NetworkPolicies are additive per pod. Egress stays open (PLAN S1), so `allow-dns
 `rehearsal-no-9000-egress` selects `app=paladin` and allows TCP 1-8999 and 9001-65535 plus UDP (DNS 53 is inside). Lifted in S21 by deleting that object.
 
 ## Probe (run in the S1 window, then delete by label)
+Listeners first, wait for Ready, then the probe pods (a listener that is not up yet would print `REFUSED`, which is not a proof).
 ```
-./render.sh probe bank-a bank-b | kubectl apply -f -
-kubectl -n rd-zeto-bank-a logs probe-paladin probe-control      # expected lines are in probe/probe-pod.yaml
+./render.sh probe-listeners bank-a bank-b | kubectl apply -f -
+kubectl wait --for=condition=Ready pod -l role=probe-listener -n rd-zeto-bank-b --timeout=60s
+kubectl wait --for=condition=Ready pod -l role=probe-listener -n rd-zeto-bank-a --timeout=60s
+./render.sh probe-pods bank-a bank-b | kubectl apply -f -
+kubectl -n rd-zeto-bank-a logs probe-paladin probe-control      # wait ~20 s: 3 attempts, 2 s apart
 ./render.sh probe bank-a bank-b | kubectl delete -f -
 ```
+Expected: `probe-control OTHER-9000 OPEN`, `probe-paladin OTHER-9000 BLOCKED`, `probe-paladin OWN-8549 OPEN`.
+`REFUSED`, `ERROR ...` and `DNS-FAIL` are not results.
 
 ## Not granted to `party-admin` (extended in the S9 PR)
 `pods/portforward`, `pods/exec` (S5 votes, S9 psql), Paladin CRs, cert-manager Certificates, anything cluster-scoped.
