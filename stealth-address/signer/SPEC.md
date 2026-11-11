@@ -83,12 +83,20 @@ Body: `{ "error": "<code>", "message": "<text without key material>" }`.
 ## RED tests (`signer/test/`)
 `signer.test.ts` proofs (1)-(4) plus the error codes `wrong_party`, `unknown_kind`, `bad_amount`; `cert.test.ts` proof (5). Stubs in `signer/src/` throw `not implemented`. `npx vitest run signer` fails now; `tsc --noEmit` is clean.
 
+## Decisions (analyst verdict on the S8 questions, 2026-11-11; AFTER ARCHITECTURE-stealth :123, :137, :150-161, :181-182)
+1. The custodian reads nonce (`usedCertificateNonce`) and domain separator (`generateDomainSeparator`) from the chain, never from the request; extra request fields are ignored (test).
+2. ABIs inline, pinned by test (no `forge build` in the image).
+3. Pool/`sent`/`escrowed` records: scan-based, none persisted. **GATE: refund tracking for DvP escrows (src/DvPEscrow.sol:124-142) must exist before S17.**
+4. Holdings list every scan match including balance 0 (test).
+5. One covering holding per intent, no aggregation (it would link addresses on chain); none covers -> 422 `insufficient_holdings` (recorded limit, test).
+6. mTLS client = stdlib `node:https` with key/cert/ca behind the injectable fetch port (`src/mtls.ts`, test with a local https server requiring a client cert); no undici.
+7. `/cert` on role custodian cannot enforce "which bank owns which stealth address" (unknowable). Rules instead: (a) the mTLS client cert must be a registered bank signer else 403 `not_registered_signer`, and requester, sender, token, selector are logged; (b) token must equal the bond else 422 `bad_token`; (c) expiry <= chain now + 600 else 422 `bad_expiry`; (d) payload selector allowlist: `transferByPartitionStealth`, or `transferByPartition` to an escrow created by OUR DvPFactory, else 422 `selector_not_allowed` (no rubber stamp). Banks never hold the cert key; role `bank` gets 403 `role_forbidden` on `/cert` until S12.
+8. Cert expiry 600 s and gas price 0 as Lensa. **Order: `estimateGas` only AFTER the real certificate is inserted** (the 97-byte placeholder reverts; test).
+Gaps closed: `/intent` returns `{kind, from, txHash, rawTx}`; `from` = party id; the signer picks the stealth address.
+
+## Placement (binding)
+One signer PER PARTY namespace holding only that party's spend + view keys. The BI signer holds the issuer key + view-key copies, never spend keys. The CERT signer is a separate key (`certKey`) and role (`custodian`) in the custodian namespace (default BI; a different user pick changes only a config name). A single signer holding all banks' spend keys is forbidden (DELTA 1). Accepted limit: the spend key sits raw in process memory (Vault protects at rest only, AFTER :137 hard limit 6).
+
 ## Open questions
-1. Does the `/cert` request carry `token`? PLAN:90 lists (sender, payload, expiry); the digest also includes the token (`ts/bond.ts:66`) and the payload does not name it. SPEC includes `token`; tests only require the three PLAN fields.
-2. ABI source: `ts/chain.ts:24` reads `out/` (needs `forge build`); the signer image may inline human-readable ABIs instead. Tests inline them.
-3. What does "pool" mean for a scan-based signer? `scan()` already finds every holding; `used` flags and `sent`/`escrowed` records (`frontend@28c8bdb:server/src/adapters/stealth.ts:195-198`) need a store format and volume path.
-4. Holdings of spent addresses (balance 0): listed or hidden? SPEC lists every scan match with its current balance.
-5. Multi-input spends: SPEC picks one holding that covers the amount; no aggregation.
-6. mTLS client in Node: `fetch` with a client certificate needs an `undici` dispatcher (not a direct dependency). Allowed to add?
-7. Custodian `/cert` request authentication beyond mTLS (which bank may ask for which sender)? Not in PLAN or ARCH.
-8. Cert expiry default 600 s and gas limit source (`estimateGas` plus margin?) are copied from Lensa; confirm.
+1. Which party is the custodian (DELTA 4): default BI, the user picks.
+2. Registered bank signer list: source and rotation (S12).

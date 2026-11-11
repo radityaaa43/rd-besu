@@ -6,7 +6,7 @@ import { buildBondMetadata } from '../../ts/bond.ts';
 import { generateMetaAddress, deriveStealth, scan } from '../../ts/stealth.ts';
 import { buildTokenMetadata } from '../../ts/token.ts';
 import { createSigner } from '../src/server.ts';
-import type { ChainPort, CertClient, Keys, SignerConfig } from '../src/types.ts';
+import type { ChainPort, CertClient, Keys, PeerIdentity, SignerConfig } from '../src/types.ts';
 
 export const CHAIN_ID = 1337n;
 export const RD = '0x00000000000000000000000000000000000000d1';
@@ -35,7 +35,14 @@ export class FakeChain implements ChainPort {
   async balanceOf(token: string, holder: string) { return this.balances.get((token + holder).toLowerCase()) ?? 0n; }
   async nonce(a: string) { return this.nonces.get(a.toLowerCase()) ?? 0; }
   async gasPrice() { return 0n; }
-  async estimateGas() { return 500_000n; }
+  gasCalls: Array<{ from: string; to: string; data: string }> = [];
+  domain = '0x' + 'dd'.repeat(32);
+  certNonces = new Map<string, bigint>();
+  escrows = new Set<string>();
+  async estimateGas(tx: { from: string; to: string; data: string }) { this.gasCalls.push(tx); return 500_000n; }
+  async bondDomainSeparator() { return this.domain; }
+  async usedCertificateNonce(token: string, sender: string) { return this.certNonces.get((token + sender).toLowerCase()) ?? 0n; }
+  async isEscrow(a: string) { return this.escrows.has(a.toLowerCase()); }
   async now() { return NOW; }
   async sendRawTransaction(raw: string) { this.sent.push(raw); return keccak256(raw); }
 }
@@ -67,13 +74,13 @@ export const scanA = (chain: FakeChain) => scan(chain.anns, A.viewKey, A.spendKe
 export type Rec = { logs: string[]; bodies: string[] };
 
 // Start the signer on 127.0.0.1:0 (loopback only, no outside network). Every response body and log/console line is recorded.
-export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig> } = {}) {
+export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig>; peer?: PeerIdentity; keys?: Partial<Keys> } = {}) {
   const rec: Rec = { logs: [], bodies: [] };
   for (const m of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     vi.spyOn(console, m).mockImplementation((...a: unknown[]) => { rec.logs.push(a.map(String).join(' ')); });
   }
   const { metaAddress: _m, ...keys } = A;
-  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys, chain, log: (l) => rec.logs.push(l), cert: opts.cert });
+  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys: { ...keys, ...opts.keys }, chain, log: (l) => rec.logs.push(l), cert: opts.cert, peer: opts.peer });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (method: string, path: string, body?: unknown) => {
