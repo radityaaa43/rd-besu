@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline check of stealth S17 gateway manifests (final-design/stealth/PLAN.md S17, stealth-address/k8s/S17.md).
 Usage: check.py <render.sh>. Exit 0 = all assertions hold; 1 = failures on stderr. Needs PyYAML; no cluster."""
-import os, subprocess, sys, yaml
+import os, subprocess, sys, tempfile, yaml
 
 render = os.path.abspath(sys.argv[1])
 PARTIES = {"bi": 1, "bank-a": 2, "bank-b": 3, "bank-c": 4}
@@ -91,6 +91,43 @@ for p, n in PARTIES.items():
     r = run("envoy", p)
     check(r.returncode == 0 and yaml.safe_load(r.stdout) == env, f"{p}: `envoy {p}` equals the ConfigMap content")
 
+# Deployment, OPA config, bundle access (S17 second half)
+KEYID = {"bi": "bi", "bank-a": "bank-a", "bank-b": "bank-b", "bank-c": "bank-c"}
+repo = os.path.abspath(os.path.join(os.path.dirname(render), "..", "..", ".."))
+with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+    f.write(open(os.path.join(repo, "opa", "opa.yaml")).read() + "keys:\n  bi:\n    algorithm: RS256\n    key: |\n      PUBKEY-FIXTURE\n")
+    cfg = f.name
+for p, n in PARTIES.items():
+    ns = f"rd-stealth-{p}"
+    ds = docs(p, "--opa-config", cfg)
+    dep = by(ds, "Deployment", f"st-gw-{n}")
+    check(dep is not None, f"{p}: Deployment st-gw-{n}")
+    if dep:
+        pod = dep["spec"]["template"]["spec"]
+        check(dep["spec"]["selector"]["matchLabels"] == {"app": "st-gw", "node": f"node{n}"} and dep["spec"]["template"]["metadata"]["labels"] == {"app": "st-gw", "node": f"node{n}"}, f"{p}: pod labels app=st-gw,node=node{n} (selected by the Services and policies)")
+        cs = {c["name"]: c for c in pod["containers"]}
+        check(set(cs) == {"envoy", "opa"}, f"{p}: containers envoy + opa")
+        args = cs["opa"]["args"]
+        for a in (f"--set=labels.gateway=st-gw-{n}", "--set=bundles.bi.resource=bi/latest.tar.gz", "--set=bundles.bank.resource=bank/latest.tar.gz", f"--set=bundles.bank.signing.keyid={KEYID[p]}", "--config-file=/config/opa.yaml", "--addr=localhost:8181", "--authorization=basic"):
+            check(a in args, f"{p}: opa arg {a}")
+        vols = {v["name"]: v for v in pod["volumes"]}
+        check(vols["envoy"]["configMap"]["name"] == f"st-gw-{n}-envoy" and vols["opa"]["configMap"]["name"] == "st-gw-opa", f"{p}: ConfigMap volumes")
+        check(vols["mtls"]["secret"]["secretName"] == f"st-gw-{n}-mtls" and vols["mtls"]["secret"]["optional"] is True, f"{p}: Secret st-gw-{n}-mtls mounted, optional (the party creates it)")
+        check("sink-token" not in vols and not any("sink" in str(v) for v in vols.values()), f"{p}: no sink-token volume (no write path to a bundle-server sink)")
+        check(pod["automountServiceAccountToken"] is False and pod["securityContext"]["runAsNonRoot"] is True, f"{p}: no SA token, non-root")
+        check(all(c["securityContext"]["readOnlyRootFilesystem"] is True and c["securityContext"]["allowPrivilegeEscalation"] is False and c["securityContext"]["capabilities"] == {"drop": ["ALL"]} for c in cs.values()), f"{p}: hardened containers")
+        check(cs["envoy"]["ports"][0]["containerPort"] == 8550, f"{p}: envoy port 8550")
+    cm = by(ds, "ConfigMap", "st-gw-opa")
+    oc = yaml.safe_load(cm["data"]["opa.yaml"]) if cm else {}
+    check(oc.get("services", {}).get("bundle-server", {}).get("url") == f"http://bundle-server.rd-zeto-{p}", f"{p}: OPA pulls bundles from bundle-server.rd-zeto-{p}")
+    check("sink" not in oc.get("services", {}) and "token_path" not in (cm["data"]["opa.yaml"] if cm else "") and "service" not in oc.get("decision_logs", {}) and "status" not in oc, f"{p}: OPA config has no sink service, no token, no status/decision-log service")
+    check(oc.get("decision_logs", {}).get("console") is True and oc.get("plugins", {}).get("envoy_ext_authz_grpc", {}).get("path") == "gw/allow" and oc["plugins"]["envoy_ext_authz_grpc"].get("dry-run") is False, f"{p}: console decision logs, gw/allow, enforcing")
+    check({"bi", "bank"} <= set(oc.get("bundles", {})) and "PUBKEY-FIXTURE" in str(oc.get("keys", {})), f"{p}: bundles bi/bank and the keys block from --opa-config survive")
+    ba = docs("bundle-access", p)
+    np_ = by(ba, "NetworkPolicy", "bundle-server-from-stealth")
+    check(bool(np_) and np_["metadata"]["namespace"] == f"rd-zeto-{p}" and np_["spec"]["podSelector"]["matchLabels"] == {"app": "bundle-server"} and np_["spec"]["ingress"] == [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": ns}}, "podSelector": {"matchLabels": {"app": "st-gw"}}}], "ports": [{"protocol": "TCP", "port": 8080}]}], f"{p}: bundle-access: only st-gw of rd-stealth-{p} to bundle-server :8080 (not the 8081 sink)")
+os.unlink(cfg)
+
 # R1: one CLB for st-gw-1, existing ACL id only, annotations in the first apply
 ds = docs("bi", "--acl-id", ACL, "--external-cidr", CIDR)
 ext = by(ds, "Service", "st-gw-1-ext")
@@ -102,7 +139,7 @@ if ext:
     check(a.get(pre + "acl-status") == "on" and a.get(pre + "acl-type") == "white" and a.get(pre + "acl-id") == ACL, "ext: ACL annotations on the Service itself (first apply)")
     check(not any(k.endswith(("loadbalancer-id", "force-override-listeners")) for k in a), "ext: no loadbalancer-id (new CLB, never a shared one)")
     check(ext["spec"]["loadBalancerSourceRanges"] == [CIDR] and ext["spec"]["selector"] == {"app": "st-gw"} and [p["port"] for p in ext["spec"]["ports"]] == [8550], "ext: source range, selector app=st-gw, port 8550")
-for bad in (["bank-a", "--acl-id", ACL, "--external-cidr", CIDR], ["bi", "--acl-id", ACL], ["bi", "--external-cidr", CIDR], ["bi", "--acl-id", "x", "--external-cidr", CIDR], ["bi", "--acl-id", ACL, "--external-cidr", "nope"], ["nope"], ["envoy", "nope"]):
+for bad in (["bank-a", "--acl-id", ACL, "--external-cidr", CIDR], ["bi", "--acl-id", ACL], ["bi", "--external-cidr", CIDR], ["bi", "--acl-id", "x", "--external-cidr", CIDR], ["bi", "--acl-id", ACL, "--external-cidr", "nope"], ["nope"], ["envoy", "nope"], ["bundle-access", "nope"], ["bi", "--opa-config", "/nonexistent"]):
     check(run(*bad).returncode != 0, f"refused: {' '.join(bad)}")
 
 if fails:
