@@ -211,6 +211,45 @@ with tempfile.TemporaryDirectory() as td:
     check(subprocess.run([gen, "bank-a", "1.2.3.4"], env={**os.environ, "PALADIN_MTLS_DIR": repo_inside}, capture_output=True).returncode != 0 and not os.path.exists(repo_inside), "gen-certs: refuses a directory inside the repo")
     check(subprocess.run([gen, "bank-z", "1.2.3.4"], env={**os.environ, "PALADIN_MTLS_DIR": os.path.join(td, "z")}, capture_output=True).returncode != 0, "gen-certs: unknown party refused")
 
+# ---- pull-secret / pull-test: the node pods run as SA `default` of rd-zeto-<party> (the Paladin CRD has no imagePullSecrets), so the fix is an SA patch, not the CR
+DIGEST = "ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71"
+for party, n in PARTIES.items():
+    ns = f"rd-zeto-{party}"
+    check("imagePullSecrets" not in run(party).stdout, f"{party}: operator/CR rendering must not carry imagePullSecrets (the fix is the default-SA patch)")
+    r = run("pull-secret", party)
+    check(r.returncode == 0 and r.stdout.count("\n") == 1 and r.stdout.endswith("\n"), f"{party}: pull-secret must print exactly one line: rc={r.returncode} {r.stderr.strip()[:100]}")
+    try:
+        patch = json.loads(r.stdout)
+    except ValueError:
+        patch = None
+    check(patch == [{"op": "add", "path": "/imagePullSecrets/-", "value": {"name": "ghcr-pull"}}], f"{party}: pull-secret patch {r.stdout!r}")
+    check("acr-credential" not in r.stdout and '"replace"' not in r.stdout and '"remove"' not in r.stdout, f"{party}: pull-secret must not touch the ACK entries")
+    check(run("pull-secret", party, "extra").returncode == 2, f"{party}: pull-secret extra arg must exit 2")
+    pt = docs("pull-test", party, "--image", DIGEST)
+    check(len(pt) == 1 and pt[0]["kind"] == "Deployment", f"{party}: pull-test must be one Deployment")
+    if len(pt) == 1:
+        d = pt[0]
+        check(d["metadata"]["name"] == "pull-test-paladin" and d["metadata"]["namespace"] == ns, f"{party}: pull-test name/namespace {d['metadata']}")
+        lab = {"app": "pull-test-paladin", "throwaway": "zeto-s21-pull-test", "part-of": "rd-zeto", "party": party}
+        check(d["metadata"]["labels"] == lab, f"{party}: pull-test labels {d['metadata'].get('labels')}")
+        check(d["spec"]["replicas"] == 1 and d["spec"]["selector"]["matchLabels"] == {"app": "pull-test-paladin"} and d["spec"]["template"]["metadata"]["labels"] == lab, f"{party}: pull-test replicas/selector/pod labels")
+        ps = d["spec"]["template"]["spec"]
+        check("imagePullSecrets" not in ps and "serviceAccountName" not in ps and "serviceAccount" not in ps, f"{party}: pull-test must use the default SA only (no imagePullSecrets, no serviceAccountName)")
+        check(ps.get("automountServiceAccountToken") is False, f"{party}: pull-test automountServiceAccountToken false")
+        cs = ps["containers"]
+        check(len(cs) == 1 and cs[0]["name"] == "pull-test" and cs[0]["image"] == DIGEST, f"{party}: pull-test one container pull-test with the digest image")
+        c0 = cs[0]
+        check("command" not in c0 and "args" not in c0, f"{party}: pull-test must not override the command")
+        check(c0["resources"] == {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"memory": "512Mi"}}, f"{party}: pull-test resources {c0['resources']}")
+        check(c0["securityContext"] == {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}}, f"{party}: pull-test securityContext")
+    check(run("pull-secret", party).stdout == run("pull-secret", party).stdout, f"{party}: pull-secret deterministic")
+for bad in (["pull-secret"], ["pull-secret", "nope"], ["pull-secret", "bi", "bank-a"],
+            ["pull-test", "bi"], ["pull-test", "bi", "--image"], ["pull-test", "bi", "--image", "ghcr.io/radityaaa43/paladin:latest"],
+            ["pull-test", "bi", "--image", DIGEST + " x"], ["pull-test", "bi", "--image", DIGEST.upper().replace("SHA256", "sha256")],
+            ["pull-test", "bi", "--image", DIGEST[:-1]], ["pull-test", "bi", "--image", DIGEST + "0"],
+            ["pull-test", "nope", "--image", DIGEST], ["pull-test", "bi", "--image", DIGEST, "--extra"], ["pull-test", "bi", "--image", DIGEST, "x"], ["pull-test"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must exit 2")
+
 if fails:
     print("\n".join(f"FAIL {f}" for f in fails), file=sys.stderr)
     sys.exit(1)
