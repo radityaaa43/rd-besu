@@ -6,7 +6,7 @@ const LOCK = "0x" + "ab".repeat(32);
 const OK = { success: true };
 
 // Fake deps: `bal` is the balanceOf the party would see; each lock call records itself and moves it like the live node does.
-function fake(fail: Partial<Record<"createLock" | "prepareSpend" | "delegateToSelf" | "cancel", unknown>> = {}, over: { afterCreate?: bigint; afterCancel?: bigint } = {}) {
+function fake(fail: Partial<Record<"createLock" | "delegateToSelf" | "cancel", unknown>> = {}, over: { afterCreate?: bigint; afterCancel?: bigint } = {}) {
   const calls: string[] = [];
   let bal = 100n;
   const step = <T>(name: keyof typeof fail, ok: T): T => {
@@ -22,7 +22,6 @@ function fake(fail: Partial<Record<"createLock" | "prepareSpend" | "delegateToSe
       bal = over.afterCreate ?? bal - amount;
       return r;
     },
-    prepareSpend: async (_id: string) => step("prepareSpend", {}),
     delegateToSelf: async (_id: string) => step<any>("delegateToSelf", OK),
     cancel: async (_id: string) => {
       const r = step<any>("cancel", OK);
@@ -33,39 +32,43 @@ function fake(fail: Partial<Record<"createLock" | "prepareSpend" | "delegateToSe
   return { deps, calls, lockCalls: () => calls.filter((c) => c !== "balance") };
 }
 
-const run = (f: ReturnType<typeof fake>) => runLockCheck(f.deps, { amount: 1n }, () => {});
+const logs: string[] = [];
+const run = (f: ReturnType<typeof fake>) => ((logs.length = 0), runLockCheck(f.deps, { amount: 1n }, (l) => logs.push(l)));
 const fails = async (f: ReturnType<typeof fake>, step: string) => {
   await assert.rejects(run(f), (e: any) => e instanceof LockCheckError && e.step === step);
 };
 
-test("happy path runs the four lock calls in order", async () => {
+// 2026-11-12 live failure (layer 7): prepareSpendLock before cancelLock on the SAME lock leaves a prepare-only tx holding the locked coin
+// (coordinator state_transition_guards.go: "holds its spend locks"), so cancelLock assembled with PD011615 "Input state 0 not found" and the unit stayed locked.
+// The cancel path is createLock -> delegateLock -> cancelLock; the prepared spend belongs to the Atom/DvP flow, never to a lock that is cancelled.
+test("happy path runs createLock, delegateLock, cancelLock in order and NEVER prepareSpendLock", async () => {
   const f = fake();
   await run(f);
-  assert.deepEqual(f.calls, ["balance", "createLock", "balance", "prepareSpend", "delegateToSelf", "balance", "cancel", "balance"]);
+  assert.deepEqual(f.calls, ["balance", "createLock", "balance", "delegateToSelf", "balance", "cancel", "balance"]);
+  assert.equal(f.calls.includes("prepareSpend"), false);
+  assert.equal("prepareSpend" in f.deps, false, "the dependency is gone, so the check cannot reserve the locked coin");
 });
 
 test("createLock failure: nothing later, no cleanup cancel", async () => {
   const f = fake({ createLock: new Error("boom") });
   await fails(f, "createLock");
   assert.deepEqual(f.lockCalls(), ["createLock"]);
+  assert.equal(logs.some((l) => l.includes("LOCK LEFT")), false, "no lock exists yet");
 });
 
-test("prepareSpend failure: delegate skipped, one cleanup cancel", async () => {
-  const f = fake({ prepareSpend: new Error("boom") });
-  await fails(f, "prepareSpendLock");
-  assert.deepEqual(f.lockCalls(), ["createLock", "prepareSpend", "cancel"]);
-});
-
-test("delegateToSelf failure: one cleanup cancel", async () => {
+// Lead/orchestrator 2026-11-12: any failure after createLock prints the lockId and STOPS; no hidden cleanup cancel (it could fail the same way or hide the state).
+test("delegateToSelf failure: STOP, the lockId is printed, no cleanup cancel", async () => {
   const f = fake({ delegateToSelf: new Error("boom") });
   await fails(f, "delegateLock");
-  assert.deepEqual(f.lockCalls(), ["createLock", "prepareSpend", "delegateToSelf", "cancel"]);
+  assert.deepEqual(f.lockCalls(), ["createLock", "delegateToSelf"]);
+  assert.ok(logs.some((l) => l.includes("LOCK LEFT OPEN") && l.includes(LOCK) && l.includes("delegateLock")), `lockId must be printed: ${JSON.stringify(logs)}`);
 });
 
-test("cancel failure: no second cancel", async () => {
+test("cancel failure: STOP, the lockId is printed, no second cancel", async () => {
   const f = fake({ cancel: new Error("boom") });
   await fails(f, "cancelLock");
-  assert.deepEqual(f.lockCalls(), ["createLock", "prepareSpend", "delegateToSelf", "cancel"]);
+  assert.deepEqual(f.lockCalls(), ["createLock", "delegateToSelf", "cancel"]);
+  assert.ok(logs.some((l) => l.includes("LOCK LEFT OPEN") && l.includes(LOCK) && l.includes("cancelLock")), `lockId must be printed: ${JSON.stringify(logs)}`);
 });
 
 test("a receipt with success:false is a failure (delegate, cancel, missing receipt)", async () => {
@@ -79,10 +82,11 @@ test("a receipt with success:false is a failure (delegate, cancel, missing recei
   await fails(g, "delegateLock");
 });
 
-test("balance after createLock not B0 - amount: step balance, cleanup cancel", async () => {
+test("balance after createLock not B0 - amount: step balance, STOP with the lockId printed, no cleanup cancel", async () => {
   const f = fake({}, { afterCreate: 100n });
   await fails(f, "balance");
-  assert.deepEqual(f.lockCalls(), ["createLock", "cancel"]);
+  assert.deepEqual(f.lockCalls(), ["createLock"]);
+  assert.ok(logs.some((l) => l.includes("LOCK LEFT OPEN") && l.includes(LOCK)));
 });
 
 test("final balance not B0: step balance, no second cancel", async () => {
@@ -93,7 +97,7 @@ test("final balance not B0: step balance, no second cancel", async () => {
 
 test("error messages carry no 0x + 64-hex string", async () => {
   const secret = "0x" + "cd".repeat(32);
-  for (const fail of [{ createLock: new Error(`k ${secret}`) }, { prepareSpend: new Error(`k ${secret}`) }, { delegateToSelf: { success: false, failureMessage: `k ${secret}` } }, { cancel: { success: false, failureMessage: `k ${secret} ${LOCK}` } }]) {
+  for (const fail of [{ createLock: new Error(`k ${secret}`) }, { delegateToSelf: { success: false, failureMessage: `k ${secret}` } }, { cancel: { success: false, failureMessage: `k ${secret} ${LOCK}` } }]) {
     const f = fake(fail);
     await assert.rejects(run(f), (e: any) => e instanceof LockCheckError && !/0x[0-9a-fA-F]{64}/.test(e.message));
   }

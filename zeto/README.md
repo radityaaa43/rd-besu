@@ -338,7 +338,7 @@ v1.0.0 poison-pill does not apply. The PUBLIC-tx read-back returns `bytes32` wit
 ## Lock check (S21 gate)
 
 `lock-check.ts` runs the V1 lock lifecycle for ONE party on its own node, through that party's own gateway and identity:
-`createLock` -> `prepareSpendLock` -> `delegateLock` (to the owner's own eth address, so it can still cancel) -> `cancelLock`.
+`createLock` -> `delegateLock` (to the owner's own eth address, so it can still cancel) -> `cancelLock`. It does NOT run `prepareSpendLock`: a prepared spend keeps the locked coin reserved in the coordinator until a node restart, so a later `cancelLock` of that lock fails with `PD011615 Input state 0 not found` (live 2026-11-12). Any failure after `createLock` prints `LOCK LEFT OPEN lockId=...` and stops (no cleanup cancel).
 It prints the balance after each step and exits 1 on any failed step (with a best-effort cleanup `cancelLock` if a lock exists).
 It runs against the LIVE node: it moves 1 unit into a lock and cancels it, net zero.
 

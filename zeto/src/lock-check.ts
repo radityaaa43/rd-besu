@@ -1,14 +1,16 @@
-// Core of the live Zeto V1 lock lifecycle check (S21 gate): createLock -> prepareSpendLock -> delegateLock -> cancelLock for ONE party.
+// Core of the live Zeto V1 lock lifecycle check (S21 gate): createLock -> delegateLock -> cancelLock for ONE party (net zero).
+// NO prepareSpendLock here: a prepared spend and a cancel of the same lock exclude each other. The prepare-only tx keeps the locked coin reserved in the
+// coordinator (core/go/internal/sequencer/coordinator/state_transition_guards.go: "holds its spend locks ... until restart"), so cancelLock assembled with
+// PD011615 "Input state 0 not found" (live 2026-11-12, layer 7). The prepared spend belongs to the Atom/DvP flow.
 // Pure and injectable (no SDK, no network) so test/lock-check.test.ts runs it offline; lock-check.ts wires the real helpers.
 export type Receipt = { success?: boolean; failureMessage?: string } | undefined;
 export type LockCheckDeps = {
   balance(): Promise<bigint>;
   createLock(amount: bigint): Promise<{ lockId: string }>;
-  prepareSpend(lockId: string): Promise<unknown>;
   delegateToSelf(lockId: string): Promise<Receipt>;
   cancel(lockId: string): Promise<Receipt>;
 };
-export type LockCheckStep = "createLock" | "prepareSpendLock" | "delegateLock" | "cancelLock" | "balance";
+export type LockCheckStep = "createLock" | "delegateLock" | "cancelLock" | "balance";
 
 export class LockCheckError extends Error {
   constructor(public readonly step: LockCheckStep, message: string) {
@@ -40,7 +42,7 @@ export async function runLockCheck(deps: LockCheckDeps, cfg: { amount: bigint },
   };
 
   let lockId: string | undefined;
-  let cancelTried = false;
+  let step: LockCheckStep = "createLock";
   try {
     const b0 = await at("balance", () => deps.balance());
     log(`before balance=${b0}`);
@@ -50,27 +52,17 @@ export async function runLockCheck(deps: LockCheckDeps, cfg: { amount: bigint },
     log(`createLock ok lockId=${lockId}`);
     await expectBalance("after createLock", b0 - cfg.amount); // locked coins leave balanceOf
 
-    await at("prepareSpendLock", () => deps.prepareSpend(lockId!));
-    log("prepareSpendLock ok");
-
     // PUBLIC delegateLock to the owner's OWN eth address (normally the Atom is the spender), so the owner can still cancel.
     await at("delegateLock", async () => receiptOk(await deps.delegateToSelf(lockId!)));
     log("delegateLock ok");
     await expectBalance("after delegateLock", b0 - cfg.amount);
 
-    cancelTried = true;
     await at("cancelLock", async () => receiptOk(await deps.cancel(lockId!)));
     log("cancelLock ok");
     await expectBalance("after cancelLock", b0); // cancel leaves no lock
   } catch (err) {
-    if (lockId && !cancelTried) {
-      try {
-        receiptOk(await deps.cancel(lockId));
-        log("cleanup cancelLock ok");
-      } catch (e) {
-        log(`cleanup cancelLock FAILED: ${msgOf(e)}`);
-      }
-    }
+    // Any failure after createLock: print the lockId and STOP. No cleanup cancel (it can fail the same way or hide the state): the lock is never left un-quoted.
+    if (lockId) log(`LOCK LEFT OPEN lockId=${lockId} after ${err instanceof LockCheckError ? err.step : step} failure; no cleanup attempted`);
     throw err;
   }
 }
