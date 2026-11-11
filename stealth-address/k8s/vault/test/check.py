@@ -56,7 +56,7 @@ for party, ns in PARTIES.items():
         check(srv["networkPolicy"]["enabled"] is False, f"{party}: chart NetworkPolicy off (ours is vault-ingress)")
         check(srv["image"] == {"repository": "hashicorp/vault", "tag": "2.0.4"}, f"{party}: image pinned hashicorp/vault:2.0.4: {srv.get('image')}")
         ds_ = srv["dataStorage"]
-        check(ds_["enabled"] is True and ds_["size"] == "20Gi" and ds_["storageClass"] == "alicloud-essd" and ds_["accessMode"] == "ReadWriteOnce", f"{party}: dataStorage 20Gi alicloud-essd RWO")
+        check(ds_["enabled"] is True and ds_["size"] == "20Gi" and ds_["storageClass"] == "rd-retain-essd" and ds_["accessMode"] == "ReadWriteOnce", f"{party}: dataStorage 20Gi rd-retain-essd (Retain) RWO")
         check(set(srv["resources"].get("requests", {})) >= {"cpu", "memory"} and set(srv["resources"].get("limits", {})) >= {"cpu", "memory"}, f"{party}: requests and limits set")
         check(srv["extraLabels"] == {"part-of": "rd-stealth", "party": party}, f"{party}: extraLabels part-of, party")
         check('storage "file"' in srv["standalone"]["config"] and "tls_disable = 1" in srv["standalone"]["config"], f"{party}: standalone config uses file storage on the PVC")
@@ -77,6 +77,21 @@ for party, ns in PARTIES.items():
 
 check(run(render, "bank-c").returncode != 0, "render.sh bank-c must fail (cluster 2 is out of scope)")
 check([d["metadata"]["namespace"] for d in docs(render, "all") if d["kind"] == "NetworkPolicy"] == list(PARTIES.values()), "all: one vault-ingress per party in order bi, bank-a, bank-b")
+
+# cluster-scoped storage (user-only): a Retain class for the key store and a Retain snapshot class
+st = docs(render, "storage")
+sc = [d for d in st if d["kind"] == "StorageClass"]
+check(len(st) == 2 and len(sc) == 1, f"storage: exactly a StorageClass and a VolumeSnapshotClass: {[d['kind'] for d in st]}")
+if sc:
+    c = sc[0]
+    check(c["metadata"]["name"] == "rd-retain-essd" and c["provisioner"] == "diskplugin.csi.alibabacloud.com" and c["parameters"] == {"type": "cloud_essd"} and c["reclaimPolicy"] == "Retain" and c["volumeBindingMode"] == "WaitForFirstConsumer" and c.get("allowVolumeExpansion") is True, f"storage: rd-retain-essd must be cloud_essd, Retain, WaitForFirstConsumer, expandable: {c}")
+vsc = [d for d in st if d["kind"] == "VolumeSnapshotClass"]
+check(len(vsc) == 1 and vsc[0]["metadata"]["name"] == "rd-retain-snapshot" and vsc[0]["driver"] == "diskplugin.csi.alibabacloud.com" and vsc[0]["deletionPolicy"] == "Retain", f"storage: VolumeSnapshotClass rd-retain-snapshot, same driver, deletionPolicy Retain: {vsc}")
+sn = docs(render, "snapshot", "bank-a", "pre-s9")
+check(len(sn) == 1 and sn[0]["kind"] == "VolumeSnapshot" and sn[0]["metadata"]["name"] == "vault-data-pre-s9" and sn[0]["metadata"]["namespace"] == "rd-stealth-bank-a" and sn[0]["spec"]["source"] == {"persistentVolumeClaimName": "data-vault-0"} and sn[0]["spec"]["volumeSnapshotClassName"] == "rd-retain-snapshot", f"snapshot: VolumeSnapshot vault-data-pre-s9 of PVC data-vault-0, class rd-retain-snapshot: {sn}")
+check(run(render, "snapshot", "bank-a", "Pre S9!").returncode != 0, "snapshot: the tag must be a DNS label fragment")
+cl_all = docs(render, "cluster", "all")
+check([d["metadata"]["name"] for d in cl_all] == [f"vault-auth-delegator-{n}" for n in PARTIES.values()], "cluster all: exactly the three vault-auth-delegator ClusterRoleBindings in order")
 
 # policy: the signer may read exactly one path
 try:
@@ -128,7 +143,7 @@ if chart_dir and shutil.which("helm"):
         check(not of(h, "ClusterRoleBinding") and not of(h, "Deployment") and not of(h, "NetworkPolicy"), "chart: no ClusterRoleBinding, injector Deployment or NetworkPolicy")
         check([d["metadata"]["name"] for d in of(h, "Service")] == ["vault-internal", "vault"] or sorted(d["metadata"]["name"] for d in of(h, "Service")) == ["vault", "vault-internal"], "chart: Services vault, vault-internal")
         vct = (sts[0]["spec"].get("volumeClaimTemplates") or [{}]) if sts else [{}]
-        check(any(t.get("spec", {}).get("storageClassName") == "alicloud-essd" and t["spec"]["resources"]["requests"]["storage"] == "20Gi" for t in vct), "chart: PVC 20Gi alicloud-essd")
+        check(any(t.get("spec", {}).get("storageClassName") == "rd-retain-essd" and t["spec"]["resources"]["requests"]["storage"] == "20Gi" for t in vct), "chart: PVC 20Gi rd-retain-essd")
         lab = sts[0]["spec"]["template"]["metadata"]["labels"] if sts else {}
         check(lab.get("app.kubernetes.io/name") == "vault" and lab.get("component") == "server", f"chart: pod labels must match vault-ingress selector: {lab}")
 else:

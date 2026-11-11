@@ -1,0 +1,22 @@
+# stealth S7 (decided 2026-11-11): the key store's volume must survive a PVC or namespace delete. Cluster-scoped, applied by the cluster operator (user-only, in the S7 GO).
+# Same driver and disk type as the cluster's alicloud-essd ([unverified]: compare parameters with `kubectl get storageclass alicloud-essd -o yaml` in the window).
+# Shape per kubernetes-sigs/alibaba-cloud-csi-driver examples/disk/storageclass.yaml and snapshot-restore/snapshotclass.yaml.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rd-retain-essd
+  labels: {part-of: rd-stealth}
+provisioner: diskplugin.csi.alibabacloud.com
+parameters:
+  type: cloud_essd
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: rd-retain-snapshot
+  labels: {part-of: rd-stealth}
+driver: diskplugin.csi.alibabacloud.com
+deletionPolicy: Retain

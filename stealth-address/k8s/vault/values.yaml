@@ -1,6 +1,6 @@
 # Values for the pinned upstream chart hashicorp/vault 0.34.1 (Vault 2.0.4). Rendered by render.sh values <party>; ${PARTY} = bi | bank-a | bank-b.
 #   helm install vault vault --repo https://helm.releases.hashicorp.com --version 0.34.1 -n rd-stealth-${PARTY} -f <rendered values>
-# Spend (README decision 28/29): one 20Gi alicloud-essd PVC and one small pod per party. Sizes are a first guess [unverified].
+# Spend (README decision 28/29): one 20Gi essd PVC (class rd-retain-essd) and one small pod per party. Sizes are a first guess [unverified].
 fullnameOverride: vault
 global:
   enabled: true
@@ -36,7 +36,7 @@ server:
   dataStorage:
     enabled: true
     size: 20Gi
-    storageClass: alicloud-essd
+    storageClass: rd-retain-essd   # Retain + WaitForFirstConsumer, cluster-scoped, templates/storage.yaml (user-only): deleting the PVC must not delete the keys
     accessMode: ReadWriteOnce
   extraLabels:
     part-of: rd-stealth

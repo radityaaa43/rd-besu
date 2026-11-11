@@ -1,0 +1,12 @@
+# Disk snapshot of the party's Vault volume (stealth S7: taken before S9 and after every key change). ${TAG} = a short DNS-label tag, e.g. pre-s9.
+# Crash-consistent (Vault file storage, no quiesce): take it right after `vault operator unseal` while idle, never during a write.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: vault-data-${TAG}
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+spec:
+  volumeSnapshotClassName: rd-retain-snapshot
+  source:
+    persistentVolumeClaimName: data-vault-0

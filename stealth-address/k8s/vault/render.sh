@@ -2,7 +2,9 @@
 # Render the stealth S7 manifests (final-design/stealth/PLAN.md S7: per-party key store, Vault) to stdout, or to DIR/<ns>-vault.yaml with -o.
 #   render.sh [-o DIR] <bi|bank-a|bank-b|all>   ServiceAccount stealth-signer + NetworkPolicy vault-ingress (the Vault server itself = the upstream chart, values below)
 #   render.sh values <party>                    values for hashicorp/vault chart 0.34.1 (install command in values.yaml)
-#   render.sh cluster <party>                   ClusterRoleBinding vault-auth-delegator-<ns> (cluster operator applies it)
+#   render.sh cluster <party|all>               ClusterRoleBinding vault-auth-delegator-<ns> (cluster operator applies it; user-only)
+#   render.sh storage                           StorageClass rd-retain-essd + VolumeSnapshotClass rd-retain-snapshot (cluster-scoped, user-only)
+#   render.sh snapshot <party> <tag>            VolumeSnapshot vault-data-<tag> of the party's Vault volume
 #   render.sh probe <own> <other>               throwaway proof pods (signer reads OK; other pods blocked or login denied), prints no secret value
 # Needs bash + sed only. Never talks to a cluster. Cluster 2 (bank-c) is out of scope and refused.
 set -euo pipefail
@@ -83,7 +85,13 @@ out=""
 if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
 case "${1:-}" in
   values)  shift; [[ $# == 1 ]] || die "usage: render.sh values <party>"; subst "$1" "$here/values.yaml" ;;
-  cluster) shift; [[ $# == 1 ]] || die "usage: render.sh cluster <party>"; subst "$1" "$here/templates/auth-delegator.yaml" ;;
+  cluster) shift; [[ $# == 1 ]] || die "usage: render.sh cluster <party|all>"
+           if [[ "$1" == all ]]; then first=1; for p in $parties; do [[ $first == 1 ]] || echo '---'; first=0; subst "$p" "$here/templates/auth-delegator.yaml"; done
+           else subst "$1" "$here/templates/auth-delegator.yaml"; fi ;;
+  storage) cat "$here/templates/storage.yaml" ;;
+  snapshot) shift; [[ $# == 2 ]] || die "usage: render.sh snapshot <party> <tag>"
+            [[ "$2" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]] || die "tag '$2' is not a DNS label fragment"
+            subst "$1" "$here/templates/snapshot.yaml" | sed "s/\${TAG}/$2/g" ;;
   probe)   shift; [[ $# == 2 ]] || die "usage: render.sh probe <own-party> <other-party>"; probe "$@" ;;
   all)
     if [[ -n "$out" ]]; then mkdir -p "$out"; for p in $parties; do subst "$p" "$here/templates/access.yaml" > "$out/rd-stealth-$p-vault.yaml"; done
