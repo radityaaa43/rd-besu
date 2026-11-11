@@ -311,15 +311,63 @@ test_lensa_cert_from_another_ca_denied if {
 	allowed_as("node1", {"op": "balance"}, pki.lensa_leaf1)
 }
 
-test_peer_org_ca_precheck_and_report_only if {
+test_peer_org_ca_precheck_only if {
 	# org 2's gateway asks node 3's gateway for the counterparty leg
 	allowed_as("node3", swap23, pki.peer_2_org2)
-	allowed_as("node3", {"op": "report"}, pki.peer_2_org2)
+	not allowed_as("node3", {"op": "report"}, pki.peer_2_org2)
 	not allowed_as("node3", {"op": "balance"}, pki.peer_2_org2)
 	not allowed_as("node3", {"op": "usage"}, pki.peer_2_org2)
 	not allowed_as("node3", swap("bank3", "bank2"), pki.peer_2_org2)
 	not allowed_as("node3", transfer("bank3", "bank2", "5"), pki.peer_2_org2)
 	not allowed_as("node3", {"op": "issue", "to": "bank2", "type": "RD", "amount": "1"}, pki.peer_2_org2)
+}
+
+test_peer_report_denied_everywhere if {
+	every n in ["node1", "node3", "node4"] {
+		not allowed_as(n, {"op": "report"}, pki.peer_2_org2)
+	}
+}
+
+# BI liveness probe (redeliver.go:270, serve.go:260-265): usage of RD since "now" at BI's gateway.
+usage_since(sec) := {"op": "usage", "type": "RD", "since": time.format([now_ns + (sec * 1000000000), "UTC"])}
+
+test_peer_usage_probe_at_node1_allowed if {
+	allowed_as("node1", usage_since(0), pki.peer_2_org2)
+	allowed_as("node1", usage_since(-59), pki.peer_2_org2)
+	allowed_as("node1", usage_since(-60), pki.peer_2_org2)
+	allowed_as("node1", usage_since(59), pki.peer_2_org2)
+}
+
+test_peer_usage_old_or_far_future_since_denied if {
+	not allowed_as("node1", usage_since(-86400), pki.peer_2_org2)
+	not allowed_as("node1", usage_since(-61), pki.peer_2_org2)
+	not allowed_as("node1", usage_since(61), pki.peer_2_org2)
+}
+
+test_peer_usage_not_at_node1_denied if {
+	# a peer of another org each time (a gateway never calls itself)
+	not allowed_as("node2", usage_since(0), pki.peer_3_org3)
+	not allowed_as("node3", usage_since(0), pki.peer_2_org2)
+	not allowed_as("node4", usage_since(0), pki.peer_2_org2)
+}
+
+test_peer_usage_wrong_type_or_since_denied if {
+	not allowed_as("node1", object.union(usage_since(0), {"type": "DFABI-2027A"}), pki.peer_2_org2)
+	not allowed_as("node1", object.remove(usage_since(0), ["type"]), pki.peer_2_org2)
+	not allowed_as("node1", object.union(usage_since(0), {"since": "yesterday"}), pki.peer_2_org2)
+	not allowed_as("node1", object.union(usage_since(0), {"since": 12}), pki.peer_2_org2)
+	not allowed_as("node1", object.remove(usage_since(0), ["since"]), pki.peer_2_org2)
+}
+
+test_lensa_usage_old_since_still_allowed if {
+	allowed("node1", {"op": "usage", "type": "RD", "since": "2020-01-01T00:00:00Z"})
+	allowed("node1", {"op": "usage", "type": "RD"})
+}
+
+test_peer_other_reads_at_node1_denied if {
+	every op in ["balance", "history", "records", "finality"] {
+		not allowed_as("node1", {"op": op, "type": "RD", "since": usage_since(0).since}, pki.peer_2_org2)
+	}
 }
 
 test_peer_cn_of_another_org_denied if {

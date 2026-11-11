@@ -13,7 +13,8 @@
 # (forward_client_cert_details SANITIZE_SET, cert: true) in x-forwarded-client-cert, and XFCC carries no issuer, so the leaf is verified here
 # against a public CA from data.bi.config.fabricx_ca (node name -> PEM; gen: Lensa = bank-gw-ca-<N>, gw = the org's Fabric-X TLS root):
 #   lensa   CN exactly `lensa`, signed directly by bank-gw-ca-<N> of THIS gateway's node: every rule above
-#   peer    CN exactly `fx-gw-<M>-peer`, signed directly by org M's TLS root, M another node: only precheck and report
+#   peer    CN exactly `fx-gw-<M>-peer`, signed directly by org M's TLS root, M another node: only precheck, plus usage at node1
+#           with type RD and since within 60 s of now (BI liveness probe)
 # Both need the ClientAuth key usage. No certificate, a second Cert element, a leaf from another CA, or another CN: denied.
 package bi.platform.fabricx
 
@@ -134,7 +135,23 @@ allow if {
 	peer_caller
 }
 
-peer_ops := {"precheck", "report"}
+allow if {
+	permitted
+	body.op == "usage"
+	peer_probe
+	peer_caller
+}
+
+peer_ops := {"precheck"}
+
+# BI liveness probe: a peer's driver posts {"op":"usage","type":"RD","since":<now>} to BI's gateway (serve.go:260-265, redeliver.go:270).
+# usage returns the owner's outgoing sum since `since`: with since = now it carries nothing, with an old one it would leak BI's outflow,
+# so `since` must be within 60 s of the clock (either side; a future since returns 0).
+peer_probe if {
+	own == "node1"
+	body.type == "RD"
+	abs(time.now_ns() - time.parse_rfc3339_ns(body.since)) <= 60000000000
+}
 
 # The leaf Envoy forwarded: exactly one Cert element, one certificate in it.
 leaf_pem := pem if {
