@@ -210,6 +210,22 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200)
 
     def do_GET(self):
+        m = re.fullmatch(r"/bundles/([a-z0-9][a-z0-9-]*)/latest", self.path)
+        if m:  # relay: the newest stored (signed) bundle, byte-identical; signed public data, so no token
+            if not self.store:
+                return self.reply(404)
+            path = os.path.join(self.store, m.group(1), "latest.tar.gz")
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                return self.reply(404)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path != "/status":
             return self.reply(404)
         now = time.time()
