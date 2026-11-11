@@ -76,6 +76,7 @@ else
   [[ "$CERT" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --cert-url (https://host[:port], no path)"
 fi
 [[ -z "${HAVE_PULL:-}" ]] || [[ "$PULL" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] || die "bad --pull-secret (DNS-1123 name)"
+[[ "$IMAGE" != ghcr.io/* || -n "${HAVE_PULL:-}" ]] || die "an image from ghcr.io is private: pass --pull-secret (ghcr-pull); without it the pod ends in ImagePullBackOff"
 
 # chain-env: exactly the seven public chain keys. Only the key name is ever echoed, never a value.
 declare -A CH=()

@@ -156,6 +156,12 @@ for top in ("zeto", "opa", "stealth-address"):
             path = os.path.join(dp, f)
             for i, line in enumerate(open(path, errors="ignore"), 1):
                 check(not bad_url.search(line), f"{os.path.relpath(path, root)}:{i}: bundle-server URL with the pod port 8080 (Service ports are 80 and 8081)")
+# Standing lesson (S21 attempt 1: ImagePullBackOff): an image from ghcr.io is private for this account, so the render REFUSES it without --pull-secret,
+# and with one every pod spec of the Deployment carries imagePullSecrets.
+GH = "ghcr.io/radityaaa43/rd-bundle-server@sha256:" + "0" * 64
+check(run("bi", "--sink-image", GH).returncode == 2, "ghcr.io --sink-image without --pull-secret must fail with 2")
+gh = run("bi", "--sink-image", GH, "--pull-secret", "ghcr-pull")
+check(gh.returncode == 0 and "imagePullSecrets" in gh.stdout and "name: ghcr-pull" in gh.stdout, "ghcr.io --sink-image with --pull-secret ghcr-pull must render imagePullSecrets")
 
 if fails:
     print("\n".join("FAIL: " + f for f in fails), file=sys.stderr)

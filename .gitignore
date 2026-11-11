@@ -11,3 +11,5 @@ alibaba.yaml
 
 # ICMA BDT v1.2 source PDF: licensed copy, never commit
 docs/icma-bdt-v1.2/
+__pycache__/
+*.pyc

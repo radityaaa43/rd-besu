@@ -298,6 +298,17 @@ rejects("bank with --bank-signers", *bank_args(), "--bank-signers", SIGNERS)
 for bad in ("Reg_Cred", "-x", "x.", ""):
     rejects(f"--pull-secret {bad!r}", *bank_args(), "--pull-secret", bad)
 
+# Standing lesson (S21 attempt 1: ImagePullBackOff): an image from ghcr.io is private for this account, so every signer render (bank, bi, custodian,
+# compare) REFUSES it without --pull-secret, and with one the pod spec carries imagePullSecrets.
+GH = "ghcr.io/radityaaa43/rd-stealth-signer@sha256:" + "0" * 64
+rejects("bank-a ghcr.io image without --pull-secret", *bank_args(image=GH))
+rejects("bi ghcr.io image without --pull-secret", *bi_args(image=GH))
+rejects("custodian ghcr.io image without --pull-secret", *cust_args(image=GH))
+rejects("compare ghcr.io image without --pull-secret", "compare", "--image", GH, "--chain-env", GOOD, "--registry", "0x" + "1" * 40)
+for args in (bank_args(image=GH), bi_args(image=GH), cust_args(image=GH), ["compare", "--image", GH, "--chain-env", GOOD, "--registry", "0x" + "1" * 40]):
+    rr = run(*args, "--pull-secret", "ghcr-pull")
+    check(rr.returncode == 0 and "imagePullSecrets" in rr.stdout and "name: ghcr-pull" in rr.stdout, f"{args[0]}: ghcr.io image with --pull-secret ghcr-pull must render imagePullSecrets (rc {rr.returncode})")
+
 if fails:
     print(f"FAIL: {len(fails)} assertion(s)", file=sys.stderr)
     for f in fails:

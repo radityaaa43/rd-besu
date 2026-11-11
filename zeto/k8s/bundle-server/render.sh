@@ -79,6 +79,7 @@ esac
 [[ -n "$image" ]] || die "--sink-image is required"
 [[ "$image" =~ ^[A-Za-z0-9._/:@-]+$ ]] || die "--sink-image '$image' is not an image reference"
 [[ -z "$pull" || "$pull" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "--pull-secret '$pull' is not a Secret name"
+[[ "$image" != ghcr.io/* || -n "$pull" ]] || die "an image from ghcr.io is private: pass --pull-secret (ghcr-pull); without it the pod ends in ImagePullBackOff"
 [[ -z "$class" || "$class" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "--storage-class '$class' is not a valid name"
 [[ "$party" != bank-c || -n "$class" ]] || die "bank-c is on cluster 2: --storage-class is required (and must be WaitForFirstConsumer)"
 ns="rd-zeto-$party"

@@ -240,6 +240,7 @@ for party, n in PARTIES.items():
         check(len(cs) == 1 and cs[0]["name"] == "pull-test" and cs[0]["image"] == DIGEST, f"{party}: pull-test one container pull-test with the digest image")
         c0 = cs[0]
         check("command" not in c0 and "args" not in c0, f"{party}: pull-test must not override the command")
+        check(c0.get("imagePullPolicy") == "Always", f"{party}: pull-test imagePullPolicy must be Always (a cached image would hide a missing pull secret)")
         check(c0["resources"] == {"requests": {"cpu": "10m", "memory": "64Mi"}, "limits": {"memory": "512Mi"}}, f"{party}: pull-test resources {c0['resources']}")
         check(c0["securityContext"] == {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}}, f"{party}: pull-test securityContext")
     check(run("pull-secret", party).stdout == run("pull-secret", party).stdout, f"{party}: pull-secret deterministic")

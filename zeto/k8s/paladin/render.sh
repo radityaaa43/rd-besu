@@ -189,6 +189,7 @@ spec:
       containers:
         - name: pull-test
           image: ${img}
+          imagePullPolicy: Always
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
           resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 512Mi}}
 YAML
