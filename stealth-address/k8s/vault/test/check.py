@@ -84,7 +84,7 @@ sc = [d for d in st if d["kind"] == "StorageClass"]
 check(len(st) == 2 and len(sc) == 1, f"storage: exactly a StorageClass and a VolumeSnapshotClass: {[d['kind'] for d in st]}")
 if sc:
     c = sc[0]
-    check(c["metadata"]["name"] == "rd-retain-essd" and c["provisioner"] == "diskplugin.csi.alibabacloud.com" and c["parameters"] == {"type": "cloud_essd"} and c["reclaimPolicy"] == "Retain" and c["volumeBindingMode"] == "WaitForFirstConsumer" and c.get("allowVolumeExpansion") is True, f"storage: rd-retain-essd must be cloud_essd, Retain, WaitForFirstConsumer, expandable: {c}")
+    check(c["metadata"]["name"] == "rd-retain-essd" and c["provisioner"] == "diskplugin.csi.alibabacloud.com" and c["parameters"] == {"type": "cloud_essd", "performanceLevel": "PL0"} and c["reclaimPolicy"] == "Retain" and c["volumeBindingMode"] == "WaitForFirstConsumer" and c.get("allowVolumeExpansion") is True, f"storage: rd-retain-essd must be cloud_essd PL0 (as the live alicloud-essd), Retain, WaitForFirstConsumer, expandable: {c}")
 vsc = [d for d in st if d["kind"] == "VolumeSnapshotClass"]
 check(len(vsc) == 1 and vsc[0]["metadata"]["name"] == "rd-retain-snapshot" and vsc[0]["driver"] == "diskplugin.csi.alibabacloud.com" and vsc[0]["deletionPolicy"] == "Retain", f"storage: VolumeSnapshotClass rd-retain-snapshot, same driver, deletionPolicy Retain: {vsc}")
 sn = docs(render, "snapshot", "bank-a", "pre-s9")

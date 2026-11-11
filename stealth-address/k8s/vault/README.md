@@ -20,7 +20,7 @@ Changes to stealth L0 (#14) in this PR, both on LIVE objects once L0 is applied:
 
 ## S7 GO sub-steps (cluster-1 window, in this order)
 User-only, cluster-scoped, applied by the cluster operator (qa's harness expects exactly these):
-1. `./render.sh storage | kubectl apply -f -` : StorageClass `rd-retain-essd`, VolumeSnapshotClass `rd-retain-snapshot` (compare the StorageClass parameters with `kubectl get storageclass alicloud-essd -o yaml` first [unverified]).
+1. `./render.sh storage | kubectl apply -f -` : StorageClass `rd-retain-essd`, VolumeSnapshotClass `rd-retain-snapshot` (parameters `cloud_essd`, `performanceLevel: PL0` match the live `alicloud-essd`, read by besu).
 2. `./render.sh cluster all | kubectl apply -f -` : exactly three ClusterRoleBindings `vault-auth-delegator-rd-stealth-{bi,bank-a,bank-b}` (`system:auth-delegator` for SA `vault`).
 Per namespace (operator):
 3. Re-apply the changed live objects of L0: `../render.sh <party> | kubectl apply -f -` (`allow-same-namespace`, `party-admin` Role); verify `kubectl -n <ns> get netpol allow-same-namespace -o yaml` and `kubectl -n <ns> get role party-admin -o yaml`.
@@ -53,8 +53,8 @@ Real keys (field names: bank `spendKey viewKey identityKey`; BI `issuerKey custo
 
 ## Backup (before S9, and after every key change)
 The volume is Retain: deleting the PVC or the namespace leaves the disk. In addition, a snapshot: `./render.sh snapshot bank-a pre-s9 | kubectl apply -f -`, then
-`kubectl -n rd-stealth-bank-a get volumesnapshot vault-data-pre-s9` must show `READYTOUSE true` (VolumeSnapshotClass `rd-retain-snapshot`, deletionPolicy Retain). Crash-consistent only
-(file storage, taken while idle right after an unseal); a restore test is `kubectl` creating a PVC with `dataSource` = the snapshot and reading `secret/stealth-keys` in a scratch Vault (not done here [open]).
+`kubectl -n rd-stealth-bank-a get volumesnapshot vault-data-pre-s9` must show `READYTOUSE true` (VolumeSnapshotClass `rd-retain-snapshot`, deletionPolicy Retain). Crash-consistent only (file storage, taken while idle right after an unseal).
+**Gate for S9 (prerequisite, stealth PLAN S9):** the restore test of the `pre-s9` snapshot has passed: a scratch PVC with `dataSource` = the snapshot (class `rd-retain-essd`), a scratch Vault on it unsealed with the operator's shares, and `secret/stealth-keys` readable (the placeholder entry). S9 does not start without it.
 The unseal shares are the operator's own copy; losing them with the pod sealed means the keys are gone, the snapshot cannot be opened without them.
 
 ## RED proofs (PLAN S7)
@@ -74,4 +74,4 @@ Expected: `vprobe-signer READ-OK`, `vprobe-wrongsa LOGIN-DENIED`, `vprobe-gw rd-
 - **Cluster-scoped binding**: `vault-auth-delegator-<ns>` is the one cluster-scoped grant (TokenReview). Whether kubernetes auth works as configured on ACK is [unverified]; the alternative is AppRole (a Secret again).
 - **Probe image applets** (`nc`, `timeout`, exit codes 124/143) in `hashicorp/vault:2.0.4` are [unverified] until the first run; the probe pods print `ERROR` or `REFUSED` if wrong, which is not a result.
 - **Hard limit 6** (PLAN): the signer holds the spending key in memory; Vault holds it at rest only. **Licence**: Vault has been under BUSL since 1.16; the licence of 2.0.4 was not read [unverified]; OpenBao is the open fork if that matters [not decided here].
-- Sizes (20Gi PVC, 100m/256Mi requests) are a first guess [unverified]; the snapshot restore test is not done.
+- Sizes (20Gi PVC, 100m/256Mi requests) are a first guess [unverified]; the snapshot restore test is the S9 gate (Backup section).
