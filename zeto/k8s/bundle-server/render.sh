@@ -10,6 +10,9 @@
 #   render.sh fabricx-access <bi|bank-a|bank-b|bank-c>
 # prints the one NetworkPolicy bundle-server-from-fabricx (S16): the Fabric-X gateway fx-gw-<N> of ns rd-fabricx-<party> may read the signed bundles
 # (TCP 8080; never the 8081 sink). It is additive to the bundle-server NetworkPolicy above and applies in the same cluster as the bundle-server.
+#   render.sh iroha3-access <bi|bank-a|bank-b|bank-c>
+# prints the one NetworkPolicy bundle-server-from-iroha3: the iroha3 gateway (pod label app.kubernetes.io/name=gateway) of ns rd-iroha3-<party>
+# may read the signed bundles (TCP 8080 = the POD port the policy sees; the gateway dials the Service port 80, never :8080, never the 8081 sink). Additive, same cluster as the bundle-server.
 # Needs bash + sed only. Never talks to a cluster.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -33,6 +36,29 @@ spec:
   - from:
     - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rd-fabricx-$2}}
       podSelector: {matchLabels: {app.kubernetes.io/name: fx-gw-$n}}
+    ports: [{protocol: TCP, port: 8080}]
+YAML
+  exit 0
+fi
+
+if [[ "${1:-}" == iroha3-access ]]; then
+  [[ $# -eq 2 ]] || die "usage: render.sh iroha3-access <bi|bank-a|bank-b|bank-c>"
+  case "$2" in bi|bank-a|bank-b|bank-c) ;; *) die "unknown party '$2' (allowed: bi bank-a bank-b bank-c)" ;; esac
+  cat <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bundle-server-from-iroha3
+  namespace: rd-zeto-$2
+  labels: {app: bundle-server, part-of: rd-iroha3}
+spec:
+  podSelector:
+    matchLabels: {app: bundle-server}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rd-iroha3-$2}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: gateway}}
     ports: [{protocol: TCP, port: 8080}]
 YAML
   exit 0

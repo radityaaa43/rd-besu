@@ -109,6 +109,24 @@ for n, party in enumerate(PARTIES, 1):
 check(run("fabricx-access", "bank-d").returncode == 2, "fabricx-access with an unknown party must fail with 2")
 check(run("fabricx-access").returncode == 2, "fabricx-access without a party must fail with 2")
 
+# iroha3-access <party>: the iroha3 gateway (app.kubernetes.io/name=gateway) of rd-iroha3-<party> reads the signed bundles (8080 only, never the 8081 sink)
+for party in PARTIES:
+    ds = docs("iroha3-access", party)
+    check(len(ds) == 1 and ds[0]["kind"] == "NetworkPolicy", f"iroha3-access {party}: exactly one NetworkPolicy, got {[d['kind'] for d in ds]}")
+    if len(ds) != 1:
+        continue
+    d = ds[0]
+    check(d["metadata"]["name"] == "bundle-server-from-iroha3" and d["metadata"].get("namespace") == f"rd-zeto-{party}", f"iroha3-access {party}: name/namespace {d['metadata']}")
+    check(d["metadata"].get("labels") == {"app": "bundle-server", "part-of": "rd-iroha3"}, f"iroha3-access {party}: labels {d['metadata'].get('labels')}")
+    sp = d["spec"]
+    check(sp["podSelector"] == {"matchLabels": {"app": "bundle-server"}} and sp["policyTypes"] == ["Ingress"], f"iroha3-access {party}: selects bundle-server, Ingress only")
+    frm = [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-iroha3-{party}"}}, "podSelector": {"matchLabels": {"app.kubernetes.io/name": "gateway"}}}]
+    check(len(sp["ingress"]) == 1 and sp["ingress"][0]["from"] == frm, f"iroha3-access {party}: one source, namespace rd-iroha3-{party} AND pod app.kubernetes.io/name=gateway: {sp['ingress']}")
+    check(sp["ingress"] and sp["ingress"][0]["ports"] == [{"protocol": "TCP", "port": 8080}], f"iroha3-access {party}: TCP 8080 only (never the 8081 sink): {sp['ingress']}")
+    check("8081" not in run("iroha3-access", party).stdout, f"iroha3-access {party}: 8081 must not appear")
+check(run("iroha3-access", "bank-d").returncode == 2, "iroha3-access with an unknown party must fail with 2")
+check(run("iroha3-access").returncode == 2, "iroha3-access without a party must fail with 2")
+
 # arguments
 pull = docs("bi", "--sink-image", IMG, "--pull-secret", "ghcr-pull")
 pod = [d for d in pull if d["kind"] == "Deployment"][0]["spec"]["template"]["spec"]
