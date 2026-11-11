@@ -322,9 +322,26 @@ announce the window to the lead (no policy publish meanwhile).
    - Over mTLS on `:31648`, a Noto transfer probe to the new RD contract is allowed, and one to the old address is denied.
    - One Noto transfer through Lensa succeeds.
 
+## Bundle-server hardening (in the repo, not rolled out)
+
+What changes: (1) the sink (`bundle-server/sink.py`) requires `Authorization: Bearer <token>` on `POST /logs` and `POST /status` (401 otherwise); with
+`SINK_TOKEN_FILE` unset it behaves as before. The gateways' OPA sends the token: `opa.yaml` `services.sink.credentials.bearer.token_path: /sink-token/token`
+(opa v1.21.1 docs/configuration.md, "Services > Bearer Token"; `decision_logs` and `status` both use service `sink`; OPA re-reads the file on every request).
+The token is the Secret `bundle-sink-token`, made by `keys.sh` in `$OPA_KEYS_DIR/sink-token` (outside the repo, never overwritten), mounted at `/sink-token` in
+bundle-server's sink container and in every gateway's `opa` container (`k8s/bundle-server.yaml`, `k8s/bank-gw-N.yaml`; not optional, so a pod waits for the Secret).
+(2) NetworkPolicy `bundle-server-ingress` (`k8s/networkpolicy.yaml`, label `node=bundle-server`): ingress only from `app=bank-gw` pods and the `fx-gw` pods of ns
+`fabricx` on 8080 and 8081, and from the two kube-apiserver addresses on 8081. (3) The sink is in memory by decision: it keeps the last status per gateway and writes decision logs to stdout.
+
+Decisions and risks (read before the rollout request):
+- `GET /status` has NO token. Lensa reads it through the API-server service proxy (`frontend/server/src/policy/kube.ts:65`), which cannot add the header; access to it is guarded by k8s RBAC on `services/proxy`. The integrity risk (a fake status that Lensa trusts) is on the POST route, which is now guarded.
+- The apiserver rule is an ASSUMPTION: the two `ipBlock` /32 addresses are the endpoints of `kubernetes` in `default` (`kubectl get endpoints kubernetes -n default`, 2026-11-11: 172.24.11.240, 172.24.40.81). That the proxy reaches the pod from them can only be proven live. Proof after applying: Lensa's publish still confirms (the Publisher reads GET /status). If not: delete the NetworkPolicy object (rollback), find the real source address, fix the `ipBlock`.
+- The fx-gw OPA (fabric-x repo, `fabric-x/opa`) also posts to this sink and has no token yet: after the sink enforces the token its decision logs and status posts get 401 (enforcement is not affected). It needs the same Secret in ns `fabricx` and `services.sink.credentials` in its config; that is a change in the fabric-x repo and a part of the same rollout.
+- Rollout is a cluster write and needs `lead`'s GO and the user's approval; order: 1. `bash keys.sh`, create the Secret `bundle-sink-token` in ns `paladin` (and `fabricx`) from `$OPA_KEYS_DIR/sink-token`; 2. re-create `bank-gw-opa-v2` from the new `opa-config.yaml`; 3. apply `k8s/bundle-server.yaml` (the sink now checks the token); 4. apply `k8s/bank-gw-1..4.yaml` one at a time (README, "Deploy ..."), each waits for Ready and an active bundle revision in `GET /status`; 5. apply `networkpolicy.yaml -l node=bundle-server` and re-check publish. Rollback: delete the NetworkPolicy; re-apply the old manifests and the old ConfigMap.
+- Tests: `cd bundle-server && python3 -m unittest test_sink` (token check: rejected without or with a wrong token, accepted with it, GET open, no token configured = open, token file read/empty).
+
 ## Not done (production hardening)
 
 1. The public ingress still bypasses the gateway until `k8s/ingress-via-gateway.yaml` is applied (decision above: owner the user, 2026-11-06, review 2026-12-06).
 2. DFABI `bankN-backend` talks to Paladin directly (needs the WebSocket port, which the gateway does not proxy).
 3. Bundles are signed per owner, but custody is not separated yet: all four private keys sit in one directory on the Lensa host. In production each owner signs on its own side and publishes to its own bundle server.
-4. `bundle-server` is one replica without authentication, and no NetworkPolicy: anyone inside the cluster can post fake decision logs or a fake bundle status (Lensa could then confirm a publish that no gateway loaded; it cannot make a gateway load an unsigned bundle). A restarted gateway cannot become Ready while the bundle server is down (`persist` is off: no PVC); running gateways keep their bundles.
+4. `bundle-server` is one replica without authentication, and no NetworkPolicy: anyone inside the cluster can post fake decision logs or a fake bundle status (Lensa could then confirm a publish that no gateway loaded; it cannot make a gateway load an unsigned bundle). A restarted gateway cannot become Ready while the bundle server is down (`persist` is off: no PVC); running gateways keep their bundles. **In the repo since 2026-11-11, NOT rolled out:** a bearer token on the two POST routes and a NetworkPolicy for bundle-server (section "Bundle-server hardening" below). The sink stays in memory by decision; a durable sink is a separate user item (about 1 day of work).
