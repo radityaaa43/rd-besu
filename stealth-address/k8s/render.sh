@@ -23,7 +23,7 @@ c2() {
     sed -e 's/party: bank-c}/party: bank-c, cluster: "2"}/' -e '/^    party: bank-c$/a\    cluster: "2"'
   else cat; fi
 }
-first_doc() { if [[ $ns_only == 1 ]]; then awk '/^---$/{exit} {print}'; else cat; fi; }
+first_doc() { if [[ $ns_only == 1 ]]; then awk '/^---$/{done=1} !done{print}'; else cat; fi; }  # no early exit (SIGPIPE rc 141 under pipefail)
 
 party() {
   local p="$1"; valid "$p"

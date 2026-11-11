@@ -158,6 +158,8 @@ for args in (["--cluster", "2", "probe", "bank-a"], ["--cluster", "2", "probe", 
 
 nso = docs("--cluster", "2", "--ns-only", "bank-c")
 check([d["kind"] for d in nso] == ["Namespace"] and nso[0]["metadata"]["name"] == "rd-zeto-bank-c" and nso[0]["metadata"]["labels"].get("cluster") == "2", f"cluster 2 --ns-only: exactly the Namespace doc with cluster=2: {[d['kind'] for d in nso]}")
+# SIGPIPE guard (CI flake, rc 141): the renderer must not close a pipe early; 6 of 300 runs died before the fix, so loop 150 times.
+check(all(run("--cluster", "2", "--ns-only", "bank-c").returncode == 0 for _ in range(150)), "cluster 2 --ns-only must succeed on every run (an early-closing reader under pipefail gives rc 141)")
 for args in (["--ns-only", "bi"], ["--cluster", "2", "--ns-only", "probe", "bank-c"], ["--cluster", "2", "--ns-only"]):
     check(run(*args).returncode != 0, f"render.sh {' '.join(args)} must be refused (--ns-only is cluster 2 and namespace only)")
 
