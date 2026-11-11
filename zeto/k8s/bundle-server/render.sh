@@ -7,10 +7,36 @@
 # and Secret bundle-sink-token (key `token`, same Secret the gateway mounts).
 # --sink-image: an image holding python3, sink.py and the opa binary (Dockerfile next to this script); required, the stock python image has no opa.
 # --storage-class: required for bank-c (cluster 2 has no default class; the class must be WaitForFirstConsumer), optional on cluster 1 (default class).
+#   render.sh fabricx-access <bi|bank-a|bank-b|bank-c>
+# prints the one NetworkPolicy bundle-server-from-fabricx (S16): the Fabric-X gateway fx-gw-<N> of ns rd-fabricx-<party> may read the signed bundles
+# (TCP 8080; never the 8081 sink). It is additive to the bundle-server NetworkPolicy above and applies in the same cluster as the bundle-server.
 # Needs bash + sed only. Never talks to a cluster.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 die() { echo "render.sh: $*" >&2; exit 2; }
+
+if [[ "${1:-}" == fabricx-access ]]; then
+  [[ $# -eq 2 ]] || die "usage: render.sh fabricx-access <bi|bank-a|bank-b|bank-c>"
+  case "$2" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; *) die "unknown party '$2' (allowed: bi bank-a bank-b bank-c)" ;; esac
+  cat <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bundle-server-from-fabricx
+  namespace: rd-zeto-$2
+  labels: {app: bundle-server, part-of: rd-fabricx}
+spec:
+  podSelector:
+    matchLabels: {app: bundle-server}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rd-fabricx-$2}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: fx-gw-$n}}
+    ports: [{protocol: TCP, port: 8080}]
+YAML
+  exit 0
+fi
 
 party="${1:-}"; [[ $# -gt 0 ]] && shift
 image="" class="" pull=""

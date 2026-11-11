@@ -5,25 +5,43 @@ package fabricx_test
 
 import data.bank.platform.fabricx as bank
 import data.bi.platform.fabricx as bi
+import data.fabricx_pki as pki
 import data.fixtures
 import data.gw
 
 # Thursday 2026-11-05 10:00 WIB; the day starts 2026-11-04T17:00:00Z.
 now_ns := time.parse_rfc3339_ns("2026-11-05T03:00:00Z")
 
-bi_cfg(patch) := object.union(fixtures.bi, {"policy": {"fabricx": object.union(fixtures.bi_doc, patch)}})
+# Public CA certificates the BI document carries (data.bi.config.fabricx_ca): per node, the org's Fabric-X TLS root (peer gateways)
+# and bank-gw-ca-<N> (Lensa). Test PKI: gen-pki.sh.
+fx_ca := {
+	"gw": {"node1": pki.ca_gw1, "node2": pki.ca_gw2, "node3": pki.ca_gw3, "node4": pki.ca_gw4},
+	"lensa": {"node1": pki.ca_lensa1, "node2": pki.ca_lensa2, "node3": pki.ca_lensa3, "node4": pki.ca_lensa4},
+}
+
+bi_cfg(patch) := object.union(fixtures.bi, {"policy": {"fabricx": object.union(fixtures.bi_doc, patch)}, "fabricx_ca": fx_ca})
 
 bank_doc := {"counterparties": ["bi@node1", "bankA@node2", "bankB@node3", "bankC@node4"]}
 
 bank_cfg(patch) := {"policy": {"fabricx": object.union(bank_doc, patch)}}
 
-door(node, body) := {
+# What Envoy forwards (forward_client_cert_details SANITIZE_SET, cert: true): the verified client leaf, URL-encoded PEM.
+xfcc(pem) := sprintf("Hash=00;Cert=\"%s\";Subject=\"x\"", [urlquery.encode(pem)])
+
+lensa_leaf := {"node1": pki.lensa_leaf1, "node2": pki.lensa_leaf2, "node3": pki.lensa_leaf3, "node4": pki.lensa_leaf4}
+
+door_with(node, body, headers) := {
 	"attributes": {
 		"contextExtensions": {"target": "fabricx", "node": node},
-		"request": {"http": {"method": "POST"}},
+		"request": {"http": {"method": "POST", "headers": headers}},
 	},
 	"parsed_body": body,
 }
+
+door_as(node, body, pem) := door_with(node, body, {"x-forwarded-client-cert": xfcc(pem)})
+
+# The default caller is Lensa with its own party's client certificate.
+door(node, body) := door_as(node, body, lensa_leaf[node])
 
 # Both bundles must allow, as in gw; no http.send unless a test mocks one.
 allowed_with(node, body, bi_patch, bank_patch) if {
@@ -33,6 +51,13 @@ allowed_with(node, body, bi_patch, bank_patch) if {
 }
 
 allowed(node, body) if allowed_with(node, body, {}, {})
+
+# Same, but the caller presents the given certificate (PEM).
+allowed_as(node, body, pem) if {
+	bi.allow with input as door_as(node, body, pem) with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+	bank.allow with input as door_as(node, body, pem) with data.bi.config as bi_cfg({})
+		with data.bank.config as bank_cfg({}) with time.now_ns as now_ns
+}
 
 transfer(from, to, amount) := {"op": "transfer", "from": from, "to": to, "type": "RD", "amount": amount}
 
@@ -252,4 +277,112 @@ test_gw_dispatch if {
 	# a Fabric-X body on the Paladin door is not a Fabric-X request
 	p := object.union(i, {"attributes": {"contextExtensions": {"target": "paladin"}}})
 	not gw.allow with input as p with data.bi.config as bi_cfg({}) with data.bank.config as bank_cfg({}) with time.now_ns as now_ns
+}
+
+# --- caller identity (S16): the XFCC leaf must verify against the right CA; Lensa everything, a peer gateway precheck and report only
+
+swap23 := precheck(swap("bank2", "bank3"))
+
+test_lensa_own_ca_ok_every_node if {
+	every n in ["node1", "node2", "node3", "node4"] {
+		allowed(n, {"op": "balance"})
+	}
+}
+
+test_no_client_cert_denied if {
+	i := {"attributes": {"contextExtensions": {"target": "fabricx", "node": "node3"}, "request": {"http": {"method": "POST"}}}, "parsed_body": swap23}
+	not bi.allow with input as i with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+	i2 := door_with("node3", swap23, {"x-forwarded-client-cert": "Hash=00;Subject=\"CN=lensa\""})
+	not bi.allow with input as i2 with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+	i3 := door_with("node3", swap23, {"x-forwarded-client-cert": "Hash=00;Cert=\"not-a-cert\""})
+	not bi.allow with input as i3 with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+}
+
+test_two_cert_elements_denied if {
+	one := xfcc(pki.peer_2_org2)
+	i := door_with("node3", swap23, {"x-forwarded-client-cert": concat(",", [one, one])})
+	not bi.allow with input as i with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+}
+
+test_lensa_cert_from_another_ca_denied if {
+	# CN=lensa signed by an org root, and CN=lensa of node2's CA at node1's gateway
+	not allowed_as("node1", {"op": "balance"}, pki.lensa_by_gw)
+	not allowed_as("node1", {"op": "balance"}, pki.lensa_leaf2)
+	allowed_as("node1", {"op": "balance"}, pki.lensa_leaf1)
+}
+
+test_peer_org_ca_precheck_only if {
+	# org 2's gateway asks node 3's gateway for the counterparty leg
+	allowed_as("node3", swap23, pki.peer_2_org2)
+	not allowed_as("node3", {"op": "report"}, pki.peer_2_org2)
+	not allowed_as("node3", {"op": "balance"}, pki.peer_2_org2)
+	not allowed_as("node3", {"op": "usage"}, pki.peer_2_org2)
+	not allowed_as("node3", swap("bank3", "bank2"), pki.peer_2_org2)
+	not allowed_as("node3", transfer("bank3", "bank2", "5"), pki.peer_2_org2)
+	not allowed_as("node3", {"op": "issue", "to": "bank2", "type": "RD", "amount": "1"}, pki.peer_2_org2)
+}
+
+test_peer_report_denied_everywhere if {
+	every n in ["node1", "node3", "node4"] {
+		not allowed_as(n, {"op": "report"}, pki.peer_2_org2)
+	}
+}
+
+# BI liveness probe (redeliver.go:270, serve.go:260-265): usage of RD since "now" at BI's gateway.
+usage_since(sec) := {"op": "usage", "type": "RD", "since": time.format([now_ns + (sec * 1000000000), "UTC"])}
+
+test_peer_usage_probe_at_node1_allowed if {
+	allowed_as("node1", usage_since(0), pki.peer_2_org2)
+	allowed_as("node1", usage_since(-59), pki.peer_2_org2)
+	allowed_as("node1", usage_since(-60), pki.peer_2_org2)
+	allowed_as("node1", usage_since(59), pki.peer_2_org2)
+}
+
+test_peer_usage_old_or_far_future_since_denied if {
+	not allowed_as("node1", usage_since(-86400), pki.peer_2_org2)
+	not allowed_as("node1", usage_since(-61), pki.peer_2_org2)
+	not allowed_as("node1", usage_since(61), pki.peer_2_org2)
+}
+
+test_peer_usage_not_at_node1_denied if {
+	# a peer of another org each time (a gateway never calls itself)
+	not allowed_as("node2", usage_since(0), pki.peer_3_org3)
+	not allowed_as("node3", usage_since(0), pki.peer_2_org2)
+	not allowed_as("node4", usage_since(0), pki.peer_2_org2)
+}
+
+test_peer_usage_wrong_type_or_since_denied if {
+	not allowed_as("node1", object.union(usage_since(0), {"type": "DFABI-2027A"}), pki.peer_2_org2)
+	not allowed_as("node1", object.remove(usage_since(0), ["type"]), pki.peer_2_org2)
+	not allowed_as("node1", object.union(usage_since(0), {"since": "yesterday"}), pki.peer_2_org2)
+	not allowed_as("node1", object.union(usage_since(0), {"since": 12}), pki.peer_2_org2)
+	not allowed_as("node1", object.remove(usage_since(0), ["since"]), pki.peer_2_org2)
+}
+
+test_lensa_usage_old_since_still_allowed if {
+	allowed("node1", {"op": "usage", "type": "RD", "since": "2020-01-01T00:00:00Z"})
+	allowed("node1", {"op": "usage", "type": "RD"})
+}
+
+test_peer_other_reads_at_node1_denied if {
+	every op in ["balance", "history", "records", "finality"] {
+		not allowed_as("node1", {"op": op, "type": "RD", "since": usage_since(0).since}, pki.peer_2_org2)
+	}
+}
+
+test_peer_cn_of_another_org_denied if {
+	# CN fx-gw-1-peer under org 3's root, and under a Lensa CA
+	not allowed_as("node3", swap23, pki.peer_1_org3)
+	not allowed_as("node3", {"op": "report"}, pki.peer_1_org3)
+	not allowed_as("node3", swap23, pki.peer_1_lensa)
+}
+
+test_peer_wrong_cn_or_usage_denied if {
+	not allowed_as("node3", swap23, pki.peer_server_cn)
+	not allowed_as("node3", swap23, pki.peer_server_eku)
+}
+
+test_peer_is_not_lensa_and_not_itself if {
+	not allowed_as("node3", swap23, pki.peer_3_org3)
+	not allowed_as("node1", swap23, pki.peer_2_org2)
 }
