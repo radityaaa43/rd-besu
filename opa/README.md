@@ -128,7 +128,7 @@ A gateway rollout drops that node's Lensa forward for 1 to 2 minutes; systemd re
 
 Deployed 2026-11-06 (every step below was run): signed bundles from `bundle-server` (`bank-gw-opa-v2`; a BI publish reaches all
 four gateways in about a minute, no rollout), NetworkPolicy on node1..4 plus `paladin-rpc-from-ingress-nginx` (the public
-Ingress still points at the nodes, by decision), mTLS on both doors (`bank-gw-N-mtls`, Lensa `LENSA_GW_MTLS_DIR`), and Lensa's
+Ingress still points at the nodes, by decision of the user on 2026-11-06, review by 2026-12-06), mTLS on both doors (`bank-gw-N-mtls`, Lensa `LENSA_GW_MTLS_DIR`), and Lensa's
 Besu traffic through bank-gw-1 on 38545 (`LENSA_BESU_RPC`). Scenarios S1 to S6 passed (44/44) before the deploy.
 
 ### Deploy the bundle server and signed bundles (ordered; one-time migration of the live gateways)
@@ -240,7 +240,7 @@ Live steps (one node at a time, node 4 first; the flows are the same for every n
 Rollback: `kubectl delete -f k8s/networkpolicy.yaml -l node=node4` (or without `-l` for all); traffic is open again immediately. The Besu liveness
 probe waits 180 s then runs every 60 s with 3 failures to restart: if a validator restarts after step 2, delete its object first.
 
-**Public ingress bypass.** `paladin-rpc-from-ingress-nginx` keeps the existing public route working. To put the public route
+**Public ingress bypass.** Decision owner: the user. Decided: 2026-11-06. Review date: 2026-12-06 (also in `../NOTES.md`, "Monthly checks"). `paladin-rpc-from-ingress-nginx` keeps the existing public route working. To put the public route
 behind OPA, apply `k8s/ingress-via-gateway.yaml` (same hosts, annotations, TLS secrets; backend `bank-gw-N:8548`), check one
 call through `https://paladin-node2.apse5.kld.bi-sandbox.com`, then `kubectl -n paladin delete networkpolicy paladin-rpc-from-ingress-nginx`.
 That changes what external callers may do (OPA rules apply: Zeto, and Noto and Pente scoped as in the rules table). It cannot be combined with step 3 (mTLS) unless the
@@ -263,6 +263,14 @@ not start (no silent downgrade). Unset: plain http, as now. The server cert has 
 
 Keys are made on the host, outside the repo, and never committed: `mtls/gen-certs.sh` writes `~/.opa-mtls/` (dir 700, files 600;
 it refuses a directory inside the repo). CA 5 years, leaf certs 1 year (re-issue with `FORCE=1 mtls/gen-certs.sh`, then redo step 2 and 3 below).
+
+Scope of this mTLS: Lensa to the gateway only. Envoy to Paladin (`paladin-nodeN:8548`) and Envoy to Besu (`besu-node-validator-N:8545`) is plaintext HTTP inside the
+cluster (the `paladin` and `besu` clusters in `envoy/nodeN.yaml` have no `transport_socket`: `grep -c transport_socket envoy/node1.yaml` prints 0). In ns `paladin`
+a NetworkPolicy limits who may reach the nodes (`k8s/networkpolicy.yaml`). The `fx-gw-N` gateways in ns `fabricx` are selected by no NetworkPolicy: the four live
+`rdbi-*-ingress` policies select only `rdbi-*` pods (`kubectl get networkpolicy -n fabricx`, 2026-11-11), and `fabric-x/opa/DESIGN.md:126` says "fx-gw pods are not
+selected". Whether to add one is an open decision (see `fabric-x/opa/DESIGN.md:140-144` for the neighbouring open decision on the `rdbi-driver-files` Secret).
+Certificate dates (read 2026-11-11): leaf certs `gw-1..4`, `fx-gw-1..4` and `lensa` expire on 2027-11-06, the CA on 2031-11-05. Check them every month:
+`openssl x509 -in ~/.opa-mtls/<name>.crt -noout -enddate` (`../NOTES.md`, "Monthly checks").
 
 Live steps (the flip is all-or-nothing for Lensa: its env switches every gateway at once, so expect Lensa to be down while the four
 rollouts run, about 10 s each plus the forward restart; do it when no stress run is going):
@@ -316,7 +324,7 @@ announce the window to the lead (no policy publish meanwhile).
 
 ## Not done (production hardening)
 
-1. The public ingress still bypasses the gateway until `k8s/ingress-via-gateway.yaml` is applied (decision above).
+1. The public ingress still bypasses the gateway until `k8s/ingress-via-gateway.yaml` is applied (decision above: owner the user, 2026-11-06, review 2026-12-06).
 2. DFABI `bankN-backend` talks to Paladin directly (needs the WebSocket port, which the gateway does not proxy).
 3. Bundles are signed per owner, but custody is not separated yet: all four private keys sit in one directory on the Lensa host. In production each owner signs on its own side and publishes to its own bundle server.
 4. `bundle-server` is one replica without authentication, and no NetworkPolicy: anyone inside the cluster can post fake decision logs or a fake bundle status (Lensa could then confirm a publish that no gateway loaded; it cannot make a gateway load an unsigned bundle). A restarted gateway cannot become Ready while the bundle server is down (`persist` is off: no PVC); running gateways keep their bundles.
