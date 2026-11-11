@@ -104,8 +104,18 @@ async function withAccounts<T>(accounts: string[], fn: () => Promise<T>): Promis
 }
 
 // Called after each lock and delegate step with the trade so far (status PENDING, lock ids set as they appear) and the step. A caller that
-// persists it can find locked funds after a crash. An error thrown by the callback is logged and does not stop the trade.
-export type OnProgress = (trade: TradeRecord, step: TradeStep) => void;
+// persists it can find locked funds after a crash. An error thrown by the callback, or a rejected promise it returns, is logged and does
+// not stop the trade (an unhandled rejection would kill the process with funds locked). The callback is not awaited.
+export type OnProgress = (trade: TradeRecord, step: TradeStep) => void | Promise<void>;
+
+export function notifyProgress(fn: OnProgress | undefined, trade: TradeRecord, step: TradeStep, log: (msg: string) => void): void {
+  const failed = (e: unknown) => log(`[${step}] progress callback failed: ${(e as Error)?.message ?? e}`);
+  try {
+    Promise.resolve(fn?.(trade, step)).catch(failed);
+  } catch (e) {
+    failed(e);
+  }
+}
 
 // The trade as it stands mid-run, for onProgress. Pure: the live trade object is not changed.
 export function pendingSnapshot(trade: TradeRecord, bond: Pick<Leg, "lockId">, cash: Pick<Leg, "lockId">): TradeRecord {
@@ -186,9 +196,7 @@ async function runOutright(p: Platform, params: OutrightParams, log: (msg: strin
   const done = (s: TradeStep) => {
     if (params.injectFailureAfter === s) throw new Error(`injected failure after ${s}`);
   };
-  const progress = (s: TradeStep) => {
-    try { onProgress?.(pendingSnapshot(trade, bond, cash), s); } catch (e) { log(`[${s}] progress callback failed: ${(e as Error).message}`); }
-  };
+  const progress = (s: TradeStep) => notifyProgress(onProgress, pendingSnapshot(trade, bond, cash), s, log);
 
   const lock = async (leg: Leg, s: TradeStep) => {
     step = s;
