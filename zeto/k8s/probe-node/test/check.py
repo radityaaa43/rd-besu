@@ -59,6 +59,65 @@ o = out("", rc=1); check(o == ("ERROR", ""), f"behaviour: a failing call prints 
 o = out('{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"PD012345: bad filter"}}'); check(o == ("ERROR", ""), f"behaviour: a JSON-RPC error body prints ERROR, never NONZERO (a bad filter looked like data before): {o}")
 o = out('<html>502</html>'); check(o == ("ERROR", ""), f"behaviour: a body without a result prints ERROR: {o}")
 
+# ---- python modes (image with python3, e.g. the pinned rd-bundle-sink image): `ids` and `shape`. The script is embedded as base64 in the pod command and run by `python3 -`; the tests decode it,
+# point it at a local HTTP server that answers canned JSON-RPC and check the output. ids: the pending SET (bank A keeps ONE known prepare-only tx pending forever); shape: structure of a receipt, never values.
+import base64, http.server, json, threading
+class Canned(http.server.BaseHTTPRequestHandler):
+    answers = {}
+    def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        key = req["method"] + ("|" + req["params"][0] if req["method"] == "ptx_getTransactionReceiptFull" else "")
+        body = json.dumps(Canned.answers.get(key, {"jsonrpc": "2.0", "id": 1, "result": []})).encode()
+        self.send_response(200); self.send_header("content-length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a): pass
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Canned); threading.Thread(target=srv.serve_forever, daemon=True).start()
+def py_out(party, args, answers):
+    ds = docs(party, "--image", IMG, *args)
+    if len(ds) != 3: fails.append(f"{party} {args}: expected 3 objects, got {len(ds)}"); return None, None
+    cmd = ds[0]["spec"]["containers"][0]["command"][2]
+    m = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| python3 -", cmd)
+    if not m: fails.append(f"{party} {args}: no embedded base64 python in {cmd[:120]}"); return None, None
+    src = base64.b64decode(m.group(1)).decode().replace(f"http://paladin-node{NUM[party]}:8548", f"http://127.0.0.1:{srv.server_address[1]}")
+    Canned.answers = answers
+    r = subprocess.run([sys.executable, "-I", "-c", src], capture_output=True, text=True, timeout=20)
+    return r.stdout.strip(), cmd
+U1, U2 = "81daa2e9-3c5b-4f0a-9d2e-111111111111", "0a1b2c3d-1111-2222-3333-444444444444"
+PEND = "ptx_queryPendingTransactions"
+for party in NUM:
+    check(py_out(party, ["--mode", "ids"], {PEND: {"jsonrpc": "2.0", "id": 1, "result": []}})[0] == "COUNT 0 IDS -", f"{party}: ids mode, empty set -> COUNT 0 IDS -")
+    o, cmd = py_out(party, ["--mode", "ids"], {PEND: {"jsonrpc": "2.0", "id": 1, "result": [{"id": U1, "function": "spendLock(bytes32,string,bytes)", "data": {"lockId": "SECRET-LOCK", "id": "SECRET-INNER-ID"}}]}})
+    check(o == "COUNT 1 IDS 81daa2e9", f"{party}: ids mode, one tx -> 8-char id only, never data: {o!r}")
+    check(py_out(party, ["--mode", "ids"], {PEND: {"jsonrpc": "2.0", "id": 1, "result": [{"id": U1}, {"id": U2}]}})[0] == "COUNT 2 IDS 0a1b2c3d,81daa2e9", f"{party}: ids mode, two txs, sorted")
+    check(py_out(party, ["--mode", "ids"], {PEND: {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "bad filter"}}})[0] == "ERROR", f"{party}: ids mode, error body -> ERROR")
+    check(cmd is not None and "cat " not in cmd and "set -x" not in cmd, f"{party}: ids mode never echoes the body")
+# shape: the receipt STRUCTURE for a chain tx hash on this node: PD code + first 60 chars of the domain error, domainReceipt yes/no, states keys/counts and whether ANY entry carries `data` (yes/no, never the value).
+H = "0x" + "5144e6c8" + "0" * 52 + "6dfa"
+FIND = "ptx_queryTransactionReceipts"
+def shape(party, receipts, full):
+    ans = {FIND: {"jsonrpc": "2.0", "id": 1, "result": receipts}}
+    for rid, res in full.items(): ans["ptx_getTransactionReceiptFull|" + rid] = {"jsonrpc": "2.0", "id": 1, "result": res}
+    return py_out(party, ["--mode", "shape", "--tx-hash", H], ans)[0]
+ERR = "PD011658: Failed to get states for the receipt: could not fi"
+OUTSIDER = {"domainReceiptError": "PD011658: Failed to get states for the receipt: could not find 0x" + "ab" * 32 + " in the store",
+            "states": {"unavailable": {"confirmed": ["0x01", "0x02"], "info": ["0x03"]}}}
+for party in NUM:
+    o = shape(party, [{"id": U1}], {U1: OUTSIDER})
+    check(o == f"receipts 1\nreceipt 1: states confirmed=0 spent=0 read=0 info=0 | unavailable confirmed=2 spent=0 read=0 info=1 | unavailable-nil:no | data:no | domainReceiptError PD011658 '{ERR}' | domainReceipt no", f"{party}: shape, the expected outsider receipt (no states, ids unavailable, PD011658, no domainReceipt): {o!r}")
+    # RED fixture 1: a state entry carries `data` -> data:yes + R1-FINDING, never the value
+    o = shape(party, [{"id": U1}], {U1: {"domainReceipt": {"x": "SECRET-DOMAIN-VALUE"}, "states": {"confirmed": [{"id": "S1", "data": {"amount": "SECRET-AMOUNT"}}], "unavailable": {}}}})
+    check(o == "receipts 1\nreceipt 1: states confirmed=1 spent=0 read=0 info=0 | unavailable confirmed=0 spent=0 read=0 info=0 | unavailable-nil:no | data:yes | domainReceiptError none | domainReceipt yes R1-FINDING" and "SECRET" not in o, f"{party}: shape, data present -> data:yes + R1-FINDING, never the value: {o!r}")
+    # RED fixture 2: `unavailable` nil while confirmed is non-empty -> R1-FINDING
+    o = shape(party, [{"id": U1}], {U1: {"states": {"confirmed": [{"id": "S1"}]}}})
+    check(o == "receipts 1\nreceipt 1: states confirmed=1 spent=0 read=0 info=0 | unavailable confirmed=0 spent=0 read=0 info=0 | unavailable-nil:yes | data:no | domainReceiptError none | domainReceipt no R1-FINDING", f"{party}: shape, unavailable nil + confirmed non-empty -> R1-FINDING: {o!r}")
+    # nil unavailable with NOTHING confirmed is not a finding
+    o = shape(party, [{"id": U1}], {U1: {"states": {}}})
+    check("R1-FINDING" not in o and "unavailable-nil:yes" in o, f"{party}: shape, nothing confirmed and unavailable nil is not a finding: {o!r}")
+    check(shape(party, [], {}) == "receipts 0", f"{party}: shape, no receipt for the hash -> receipts 0")
+    o = py_out(party, ["--mode", "shape", "--tx-hash", H], {FIND: {"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}})[0]
+    check(o == "ERROR", f"{party}: shape, error body -> ERROR: {o!r}")
+for bad in (["bi", "--image", IMG, "--mode", "shape"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x12"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x" + "g" * 64], ["bi", "--image", IMG, "--mode", "ids", "--tx-hash", H]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 # ---- negative egress probe: a throwaway pod labelled app=paladin (so paladin-egress selects it) that must NOT reach the targets; a positive control proves the probe works.
 for party in NUM:
     ns = f"rd-zeto-{party}"
