@@ -15,15 +15,19 @@
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
 party="${1:-}"; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
-shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; targets=(); via=""; peerns=""; txhash=""; zetotokens=""
+shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; besu=0; op=""; vaddr=""; vdir=""; targets=(); via=""; peerns=""; txhash=""; zetotokens=""
 [[ "${1:-}" == negative ]] && { negative=1; shift; }
 [[ "${1:-}" == lbpath ]] && { lbpath=1; shift; }
+[[ "${1:-}" == besu ]] && { besu=1; shift; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target) targets+=("${2:-}"); shift 2 ;;
     --via) via="${2:-}"; shift 2 ;;
     --peer-ns) peerns="${2:-}"; shift 2 ;;
     --tx-hash) txhash="${2:-}"; shift 2 ;;
+    --op) op="${2:-}"; shift 2 ;;
+    --address) vaddr="${2:-}"; shift 2 ;;
+    --drop|--add) [[ -z "$vdir" ]] || die "give --drop OR --add, not both"; vdir="${1#--}"; shift ;;
     --zeto-token) [[ "${2:-}" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "--zeto-token must be a 0x<40 hex> address"; zetotokens+="${zetotokens:+,}${2}"; shift 2 ;;
     --image) img="${2:-}"; shift 2 ;;
     --mode) mode="${2:-}"; shift 2 ;;
@@ -35,6 +39,90 @@ done
 [[ "$img" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]] || die "--image must be digest-pinned (REF@sha256:<64 lowercase hex>)"
 [[ "$mode" == count || "$mode" == jq || "$mode" == ids || "$mode" == shape || "$mode" == schemas ]] || die "--mode must be count, jq, ids, shape or schemas"
 if [[ "$mode" == shape || "$mode" == schemas ]]; then [[ "$txhash" =~ ^0x[0-9a-f]{64}$ ]] || die "--mode shape/schemas needs --tx-hash 0x<64 hex>"; else [[ -z "$txhash" ]] || die "--tx-hash only with --mode shape or schemas"; fi
+if [[ $besu == 1 ]]; then
+  # S5b / R9: the party's OWN validator RPC (Service besu-rpc:8545 in its ns), QBFT reads and votes. Output: addresses, counts, booleans only.
+  case "$op" in read|pending) [[ -z "$vaddr" && -z "$vdir" ]] || die "--op $op takes no --address/--drop/--add" ;;
+    propose) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && ( "$vdir" == drop || "$vdir" == add ) ]] || die "--op propose needs --address 0x<40 hex> and --drop or --add" ;;
+    discard) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && -z "$vdir" ]] || die "--op discard needs --address 0x<40 hex> (no --drop/--add)" ;;
+    *) die "--op must be read, pending, propose or discard" ;; esac
+  head="import json,urllib.request
+u='http://besu-rpc:8545'
+def rpc(m,p):
+    r=urllib.request.Request(u,json.dumps({'jsonrpc':'2.0','id':1,'method':m,'params':p}).encode(),{'content-type':'application/json'})
+    return json.load(urllib.request.urlopen(r,timeout=10))
+"
+  case "$op" in
+    read) body="try:
+    v=rpc('qbft_getValidatorsByBlockNumber',['latest'])['result']; h=int(rpc('eth_blockNumber',[])['result'],16); pc=int(rpc('net_peerCount',[])['result'],16)
+    w=2*len(v); m=rpc('qbft_getSignerMetrics',[hex(max(h-w+1,0)),hex(h)])['result']
+    print('height %d'%h); print('validators %d: %s'%(len(v),','.join(v))); print('peers %d'%pc)
+    print('signers(last %d blocks): %s'%(w,' '.join('%s=%d'%(x['address'],int(x['proposedBlockCount'],16)) for x in m)))
+except Exception: print('ERROR')
+" ;;
+    pending) body="try:
+    r=rpc('qbft_getPendingVotes',[])
+    if 'error' in r: print('ERROR')
+    else: print('pending %d: %s'%(len(r['result']),' '.join('%s=%s'%(a[:10],'add' if t else 'drop') for a,t in sorted(r['result'].items()))))
+except Exception: print('ERROR')
+" ;;
+    propose) body="try:
+    r=rpc('qbft_proposeValidatorVote',['$vaddr',$([[ $vdir == add ]] && echo True || echo False)])
+    print('ERROR' if 'error' in r else 'VOTE $vdir %s %s'%('${vaddr:0:10}',str(r['result']).lower()))
+except Exception: print('ERROR')
+" ;;
+    discard) body="try:
+    r=rpc('qbft_discardValidatorVote',['$vaddr'])
+    print('ERROR' if 'error' in r else 'DISCARD %s %s'%('${vaddr:0:10}',str(r['result']).lower()))
+except Exception: print('ERROR')
+" ;;
+  esac
+  ns="rd-zeto-$party"
+  cat <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: besu-probe
+  namespace: $ns
+  labels: {"rd/egress-locked": "true", app: besu-probe, part-of: rd-zeto, party: $party}
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 60
+  automountServiceAccountToken: false
+  securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+  containers:
+    - name: probe
+      image: $img
+      command: [sh, -c, "echo $(printf '%s' "$head$body" | base64 -w0) | base64 -d | python3 -"]
+      securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: besu-probe
+  namespace: $ns
+  labels: {part-of: rd-zeto, party: $party}
+spec:
+  podSelector:
+    matchLabels: {"rd/egress-locked": "true", app: besu-probe}
+  policyTypes: [Egress, Ingress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: besu-validator}
+      ports:
+        - {protocol: TCP, port: 8545}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+YAML
+  exit 0
+fi
 if [[ $lbpath == 1 ]]; then
   [[ ${#targets[@]} == 1 && "${targets[0]}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{1,5}$ ]] || die "lbpath needs exactly one --target IPv4:PORT (the peer's transport LB IP)"
   tip="${targets[0]%%:*}"; tport="${targets[0]##*:}"

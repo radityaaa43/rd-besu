@@ -151,6 +151,55 @@ for party in NUM:
     check(o is not None and o.endswith("| OK") and "nodata[ZetoCoin_V1(" in o and "=2" in o and "data[none]" in o, f"{party}: schemas, data null/{{}} stubs are NOT data -> OK: {o!r}")
     check(schemas(party, [], {}) == "receipts 0", f"{party}: schemas, no receipt -> receipts 0")
     check(schemas(party, [{"id": U1}], {U1: {}}, listing={"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}).splitlines()[-1] == "ERROR", f"{party}: schemas, listSchemas error -> ERROR")
+# ---- besu mode (S5b, R9): the party's OWN validator RPC (Service besu-rpc:8545 in its ns) through a throwaway pod; reads + the QBFT vote calls. Prints only addresses, counts and booleans.
+#   render.sh <party> besu --image REF --op read|pending|propose|discard [--address 0x<40hex>] [--drop|--add]
+# Objects: Pod besu-probe (rd/egress-locked, python image, no token) + NetworkPolicy besu-probe (egress ONLY to the besu-validator pods :8545 of its own ns + kube-dns; ingress none).
+def besu_run(party, args, answers):
+    ds = docs(party, "besu", "--image", IMG, *args)
+    if len(ds) != 2 or [d["kind"] for d in ds] != ["Pod", "NetworkPolicy"]: fails.append(f"{party} besu {args}: expected Pod + NetworkPolicy, got {[d['kind'] for d in ds]}"); return None, ds
+    cmd = ds[0]["spec"]["containers"][0]["command"][2]
+    m = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| python3 -", cmd)
+    if not m: fails.append(f"{party} besu {args}: no embedded python"); return None, ds
+    src = base64.b64decode(m.group(1)).decode().replace("http://besu-rpc:8545", f"http://127.0.0.1:{srv.server_address[1]}")
+    class H(Canned): pass
+    Canned.answers = answers; calls.clear()
+    return subprocess.run([sys.executable, "-I", "-c", src], capture_output=True, text=True, timeout=20).stdout.strip(), ds
+calls = []
+_orig_post = Canned.do_POST
+def _rec_post(self):
+    n = int(self.headers["Content-Length"]); body = self.rfile.read(n); req = json.loads(body); calls.append((req["method"], req.get("params")))
+    ans = Canned.answers.get(req["method"], {"jsonrpc": "2.0", "id": 1, "result": []})
+    out = json.dumps(ans).encode(); self.send_response(200); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+Canned.do_POST = _rec_post
+A8 = ["0x" + c * 40 for c in "abcdef"][:6]
+VALS = {"qbft_getValidatorsByBlockNumber": {"jsonrpc": "2.0", "id": 1, "result": A8[:4]}, "eth_blockNumber": {"jsonrpc": "2.0", "id": 1, "result": "0x2710"}, "net_peerCount": {"jsonrpc": "2.0", "id": 1, "result": "0x3"},
+        "qbft_getSignerMetrics": {"jsonrpc": "2.0", "id": 1, "result": [{"address": A8[0], "proposedBlockCount": "0x2", "lastProposedBlockNumber": "0x270f", "signedBlockCount": "0x8"}, {"address": A8[1], "proposedBlockCount": "0x0", "lastProposedBlockNumber": "0x0"}]}}
+for party in NUM:
+    o, ds = besu_run(party, ["--op", "read"], VALS)
+    check(o is not None and o.splitlines() == ["height 10000", "validators 4: " + ",".join(A8[:4]), "peers 3", f"signers(last 8 blocks): {A8[0]}=2 {A8[1]}=0"], f"{party}: besu read prints height, validators, peers, signer counts only: {o!r}")
+    if ds:
+        pod, pol = ds; lab = pod["metadata"]["labels"]; sp = pol["spec"]
+        check(pod["metadata"]["name"] == "besu-probe" and lab.get("rd/egress-locked") == "true" and lab.get("app") == "besu-probe" and pod["spec"].get("automountServiceAccountToken") is False and "volumes" not in pod["spec"] and "env" not in pod["spec"]["containers"][0], f"{party}: besu pod: locked label, no token/volume/env: {lab}")
+        check(sp["podSelector"] == {"matchLabels": {"rd/egress-locked": "true", "app": "besu-probe"}} and sp["policyTypes"] == ["Egress", "Ingress"] and "ingress" not in sp, f"{party}: besu policy selects the probe, Egress+Ingress, ingress none")
+        want = [{"to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "besu-validator"}}}], "ports": [{"protocol": "TCP", "port": 8545}]},
+                {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}], "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}]
+        check(sp["egress"] == want, f"{party}: besu egress = own besu-validator pods :8545 + kube-dns only: {sp['egress']}")
+    # vote: one qbft_proposeValidatorVote(<addr>, false) call, prints only the boolean
+    o, _ = besu_run(party, ["--op", "propose", "--address", A8[4], "--drop"], {"qbft_proposeValidatorVote": {"jsonrpc": "2.0", "id": 1, "result": True}})
+    check(o == f"VOTE drop {A8[4][:10]} true" and calls == [("qbft_proposeValidatorVote", [A8[4], False])], f"{party}: propose drop = ONE call (addr, false), prints only the boolean: {o!r} {calls}")
+    o, _ = besu_run(party, ["--op", "propose", "--address", A8[4], "--add"], {"qbft_proposeValidatorVote": {"jsonrpc": "2.0", "id": 1, "result": True}})
+    check(o == f"VOTE add {A8[4][:10]} true" and calls == [("qbft_proposeValidatorVote", [A8[4], True])], f"{party}: propose add = (addr, true): {o!r} {calls}")
+    o, _ = besu_run(party, ["--op", "propose", "--address", A8[4], "--drop"], {"qbft_proposeValidatorVote": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "Method not enabled"}}})
+    check(o == "ERROR", f"{party}: propose, error body (e.g. method not enabled) -> ERROR: {o!r}")
+    o, _ = besu_run(party, ["--op", "discard", "--address", A8[4]], {"qbft_discardValidatorVote": {"jsonrpc": "2.0", "id": 1, "result": True}})
+    check(o == f"DISCARD {A8[4][:10]} true" and calls == [("qbft_discardValidatorVote", [A8[4]])], f"{party}: discard = ONE call: {o!r} {calls}")
+    o, _ = besu_run(party, ["--op", "pending"], {"qbft_getPendingVotes": {"jsonrpc": "2.0", "id": 1, "result": {A8[4]: False, A8[5]: True}}})
+    check(o == f"pending 2: {A8[4][:10]}=drop {A8[5][:10]}=add", f"{party}: pending votes: {o!r}")
+for bad in (["bi", "besu", "--image", IMG], ["bi", "besu", "--image", IMG, "--op", "x"], ["bi", "besu", "--image", IMG, "--op", "propose"], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x12", "--drop"],
+            ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40, "--drop", "--add"],
+            ["bi", "besu", "--image", IMG, "--op", "read", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "discard", "--address", "0x" + "a" * 40 + ";id"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 for bad in (["bi", "--image", IMG, "--mode", "shape"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x12"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x" + "g" * 64], ["bi", "--image", IMG, "--mode", "ids", "--tx-hash", H], ["bi", "--image", IMG, "--mode", "schemas", "--tx-hash", H, "--zeto-token", "0x12"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
