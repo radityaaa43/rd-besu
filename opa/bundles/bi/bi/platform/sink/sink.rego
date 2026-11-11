@@ -1,6 +1,7 @@
 # BI rules for target `sink` (zeto S17): the party gateway's door to its own bundle-server (Envoy route /sink/ ->
 # bundle-server:8081, context_extensions {target: "sink", node}). Only these routes, and only for a named mTLS client:
 #   GET  /sink/status          -> GET /status             Lensa publisher (is my bundle active?)
+#   GET  /sink/bundles/<name>/latest -> GET /bundles/<name>/latest  Lensa (relay of the newest signed bundle, bytes as stored)
 #   POST /sink/bundles/<name>  -> POST /bundles/<name>    Lensa publisher (unsigned source of the party's own bundle)
 #   POST /sink/bundles/bi      -> POST /bundles/bi        BI's publisher-role cert, at a bank gateway only (BI's signed bundle, stored as is)
 # The caller is attributes.source.principal: Envoy sets it from the client certificate, the SAN if it has one, else the
@@ -35,6 +36,13 @@ allow if {
 allow if {
 	http.method == "POST"
 	regex.match(`^/sink/bundles/[a-z0-9][a-z0-9-]*$`, http.path)
+	caller in lensa
+}
+
+# relay: read the newest signed bundle (Lensa copies BI's signed bundle to the bank sinks); read-only, Lensa certs only
+allow if {
+	http.method == "GET"
+	regex.match(`^/sink/bundles/[a-z0-9][a-z0-9-]*/latest$`, http.path)
 	caller in lensa
 }
 

@@ -248,3 +248,34 @@ class OldEndpointsUnchanged(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(OPA, "opa binary not found (set OPA_BIN)")
+class GetLatest(Base):
+    """GET /bundles/<name>/latest returns the newest stored signed bundle byte-identical (the relay of BI's bundle to the bank sinks)."""
+
+    def get(self, path):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}")
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.read(), r.headers
+        except urllib.error.HTTPError as e:
+            return e.code, e.read(), e.headers
+
+    def test_own_bundle_latest_is_the_stored_tarball_and_follows_new_revisions(self):
+        a = json.loads(post(self.port, "/bundles/bank", make_tar({"gw/gw.rego": REGO}))[1])["revision"]
+        code, body, hdr = self.get("/bundles/bank/latest")
+        self.assertEqual(code, 200)
+        self.assertEqual(body, open(os.path.join(self.store, "bank", f"{a}.tar.gz"), "rb").read())
+        self.assertEqual(hdr.get("Content-Type"), "application/gzip")
+        b = json.loads(post(self.port, "/bundles/bank", make_tar({"gw/gw.rego": REGO + b"\n# v2\n"}))[1])["revision"]
+        self.assertEqual(self.get("/bundles/bank/latest")[1], open(os.path.join(self.store, "bank", f"{b}.tar.gz"), "rb").read())
+
+    def test_unknown_name_404_bad_names_400_no_path_escape(self):
+        self.assertEqual(self.get("/bundles/bi/latest")[0], 404)
+        for p in ("/bundles/A/latest", "/bundles/../latest", "/bundles/a/b/latest", "/bundles/bank/latest/x", "/bundles/bank/other"):
+            self.assertIn(self.get(p)[0], (400, 404), p)
+
+    def test_no_token_needed_it_is_signed_public_data(self):
+        post(self.port, "/bundles/bank", make_tar({"gw/gw.rego": REGO}))
+        self.assertEqual(self.get("/bundles/bank/latest")[0], 200)

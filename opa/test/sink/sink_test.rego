@@ -126,3 +126,31 @@ test_sink_target_cannot_open_paladin_or_besu_paths if {
 	not allowed(req("node2", "CN=lensa", "POST", "/"))
 	not allowed(req("node2", "CN=lensa", "POST", "/sink/../"))
 }
+
+# --- relay: GET the newest signed bundle (Lensa copies BI's signed bundle to the bank sinks); read-only, Lensa certs only
+
+test_lensa_may_get_latest_signed_bundle if {
+	every who in lensa {
+		every n in nodes {
+			allowed(req(n, who, "GET", "/sink/bundles/bi/latest"))
+			allowed(req(n, who, "GET", "/sink/bundles/bank/latest"))
+		}
+	}
+}
+
+test_get_latest_denied_for_others_and_other_shapes if {
+	every who in ["CN=bank-a", "CN=bi-publisher", "CN=stranger", ""] {
+		not allowed(req("node2", who, "GET", "/sink/bundles/bi/latest"))
+	}
+	every p in ["/sink/bundles/bi/latest/", "/sink/bundles/bi/latest?x=1", "/sink/bundles/bi", "/sink/bundles/../latest", "/sink/bundles/a/b/latest", "/sink/bundles/A/latest", "/sink/bundles/bi/previous"] {
+		not allowed(req("node2", "CN=lensa", "GET", p))
+	}
+	not allowed(req("node2", "CN=lensa", "POST", "/sink/bundles/bi/latest"))
+	not allowed(req("node2", "CN=lensa", "DELETE", "/sink/bundles/bi/latest"))
+}
+
+test_both_sides_allow_get_latest if {
+	i := req("node3", "CN=lensa-bank-b", "GET", "/sink/bundles/bi/latest")
+	bi_allows(i)
+	bank_allows(i)
+}
