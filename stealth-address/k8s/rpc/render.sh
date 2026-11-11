@@ -84,6 +84,8 @@ node() {
     *) die "node: unknown option $1" ;; esac; done
   [[ -n "$snf" ]] || die "node needs --static-nodes <file> (static-nodes.sh output)"
   [[ -s "$snf" ]] || die "static-nodes file '$snf' missing or empty"
+  # the RPC node peers ONLY with its own party's zeto node (user decision): exactly one enode, so sync-min-peers=1 holds
+  [[ "$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$snf")" == 1 ]] || die "static-nodes must hold exactly ONE enode (the own party's zeto node)"
   local affinity=""
   if [[ $cluster == 1 ]]; then
     affinity="      affinity:
@@ -105,9 +107,7 @@ metadata:
 data:
   config.toml: |
 YAML
-  # bank C (cluster 2) has ONE static peer (its own zeto node): the default 3 of the template would never start the sync
-  if [[ "$party" == bank-c ]]; then sed "s/\${NS}/${ns}/g; s/^sync-min-peers=3$/sync-min-peers=1/" "$here/templates/config.toml" | sed 's/^/    /'
-  else sed "s/\${NS}/${ns}/g" "$here/templates/config.toml" | sed 's/^/    /'; fi
+  sed "s/\${NS}/${ns}/g" "$here/templates/config.toml" | sed 's/^/    /'
   echo
   cat <<YAML
 ---
