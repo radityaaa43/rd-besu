@@ -1,0 +1,34 @@
+# Manual external reachability probe for the zeto Besu p2p load balancers (final-design/zeto/PLAN.md S3 exposure check, GO A3-CANARY).
+# Runs on a GitHub-hosted runner, i.e. from OUTSIDE both clusters' egress IPs and the Lensa host. Repo-only: it talks to the given host:port with
+# a TCP connect, nothing else, no secrets, no cluster credentials. A closed/filtered port is the EXPECTED result (the step prints the verdict).
+name: lb-external-probe
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Public IPv4 of a besu-p2p LoadBalancer"
+        required: true
+      port:
+        description: "TCP port"
+        required: true
+        default: "30303"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate inputs
+        run: |
+          [[ "${{ inputs.host }}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "host must be an IPv4"; exit 2; }
+          [[ "${{ inputs.port }}" =~ ^[0-9]{1,5}$ ]] || { echo "port must be a number"; exit 2; }
+      - name: Runner egress IP (for the log)
+        run: |
+          echo "runner egress - $(curl -s -m 10 https://ifconfig.me)"
+      - name: TCP connect from outside
+        run: |
+          if nc -vz -w5 "${{ inputs.host }}" "${{ inputs.port }}"; then
+            echo "RESULT - OPEN from the internet"
+          else
+            echo "RESULT - NOT reachable from the internet (closed or filtered)"
+          fi
