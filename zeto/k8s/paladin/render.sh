@@ -102,7 +102,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
   containers:
     - name: hold
-      image: busybox:1.36
+      image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 250m, memory: 1Gi}}
       command: [sh, -c, "sleep 300"]
@@ -124,7 +124,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 65534, runAsGroup: 65534}
   containers:
     - name: listen
-      image: busybox:1.36
+      image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       resources: {requests: {cpu: 5m, memory: 8Mi}, limits: {cpu: 50m, memory: 16Mi}}
       command: [sh, -c, "echo listener-up; while true; do nc -l -p 9000 </dev/null >/dev/null; done"]
@@ -149,7 +149,7 @@ spec:
   securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999}
   containers:
     - name: probe
-      image: postgres:17.6
+      image: postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}
       command:

@@ -22,7 +22,7 @@ else
   lbl="part-of: rd-stealth, party: $party"; cpu_req=100m; mem_req=768Mi; cpu_lim='"2"'; mem_lim=3G
 fi
 ns="rd-stealth-$party"
-image="hyperledger/besu:26.8.1"
+image="hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042"
 
 net() {
   [[ $# == 0 ]] || die "net takes no options"
@@ -149,7 +149,7 @@ ${affinity}
       automountServiceAccountToken: false
       initContainers:
         - name: volume-permission-besu
-          image: busybox:1.36
+          image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
           command: [sh, -c, "chown -R 1000:1000 /data"]
           securityContext: {runAsUser: 0}
           volumeMounts:

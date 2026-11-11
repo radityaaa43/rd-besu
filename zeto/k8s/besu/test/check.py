@@ -121,7 +121,7 @@ for party, ns in PARTIES.items():
         s = sts[0]["spec"]
         pod = s["template"]["spec"]
         c = pod["containers"][0]
-        check(c["image"] == "hyperledger/besu:26.8.1" and s["replicas"] == 1, f"{party}: image hyperledger/besu:26.8.1, 1 replica")
+        check(c["image"] == "hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042" and s["replicas"] == 1, f"{party}: image hyperledger/besu:26.8.1, 1 replica")
         argv = " ".join(c["args"] if "args" in c else []) + " ".join(c.get("command", []))
         check("--Xdns" not in argv and "--nat-method=NONE" in argv and "--min-gas-price=0" in argv, f"{party}: args: no Xdns, nat NONE, min-gas-price 0: {argv}")
         check({p["name"] for p in c["ports"]} == {"json-rpc", "ws", "rlpx", "metrics"} and all(p["protocol"] == "TCP" for p in c["ports"]), f"{party}: ports TCP only (no UDP discovery)")
