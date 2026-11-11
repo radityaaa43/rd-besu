@@ -16,7 +16,7 @@ One HTTP service per party (bank, later BI). It holds that party's spend, view a
 | `party` | the one party served ("A"); an intent with another `from` is refused | PLAN:90 |
 | `role` | `bank` or `custodian`; `/cert` answers only for `custodian` | PLAN:90 |
 | `chainId`, `rd`, `bond`, `fromBlock` | chain constants; scan start block (Besu caps `eth_getLogs` at 1000 blocks) | `ts/chain.ts:15,90-104` |
-| own RPC URL + JWT | the party's own Besu RPC node, read-only token from Secret `stealth-rpc-jwt`; file path in the deployment config (S9) | PLAN:72, ARCH:180 |
+| own RPC URL + JWT | the party's own Besu RPC node; the node's RS256 private key file from Secret `stealth-rpc-jwt` (`private.pem`, env `RPC_JWT_KEY_FILE`); the signer mints a token per request (permissions `eth|net|web3`, `exp` <= now+900, reused until 60 s before expiry, `src/rpcToken.ts`) | PLAN:72, ARCH:180 |
 | `certUrl` | custodian `/cert` base URL (mTLS), bank role only | PLAN:90 |
 | keys | files `spendKey`, `viewKey`, `identityKey` of the S7 mount `stealth-keys`; read once at start, kept in memory | PLAN:81 |
 

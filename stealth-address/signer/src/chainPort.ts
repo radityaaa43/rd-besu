@@ -19,10 +19,10 @@ export type ChainPortOptions = {
   fromBlock: number; // isEscrow scans DvPFactory logs from here
 };
 
-// JSON-RPC provider for the party's own Besu node; jwt (read-only token) goes in the Authorization header.
-export function createProvider(url: string, chainId: bigint, jwt?: string): JsonRpcProvider {
+// JSON-RPC provider for the party's own Besu node; `token` (see rpcToken.ts) is called per request, so a short-lived JWT never goes stale.
+export function createProvider(url: string, chainId: bigint, token?: () => string): JsonRpcProvider {
   const req = new FetchRequest(url);
-  if (jwt) req.setHeader('Authorization', `Bearer ${jwt.trim()}`);
+  if (token) req.preflightFunc = async (r) => { r.setHeader('Authorization', `Bearer ${token()}`); return r; };
   return new JsonRpcProvider(req, chainId, { staticNetwork: true });
 }
 
