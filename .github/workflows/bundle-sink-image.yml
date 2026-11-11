@@ -29,4 +29,7 @@ jobs:
           file: zeto/k8s/bundle-server/Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/rd-bundle-sink:${{ github.sha }}
-      - run: echo "digest ${{ steps.build.outputs.digest }}  image ghcr.io/${{ github.repository_owner }}/rd-bundle-sink:${{ github.sha }}"
+      - name: Digest in the job summary
+        run: |
+          echo "image ghcr.io/${{ github.repository_owner }}/rd-bundle-sink@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "tag ${{ github.sha }} (package is private by default; digest is what render.sh --sink-image pins)" >> "$GITHUB_STEP_SUMMARY"
