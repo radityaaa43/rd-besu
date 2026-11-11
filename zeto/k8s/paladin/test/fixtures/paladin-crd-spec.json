@@ -1,0 +1,24 @@
+{
+ "source": "paladin@v1.0.0:operator/config/crd/bases/core.paladin.io_paladins.yaml",
+ "version": "v1alpha1",
+ "specProperties": [
+  "authConfig",
+  "baseLedgerEndpoint",
+  "besuNode",
+  "config",
+  "database",
+  "domains",
+  "logPersistence",
+  "registries",
+  "rpcAuth",
+  "secretBackedSigners",
+  "service",
+  "signingModules",
+  "transports"
+ ],
+ "specRequired": [
+  "domains",
+  "registries",
+  "transports"
+ ]
+}

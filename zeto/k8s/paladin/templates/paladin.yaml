@@ -91,6 +91,29 @@ spec:
         - name: config
           configMap: {name: paladin-operator}
 ---
+# Paused stub (orchestrator deviation: no rehearsal start; PLAN S9 "scaled to 0"). The Paladin CR has no replicas field. The operator creates
+# its StatefulSet only if none exists (paladin_controller.go:287-292) and on update touches only containers, volumes and template annotations/
+# labels (:297-306), never replicas. This stub therefore keeps the node unstarted while the operator generates the pldconf ConfigMap. It carries
+# no ownerReference, so deleting the Paladin CR does NOT delete it. The real start at S21: kubectl -n ${NS} scale sts paladin-node${N} --replicas=1.
+# Name, selector and labels equal what the operator would create (generateStatefulSetTemplate, :372-): app=paladin from the operator config labels.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: paladin-node${N}
+  namespace: ${NS}
+  labels: &lab {app: paladin, app.kubernetes.io/instance: node${N}, app.kubernetes.io/name: paladin-node${N}, app.kubernetes.io/part-of: paladin}
+spec:
+  replicas: 0
+  selector:
+    matchLabels: *lab
+  template:
+    metadata:
+      labels: *lab
+    spec:
+      containers:
+        - name: paladin
+          image: ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71
+---
 # Domains and the registry are static node config (PLAN S9 DELTA): the operator would otherwise deploy NEW factory/registry
 # contracts from PaladinDomain/PaladinRegistry/SmartContractDeployment CRs. "A domain is either wholely defined in the static config of
 # the node, or wholely defined by reference to the CR attached. We do not attempt to merge" (paladin_controller.go:1194-1196).
@@ -110,6 +133,8 @@ spec:
     mode: preConfigured
     passwordSecret: paladin-pg-credentials
     migrationMode: auto
+  domains: []
+  registries: []
   secretBackedSigners:
     - name: signer-1
       secret: node${N}.keys
