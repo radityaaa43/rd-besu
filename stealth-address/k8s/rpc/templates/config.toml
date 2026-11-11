@@ -55,8 +55,6 @@ metrics-port=9545
 
 # Extra performance / tuning options
 sync-mode="FULL"
-# peers ONLY with its own party's zeto node: the Besu default 5 would never start the sync ("Waiting for 5 peers minimum")
-sync-min-peers=1
 data-storage-format="BONSAI"
 receipt-compaction-enabled=true
 cache-last-blocks=1024
