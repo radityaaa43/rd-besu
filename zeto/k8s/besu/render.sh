@@ -70,7 +70,7 @@ spec:
     - {name: ws, port: 8546, targetPort: ws, protocol: TCP}
 ---
 # 8545/8546 are reached from this namespace (S1 allow-same-namespace: gateway, Paladin). 30303 TCP only: from the other new validators, the
-# stealth RPC nodes, the old validators (ns besu) and, across clusters, from the CIDRs given with --external-cidr (source IP of the LB path: unverified).
+# stealth RPC node of the SAME party (user decision: each bank's stealth RPC peers only with its own zeto node), the old validators (ns besu) and, across clusters, from the CIDRs given with --external-cidr (source IP of the LB path: unverified).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -85,7 +85,9 @@ spec:
     - from:
         - namespaceSelector:
             matchExpressions:
-              - {key: part-of, operator: In, values: [rd-zeto, rd-stealth]}
+              - {key: part-of, operator: In, values: [rd-zeto]}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: rd-stealth-${party}}
         - namespaceSelector:
             matchLabels: {kubernetes.io/metadata.name: besu}
 YAML

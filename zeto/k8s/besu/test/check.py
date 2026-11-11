@@ -73,7 +73,12 @@ for party, ns in PARTIES.items():
         ing = np[0]["spec"]["ingress"]
         check(all([p["port"] for p in r["ports"]] == [30303] and r["ports"][0]["protocol"] == "TCP" for r in ing), f"{party}: policy opens only TCP 30303")
         frm = json.dumps(ing)
-        check("rd-zeto" in frm and "rd-stealth" in frm and "besu" in frm, f"{party}: 30303 allowed from rd-zeto-*, rd-stealth-* and ns besu")
+        check("rd-zeto" in frm and "besu" in frm, f"{party}: 30303 allowed from rd-zeto-* and ns besu")
+        sel = [f["namespaceSelector"] for r in ing for f in r["from"] if "namespaceSelector" in f]
+        stealth = [s for s in sel if "rd-stealth" in json.dumps(s)]
+        check(stealth == [{"matchLabels": {"kubernetes.io/metadata.name": "rd-stealth-" + party.replace("bank-c", "bank-c")}}], f"{party}: stealth may reach 30303 ONLY from its own party namespace rd-stealth-{party}: {stealth}")
+        zsel = [s for s in sel if "matchExpressions" in s]
+        check(zsel == [{"matchExpressions": [{"key": "part-of", "operator": "In", "values": ["rd-zeto"]}]}], f"{party}: the part-of selector must name rd-zeto only (no wildcard over rd-stealth-*): {zsel}")
     for d in net:
         check(d["metadata"].get("namespace") == ns, f"{party} net: {d['kind']}/{d['metadata']['name']} not in {ns}")
     ext = docs("net", party, "--external-cidr", "203.0.113.7/32")
