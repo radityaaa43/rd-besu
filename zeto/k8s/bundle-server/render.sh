@@ -12,7 +12,7 @@
 # (TCP 8080; never the 8081 sink). It is additive to the bundle-server NetworkPolicy above and applies in the same cluster as the bundle-server.
 #   render.sh iroha3-access <bi|bank-a|bank-b|bank-c>
 # prints the one NetworkPolicy bundle-server-from-iroha3: the iroha3 gateway (pod label app.kubernetes.io/name=gateway) of ns rd-iroha3-<party>
-# may read the signed bundles (TCP 8080; never the 8081 sink). Additive, same cluster as the bundle-server.
+# may read the signed bundles (TCP 8080 = the POD port the policy sees; the gateway dials the Service port 80, never :8080, never the 8081 sink). Additive, same cluster as the bundle-server.
 # Needs bash + sed only. Never talks to a cluster.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

@@ -428,10 +428,26 @@ test_missing_ca_data_denies if {
 	not bi.allow with input as door_as("bi", "GET", "/health", pki.role_leaf_bi) with data.bi.config as {"iroha3_ca": {"lensa": {}, "role": {}}}
 }
 
-# The shipped data.json carries the empty placeholder until the real CAs are decided: nothing passes.
-test_shipped_placeholder_denies if {
+# The shipped data.json carries the four public role CAs iroha handed over (iroha3-rd-dfabi public/gateway-ca/<role>-role-ca.pem) and
+# NO Lensa CA yet (fe's Lensa client CA is not decided): a test-PKI leaf of any role passes nothing, and so does a `lensa` caller.
+test_shipped_data_denies_foreign_leaves if {
 	not bi.allow with input as door_as("bi", "GET", "/health", pki.lensa_leaf_bi)
 	not bi.allow with input as door_as("bi", "GET", "/health", pki.role_leaf_bi)
+}
+
+shipped_role_sha256 := {
+	"bi": "3c1408b9", "bank-a": "2a78033a", "bank-b": "bf75e5fb", "bank-c": "884e41ad",
+}
+
+test_shipped_role_cas_are_the_handed_over_public_certs if {
+	count(data.bi.config.iroha3_ca.role) == 4
+	every role, prefix in shipped_role_sha256 {
+		pem := data.bi.config.iroha3_ca.role[role]
+		startswith(crypto.sha256(pem), prefix)
+		count(crypto.x509.parse_certificates(pem)) == 1
+		not contains(pem, "PRIVATE")
+	}
+	count(data.bi.config.iroha3_ca.lensa) == 0
 }
 
 test_unknown_node_denied if {
