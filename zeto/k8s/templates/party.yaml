@@ -46,6 +46,7 @@ spec:
   podSelector:
     matchExpressions:
       - {key: app, operator: NotIn, values: [paladin]}
+      - {key: rd/egress-locked, operator: DoesNotExist}
   policyTypes: [Egress]
   egress:
     - {}

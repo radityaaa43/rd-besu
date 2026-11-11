@@ -58,6 +58,7 @@ for party, ns in PARTIES.items():
         check(dns["policyTypes"] == ["Egress"], f"{party}: allow-dns-egress must be Egress")
         sel = dns["podSelector"].get("matchExpressions", [])
         check(any(e["key"] == "app" and e["operator"] == "NotIn" and "paladin" in e["values"] for e in sel), f"{party}: allow-dns-egress must exclude app=paladin (else it widens the rehearsal policy)")
+        check({"key": "rd/egress-locked", "operator": "DoesNotExist"} in sel, f"{party}: allow-dns-egress must exclude pods labelled rd/egress-locked (a one-off Job with its own narrow policy; policies are additive, an allow-all that selects the Job cancels it)")
         rh = np["rehearsal-no-9000-egress"]["spec"]
         check(rh["podSelector"] == {"matchLabels": {"app": "paladin"}} and rh["policyTypes"] == ["Egress"], f"{party}: rehearsal policy must select app=paladin, Egress")
         tcp = [r for rule in rh["egress"] for r in tcp_ranges(rule)]

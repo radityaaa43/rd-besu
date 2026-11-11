@@ -4,10 +4,12 @@
 # --image: the ALREADY PINNED paladin-pg postgres image BY DIGEST (no new tool image). --api-ips: the `kubernetes` Endpoints addresses of that cluster
 # (kubectl get endpoints kubernetes); the policy allows TCP 443 and 6443 to exactly those /32s. Needs bash + sed only. Never talks to a cluster.
 # Objects (all in rd-zeto-<party>): ConfigMap pg-pw-rotate-script, ServiceAccount + Role + RoleBinding pg-pw-rotate (secrets get+patch on
-# paladin-pg-credentials ONLY, paladins get+patch on node<N> ONLY (option D: the Job writes the DSN into spec.config); apply before the Job, delete right after: logged in R13), NetworkPolicy pg-pw-rotate (egress only to paladin-pg:5432 and the API IPs; ingress none), Job pg-pw-rotate.
+# paladin-pg-credentials ONLY, paladins get+patch on node<N> ONLY (option D: the Job writes the DSN into spec.config); apply before the Job, delete right after: logged in R13), NetworkPolicy pg-pw-rotate + pg-pw-rotate-pg-ingress (egress only to paladin-pg:5432 and the API IPs; ingress none), Job pg-pw-rotate.
 # `patch` instead of `update`: a merge-patch of one key needs no whole-object PUT (and no chunked-response parsing in shell).
-# The Job pod carries app=paladin on purpose: allow-dns-egress (egress {}) selects `app NotIn [paladin]` and would otherwise cancel this NetworkPolicy,
-# and paladin-pg-ingress admits app=paladin pods to 5432. It matches no Service (paladin-node<N> / paladin-transport need more labels).
+# The Job pod carries rd/egress-locked=true (NOT app=paladin: that label pulled in rehearsal-no-9000-egress, analyst ruling a): allow-dns-egress
+# (egress {}) excludes pods with that label, so this NetworkPolicy is the ONLY egress policy selecting the pod. paladin-pg-ingress admits app=paladin
+# pods only, so the render adds its own ingress policy pg-pw-rotate-pg-ingress (Job pod -> paladin-pg:5432). Before relying on it, quote the union
+# of ALL Egress policies that select the pod.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 die() { echo "render.sh: $*" >&2; exit 2; }
@@ -83,7 +85,7 @@ metadata:
   labels: $lab
 spec:
   podSelector:
-    matchLabels: {job: pg-pw-rotate}
+    matchLabels: {"rd/egress-locked": "true", job: pg-pw-rotate}
   policyTypes: [Egress, Ingress]
   egress:
     - to:
@@ -95,6 +97,24 @@ spec:
 $to      ports:
         - {protocol: TCP, port: 443}
         - {protocol: TCP, port: 6443}
+---
+# paladin-pg-ingress admits app=paladin pods only: this admits the Job pod (and nothing else) to paladin-pg:5432. Deleted with the rest.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pg-pw-rotate-pg-ingress
+  namespace: $ns
+  labels: $lab
+spec:
+  podSelector:
+    matchLabels: {app: paladin-pg}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {job: pg-pw-rotate}
+      ports:
+        - {protocol: TCP, port: 5432}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -108,7 +128,7 @@ spec:
   ttlSecondsAfterFinished: 600
   template:
     metadata:
-      labels: {app: paladin, part-of: rd-zeto, party: $party, job: pg-pw-rotate}
+      labels: {"rd/egress-locked": "true", part-of: rd-zeto, party: $party, job: pg-pw-rotate}
     spec:
       serviceAccountName: pg-pw-rotate
       automountServiceAccountToken: true

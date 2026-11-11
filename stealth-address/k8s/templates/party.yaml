@@ -44,7 +44,11 @@ metadata:
   namespace: ${NS}
   labels: {part-of: rd-stealth, party: ${PARTY}}
 spec:
-  podSelector: {}
+  # every pod EXCEPT those labelled rd/egress-locked (a signer/scanner/one-off Job with its OWN narrow egress policy; policies are additive, so an
+  # allow-all that selects them would cancel it). R17-stealth gate.
+  podSelector:
+    matchExpressions:
+      - {key: rd/egress-locked, operator: DoesNotExist}
   policyTypes: [Egress]
   egress:
     - {}
