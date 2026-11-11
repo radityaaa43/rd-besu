@@ -10,6 +10,8 @@ Manifests only. Nothing here talks to a cluster; applying them is a separate, ap
 | `render.sh` | `render.sh [-o DIR] <bi\|bank-a\|bank-b\|all>`, `render.sh probe[-listeners\|-pods] <own> <other>` |
 | `test.sh`, `test/check.py` | Offline assertions on the rendered output (names, labels, verbs, port ranges); needs bash + python3 + PyYAML |
 
+Platforms: `render.sh -p zeto` (default) and `render.sh -p stealth` (final-design/stealth/PLAN.md S1: namespaces `rd-stealth-<party>`, label `part-of=rd-stealth`, 3 policies, `party-admin` only; no Paladin node so no rehearsal policy and no probe; Role also covers `batch` jobs/cronjobs for the S11 compare job; template `templates/stealth-party.yaml`). The directory name stays `zeto/k8s` so PR #11 is not moved.
+
 Parties: `bi`, `bank-a`, `bank-b` (cluster 1). `bank-c` is cluster 2 (S2) and `render.sh` refuses it.
 
 ## Policy semantics

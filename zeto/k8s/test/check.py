@@ -115,6 +115,57 @@ for d in of(pp, "Pod"):
     check("range(3)" in script and "time.sleep(2)" in script, f"{d['metadata']['name']}: needs 3 attempts with a 2 s gap")
     check(script.index("except ConnectionRefusedError") < script.index("except OSError as e"), f"{d['metadata']['name']}: ConnectionRefusedError must be caught before the generic OSError")
 
+# ---- stealth L0 (render.sh -p stealth): same namespaces/RBAC pattern, no Paladin node so no rehearsal policy, no lensa-publisher
+S_NETPOLS = {"default-deny-ingress", "allow-dns-egress", "allow-same-namespace"}
+zeto_default = subprocess.run([render, "all"], capture_output=True, text=True).stdout
+zeto_explicit = subprocess.run([render, "-p", "zeto", "all"], capture_output=True, text=True).stdout
+check(zeto_default != "" and zeto_default == zeto_explicit, "render.sh -p zeto all must equal the default output byte for byte")
+for party, zns in PARTIES.items():
+    ns = zns.replace("rd-zeto-", "rd-stealth-")
+    ds = docs("-p", "stealth", party)
+    check(bool(ds), f"stealth {party}: no objects rendered")
+    if not ds:
+        continue
+    check([n["metadata"]["name"] for n in of(ds, "Namespace")] == [ns], f"stealth {party}: Namespace must be exactly {ns}")
+    lab = (of(ds, "Namespace") or [{"metadata": {}}])[0]["metadata"].get("labels", {})
+    check(lab.get("part-of") == "rd-stealth" and lab.get("party") == party, f"stealth {party}: labels part-of=rd-stealth, party={party}: {lab}")
+    check(not of(ds, "ClusterRole") and not of(ds, "ClusterRoleBinding"), f"stealth {party}: no cluster-scoped RBAC")
+    for d in ds:
+        if d["kind"] != "Namespace":
+            check(d["metadata"].get("namespace") == ns, f"stealth {party}: {d['kind']}/{d['metadata']['name']} not in {ns}")
+            check(d["metadata"].get("labels", {}).get("part-of") == "rd-stealth", f"stealth {party}: {d['kind']}/{d['metadata']['name']} label part-of must be rd-stealth")
+    got = {d["metadata"]["name"] for d in of(ds, "NetworkPolicy")}
+    check(got == S_NETPOLS, f"stealth {party}: NetworkPolicy names {sorted(got)} != {sorted(S_NETPOLS)} (no rehearsal policy: stealth has no Paladin node)")
+    check({d["metadata"]["name"] for d in of(ds, "ServiceAccount")} == {"party-admin"}, f"stealth {party}: only ServiceAccount party-admin")
+    check({d["metadata"]["name"] for d in of(ds, "Role")} == {"party-admin"}, f"stealth {party}: only Role party-admin")
+    rb = of(ds, "RoleBinding")
+    check(len(rb) == 1 and rb[0]["subjects"][0]["namespace"] == ns and rb[0]["roleRef"]["name"] == "party-admin", f"stealth {party}: one RoleBinding party-admin -> SA in {ns}")
+    np = {d["metadata"]["name"]: d for d in of(ds, "NetworkPolicy")}
+    if S_NETPOLS <= set(np):
+        check(np["default-deny-ingress"]["spec"] == {"podSelector": {}, "policyTypes": ["Ingress"]}, f"stealth {party}: default-deny-ingress shape")
+        check(np["allow-same-namespace"]["spec"]["ingress"] == [{"from": [{"podSelector": {}}]}], f"stealth {party}: allow-same-namespace shape")
+        e = np["allow-dns-egress"]["spec"]
+        check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {} and e["egress"] == [{}], f"stealth {party}: egress stays open (allow-dns-egress selects all pods, allow-all rule): {e}")
+    rules = (of(ds, "Role") or [{"rules": []}])[0]["rules"]
+    sec = [r for r in rules if "secrets" in r["resources"]]
+    check(len(sec) == 1 and sorted(sec[0]["verbs"]) == ["create", "patch", "update"], f"stealth {party}: secrets verbs exactly create,update,patch")
+    check(all("*" not in r["resources"] and "*" not in r["verbs"] for r in rules), f"stealth {party}: no wildcards")
+sall = docs("-p", "stealth", "all")
+check([d["metadata"]["name"] for d in of(sall, "Namespace")] == ["rd-stealth-bi", "rd-stealth-bank-a", "rd-stealth-bank-b"], "stealth all: 3 namespaces in order")
+for args in (["-p", "stealth", "probe", "bank-a", "bank-b"], ["-p", "stealth", "bank-c"], ["-p", "noto", "bi"]):
+    r = subprocess.run([render, *args], capture_output=True, text=True)
+    check(r.returncode != 0, f"render.sh {' '.join(args)} must be refused (probe is zeto-only, bank-c is cluster 2, unknown platform)")
+
+import tempfile, os
+with tempfile.TemporaryDirectory() as td:
+    for plat, want in (("stealth", ["rd-stealth-bank-a.yaml", "rd-stealth-bank-b.yaml", "rd-stealth-bi.yaml"]), ("zeto", ["rd-zeto-bank-a.yaml", "rd-zeto-bank-b.yaml", "rd-zeto-bi.yaml"])):
+        d = os.path.join(td, plat)
+        subprocess.run([render, "-o", d, "-p", plat, "all"], capture_output=True, text=True)
+        check(sorted(os.listdir(d)) == want if os.path.isdir(d) else False, f"-o with -p {plat} must write {want}")
+    d = os.path.join(td, "one")
+    subprocess.run([render, "-o", d, "-p", "stealth", "bank-a"], capture_output=True, text=True)
+    check(os.path.isdir(d) and os.listdir(d) == ["rd-stealth-bank-a.yaml"], "-o -p stealth bank-a must write rd-stealth-bank-a.yaml")
+
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)

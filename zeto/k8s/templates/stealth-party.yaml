@@ -1,0 +1,91 @@
+# stealth L0 (final-design/stealth/PLAN.md S1): one namespace per party on cluster 1, same pattern as templates/party.yaml.
+# Rendered by ../render.sh -p stealth; ${PARTY} = bi | bank-a | bank-b, ${NS} = rd-stealth-${PARTY}.
+# Differences to zeto: no Paladin node, so no rehearsal-no-9000-egress policy; no lensa-publisher (no bundle server here yet).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NS}
+  labels:
+    part-of: rd-stealth
+    party: ${PARTY}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Egress stays open (Besu p2p to the zeto validators, JWT RPC reads, DNS); no other egress policy exists in this namespace to be widened.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+---
+# secrets: create/update/patch only, never get/list/watch (README decision 25). Not granted here (later steps extend the Role):
+# pods/portforward, pods/exec, anything cluster-scoped.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+rules:
+  - apiGroups: [""]
+    resources: [services, configmaps, persistentvolumeclaims, pods]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-stealth, party: ${PARTY}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: party-admin}
+subjects:
+  - {kind: ServiceAccount, name: party-admin, namespace: ${NS}}
