@@ -340,6 +340,7 @@ Decisions and risks (read before the rollout request):
 - Token rotation: the sink reads the token file once at start (`sink.py`, `read_token`), so a new token needs a restart of bundle-server after the Secret changes; the gateways' OPA re-reads `token_path` on every request, so they follow without a restart.
 - Post-apply check (after step 5): `kubectl get --raw /api/v1/namespaces/paladin/services/bundle-server:sink/proxy/status` must still print the gateways' bundle status (this is the path Lensa's Publisher uses). Rollback of the NetworkPolicy: `kubectl -n paladin delete networkpolicy bundle-server-ingress`.
 - Tests: `cd bundle-server && python3 -m unittest test_sink` (token check: rejected without or with a wrong token, accepted with it, GET open, no token configured = open, token file read/empty).
+- `POST /bundles/<name>` (own bundle: unsigned source built and signed with the party's key; foreign name: signed bundle stored as-is; append-only revisions in `BUNDLE_STORE`, `latest.tar.gz` served by nginx): `bundle-server/sink.py`, tests `python3 -m unittest test_sink_bundles` (needs `opa` and `openssl`); per-party manifests in `zeto/k8s/bundle-server/` (not rolled out).
 
 ## Not done (production hardening)
 
