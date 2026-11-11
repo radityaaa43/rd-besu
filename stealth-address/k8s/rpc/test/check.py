@@ -46,7 +46,7 @@ removed = {k for k in lk if k not in tk}
 added = {k for k in tk if k not in lk}
 check(changed == {"discovery-enabled", "rpc-http-api", "rpc-http-authentication-enabled", "host-allowlist", "rpc-ws-enabled", "metrics-host"}, f"config: changed keys {sorted(changed)}")
 check(removed == {"rpc-http-cors-origins", "rpc-ws-host", "rpc-ws-port", "rpc-ws-api", "rpc-ws-authentication-enabled"}, f"config: removed keys {sorted(removed)}")
-check(added == {"rpc-http-authentication-jwt-public-key-file"}, f"config: added keys {sorted(added)}")
+check(added == {"rpc-http-authentication-jwt-public-key-file", "sync-min-peers"}, f"config: added keys {sorted(added)}")
 g = lambda k: tk.get(k, "")
 check(g("rpc-http-api") == 'rpc-http-api=["ETH","NET","WEB3"]', f"config: rpc-http-api {g('rpc-http-api')}")
 check(g("rpc-http-authentication-enabled") == "rpc-http-authentication-enabled=true", "config: JWT authentication must be enabled")
@@ -58,6 +58,7 @@ for h in ("besu-rpc", "st-gw", "localhost", "127.0.0.1"):
     check(f'"{h}"' in al, f"config: host-allowlist must contain {h}: {al}")
 check('"*"' not in al, "config: host-allowlist must not be *")
 
+check(g("sync-min-peers") == "sync-min-peers=3", f"config: sync-min-peers=3 required (the node peers with the 3 zeto nodes only; Besu default 5 never starts sync): {g('sync-min-peers')}")
 NETPOLS_ALL = ["bi", "bank-a", "bank-b"]
 PARTIES = {"bi": "rd-stealth-bi", "bank-a": "rd-stealth-bank-a", "bank-b": "rd-stealth-bank-b"}
 for party, ns in PARTIES.items():
