@@ -63,7 +63,7 @@ for party, ns in PARTIES.items():
         check(pod.get("automountServiceAccountToken") is False, f"{party}: no API token for the database pod")
         aff = pod.get("affinity", {})
         na = aff.get("nodeAffinity", {}).get("requiredDuringSchedulingIgnoredDuringExecution", {}).get("nodeSelectorTerms", [])
-        check(any(e["key"] == "kubernetes.io/hostname" and e["operator"] == "NotIn" and sorted(e["values"]) == ["member-16033", "member-16034"] for t in na for e in t.get("matchExpressions", [])), f"{party}: nodeAffinity must keep the pod off the two nodes at 97%/85% CPU requests (member-16033, member-16034; zeto CURRENT section 12)")
+        check(any(e["key"] == "kubernetes.io/hostname" and e["operator"] == "NotIn" and sorted(e["values"]) == ["member-16033-node", "member-16034-node"] for t in na for e in t.get("matchExpressions", [])), f"{party}: nodeAffinity must keep the pod off the two nodes at 97%/85% CPU requests (hostname labels member-16033-node, member-16034-node; zeto CURRENT section 12 gives the short names)")
         pa = aff.get("podAntiAffinity", {})
         req = pa.get("requiredDuringSchedulingIgnoredDuringExecution", [])
         pref = [t["podAffinityTerm"] for t in pa.get("preferredDuringSchedulingIgnoredDuringExecution", [])]

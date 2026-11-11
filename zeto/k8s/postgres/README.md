@@ -18,8 +18,8 @@ so without it every pod of the namespace could reach the database and `paladin-p
 
 ## Who runs what
 Everything that uses `kubectl exec` (dump, restore, counts, init of the copy) runs with the **operator's admin kubeconfig**: `party-admin` has no `pods/exec`
-(S1 Role). Nothing here runs from Lensa. The StatefulSet is kept off `member-16033` and `member-16034` (97% / 85% CPU requests, zeto CURRENT section 12; that those
-names equal the `kubernetes.io/hostname` label is [unverified]) and off nodes that already hold another `paladin-pg`; Besu validators are avoided on a best-effort basis (label [unverified]).
+(S1 Role). Nothing here runs from Lensa. The StatefulSet is kept off the nodes with hostname labels `member-16033-node` and `member-16034-node` (97% / 85% CPU requests, zeto CURRENT section 12; labels as read by besu;
+no cluster read in this PR) and off nodes that already hold another `paladin-pg`; Besu validators are avoided on a best-effort basis (label [unverified]).
 
 ## Storage
 `alicloud-essd-wffc` (WaitForFirstConsumer: the disk is created in the zone of the node the pod is scheduled on; `alicloud-essd` is Immediate and fixes the zone before scheduling).
