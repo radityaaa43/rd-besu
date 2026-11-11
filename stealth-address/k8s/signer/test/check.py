@@ -51,6 +51,10 @@ def bank_args(p="bank-a", image=IMG, chain=GOOD, url=CERT_URL):
     return [p, "--image", image, "--chain-env", chain, "--cert-url", url]
 
 
+def bi_args(image=IMG, chain=GOOD, url=CERT_URL):
+    return ["bi", "--image", image, "--chain-env", chain, "--cert-url", url]
+
+
 def cust_args(image=IMG, chain=GOOD, signers=SIGNERS):
     return ["custodian", "--image", image, "--chain-env", chain, "--bank-signers", signers]
 
@@ -66,8 +70,8 @@ def secret_items(vol):
     return s["secretName"], [i["key"] for i in s["items"]], {i["mode"] if "mode" in i else s.get("defaultMode") for i in s["items"]}
 
 
-def common(d, role, ns, party, plabel, label):
-    """Checks shared by bank and custodian Deployments; returns (pod spec, container, env dict, vols dict)."""
+def common(d, role, ns, party, plabel, label, extra=False):
+    """Checks shared by bank, bi and custodian Deployments (extra: bi also mounts the viewcopies volume); returns (pod spec, container, env dict, vols dict)."""
     m = d["metadata"]
     check(m["namespace"] == ns, f"{label}: namespace {ns}")
     check(m["labels"].get("part-of") == "rd-stealth" and m["labels"].get("party") == plabel, f"{label}: labels part-of rd-stealth, party {plabel}")
@@ -100,10 +104,14 @@ def common(d, role, ns, party, plabel, label):
     for k, v in {"RPC_URL": "http://besu-rpc:8545", "RPC_JWT_KEY_FILE": "/rpc-jwt/private.pem", "KEYS_DIR": "/keys", "TLS_DIR": "/tls", "PARTY": party, "ROLE": role}.items():
         check(env.get(k) == v, f"{label}: env {k}={v}")
     vols = {v["name"]: v for v in pod["volumes"]}
-    check(set(vols) == {"keys", "tls", "rpc-jwt", "tmp"}, f"{label}: volumes exactly keys, tls, rpc-jwt, tmp (got {sorted(vols)})")
+    want_vols = {"keys", "tls", "rpc-jwt", "tmp"} | ({"viewcopies"} if extra else set())
+    check(set(vols) == want_vols, f"{label}: volumes exactly {sorted(want_vols)} (got {sorted(vols)})")
     check(all(set(v) == {"name", "secret"} or set(v) == {"name", "emptyDir"} for v in vols.values()), f"{label}: only secret/emptyDir volumes (no hostPath)")
     mounts = {m["name"]: m for m in c["volumeMounts"]}
-    check({k: (m["mountPath"], m.get("readOnly", False)) for k, m in mounts.items()} == {"keys": ("/keys", True), "tls": ("/tls", True), "rpc-jwt": ("/rpc-jwt", True), "tmp": ("/tmp", False)}, f"{label}: mounts /keys /tls /rpc-jwt readOnly, /tmp writable")
+    want_mounts = {"keys": ("/keys", True), "tls": ("/tls", True), "rpc-jwt": ("/rpc-jwt", True), "tmp": ("/tmp", False)}
+    if extra:
+        want_mounts["viewcopies"] = ("/viewcopies", True)
+    check({k: (m["mountPath"], m.get("readOnly", False)) for k, m in mounts.items()} == want_mounts, f"{label}: mounts {sorted(want_mounts)}, all readOnly but /tmp")
     check("emptyDir" in vols.get("tmp", {}), f"{label}: tmp is emptyDir")
     check(secret_items(vols["rpc-jwt"]) == ("stealth-rpc-jwt", ["private.pem"], {0o440}), f"{label}: rpc-jwt = Secret stealth-rpc-jwt, item private.pem only, 0440")
     return pod, c, env, vols
@@ -154,9 +162,45 @@ if ds:
 ds = docs(*cust_args(), "--pull-secret", "regcred")
 check(ds and ds[0]["spec"]["template"]["spec"].get("imagePullSecrets") == [{"name": "regcred"}], "custodian: --pull-secret sets imagePullSecrets")
 
+# bi (S10 signer)
+ds = docs(*bi_args())
+check([(d["kind"], d["metadata"]["name"]) for d in ds] == [("Deployment", "stealth-signer"), ("Service", "stealth-signer")], f"bi: exactly Deployment + Service stealth-signer (got {[(d['kind'], d['metadata']['name']) for d in ds]})")
+if len(ds) == 2:
+    dep, svc = ds
+    pod, c, env, vols = common(dep, "bi", "rd-stealth-bi", "BI", "bi", "bi", extra=True)
+    check(env.get("PARTY") == "BI" and env.get("ROLE") == "bi", "bi: PARTY=BI ROLE=bi")
+    check(env.get("PORT") == "8080" and env.get("CERT_URL") == CERT_URL and env.get("CERT_SERVERNAME") == "custodian-1", "bi: PORT 8080, CERT_URL given, CERT_SERVERNAME custodian-1")
+    check(env.get("VIEWCOPIES_DIR") == "/viewcopies", "bi: env VIEWCOPIES_DIR=/viewcopies")
+    check("BANK_SIGNERS" not in env, "bi: no BANK_SIGNERS")
+    check(c["ports"] == [{"name": "http", "containerPort": 8080}], "bi: port 8080 named http")
+    check(all(c[k] == {"httpGet": {"path": "/health", "port": 8080}} for k in ("readinessProbe", "livenessProbe")), "bi: readiness+liveness httpGet /health 8080")
+    check(secret_items(vols["keys"]) == ("stealth-bi-keys", ["issuerKey", "spendKey", "viewKey"], {0o440}), "bi: keys = Secret stealth-bi-keys, items issuerKey/spendKey/viewKey only, 0440")
+    check(secret_items(vols["tls"]) == ("stealth-signer-mtls", ["client.key", "client.crt", "ca.crt"], {0o440}), "bi: tls = Secret stealth-signer-mtls, items client.key/client.crt/ca.crt, 0440")
+    check(vols["viewcopies"] == {"name": "viewcopies", "secret": {"secretName": "stealth-bi-viewcopies", "optional": True, "defaultMode": 0o440}}, f"bi: viewcopies = optional Secret stealth-bi-viewcopies, defaultMode 0440, no items (got {vols['viewcopies']})")
+    dump = yaml.dump(dep)
+    check("stealth-cert-key" not in dump and "stealth-keys" not in dump, "bi pod never references Secret stealth-cert-key or stealth-keys")
+    check("imagePullSecrets" not in pod, "bi: no imagePullSecrets without --pull-secret")
+    check(svc["metadata"]["namespace"] == "rd-stealth-bi" and svc["metadata"]["labels"] == {"app": "stealth-signer", "role": "bi", "part-of": "rd-stealth", "party": "bi"}, "bi: Service ns + labels")
+    check(svc["spec"].get("type", "ClusterIP") == "ClusterIP", "bi: Service ClusterIP")
+    check(svc["spec"]["selector"] == {"app": "stealth-signer", "role": "bi"}, "bi: Service selector app+role bi")
+    check(svc["spec"]["ports"] == [{"name": "http", "port": 8080, "targetPort": 8080}], "bi: Service port 8080 -> 8080 named http")
+    check(not any(d["kind"] == "Secret" for d in ds), "bi: no Secret rendered")
+ds = docs(*bi_args(), "--pull-secret", "regcred")
+check(ds and ds[0]["spec"]["template"]["spec"].get("imagePullSecrets") == [{"name": "regcred"}], "bi: --pull-secret sets imagePullSecrets")
+# the bank and custodian renders carry no viewcopies volume or VIEWCOPIES_DIR
+for a in (bank_args(), cust_args()):
+    ds = docs(*a)
+    check(ds and "viewcopies" not in yaml.dump(ds[0]).lower(), f"{a[0]}: no viewcopies volume/env")
+
 # rejections
-r = run("bi", "--image", IMG, "--chain-env", GOOD, "--cert-url", CERT_URL)
-check(r.returncode == 2 and "role bi is S10, not rendered" in r.stderr, f"reject: bi exits 2 with 'role bi is S10, not rendered' (got {r.returncode}: {r.stderr.strip()[:100]})")
+rejects("bi with no further args", "bi")
+rejects("bi missing --cert-url", "bi", "--image", IMG, "--chain-env", GOOD)
+rejects("bi with --bank-signers", *bi_args(), "--bank-signers", SIGNERS)
+rejects("bi bad --image", *bi_args(image="registry.example/rd-stealth-signer:latest"))
+rejects("bi missing --chain-env", "bi", "--image", IMG, "--cert-url", CERT_URL)
+rejects("bi chain-env missing RD", *bi_args(chain=chain_file("bi-m.env", RD=None)))
+rejects("bi bad --cert-url", *bi_args(url="http://st-gw-1:8550"))
+rejects("bi bad --pull-secret", *bi_args(), "--pull-secret", "Reg_Cred")
 rejects("no arguments")
 rejects("unknown party", *bank_args("bank-d"))
 rejects("unknown option", *bank_args(), "--bogus", "x")

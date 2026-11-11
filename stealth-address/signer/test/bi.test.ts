@@ -47,6 +47,52 @@ describe('loadKeys role bi', () => {
   });
 });
 
+describe('loadKeys role bi, view copies from a separate directory (K8s: optional Secret mounted at its own path)', () => {
+  const files: Record<string, string> = {
+    '/k/issuerKey': ISSUER, '/k/spendKey': BI_SPEND, '/k/viewKey': BI_VIEW,
+    '/c/A.viewKey': A.viewKey, '/c/A.metaAddress': A.metaAddress, '/c/B.viewKey': B.viewKey, '/c/B.metaAddress': B.metaAddress,
+  };
+  const rd = (f: Record<string, string>, seen: string[] = []) => (p: string) => { seen.push(p); if (!(p in f)) throw new Error('ENOENT ' + p); return f[p] + '\n'; };
+  const ls = (f: Record<string, string>) => (d: string) => {
+    const n = Object.keys(f).filter((p) => p.startsWith(d + '/')).map((p) => p.slice(d.length + 1));
+    if (!n.length) throw Object.assign(new Error('ENOENT ' + d), { code: 'ENOENT' });
+    return n;
+  };
+  it('reads the copies from copiesDir, not from ${dir}/viewcopies', () => {
+    const seen: string[] = [];
+    const k: any = loadKeys('bi', '/k', rd(files, seen), ls(files), '/c');
+    expect(k).toEqual(biKeys);
+    expect(seen).toContain('/c/A.viewKey');
+    expect(seen).toContain('/c/B.metaAddress');
+    expect(seen.some((p) => p.includes('viewcopies'))).toBe(false);
+  });
+  it('an absent copies directory (ENOENT) means no copies, not an error', () => {
+    const f = { '/k/issuerKey': ISSUER, '/k/spendKey': BI_SPEND, '/k/viewKey': BI_VIEW };
+    expect((loadKeys('bi', '/k', rd(f), ls(f), '/c') as any).viewCopies).toEqual([]);
+    expect((loadKeys('bi', '/k', rd(f), ls(f)) as any).viewCopies).toEqual([]);
+  });
+  it('any other list error stays fatal', () => {
+    const f = { '/k/issuerKey': ISSUER, '/k/spendKey': BI_SPEND, '/k/viewKey': BI_VIEW };
+    const eacces = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+    expect(() => loadKeys('bi', '/k', rd(f), eacces, '/c')).toThrow(/EACCES/);
+  });
+  it('an unreadable copy file and a mismatching copy in the custom dir are still refused', () => {
+    const noMeta = { ...files }; delete noMeta['/c/A.metaAddress'];
+    expect(() => loadKeys('bi', '/k', rd(noMeta), ls(noMeta), '/c')).toThrow(/A\.metaAddress/);
+    const bad = { ...files, '/c/A.viewKey': B.viewKey };
+    expect(() => loadKeys('bi', '/k', rd(bad), ls(bad), '/c')).toThrow(/view key does not match meta-address of A/);
+  });
+  it('the signer with no copies answers GET /ledger?kind=rd with rows: []', async () => {
+    const f = { '/k/issuerKey': ISSUER, '/k/spendKey': BI_SPEND, '/k/viewKey': BI_VIEW };
+    const keys = loadKeys('bi', '/k', rd(f), ls(f), '/c');
+    const chain = new FakeChain(); fund(chain, 'rd', 500n, 5);
+    const s = await start(chain, { cfg: biCfg, keys: keys as any }); stop = s.stop;
+    const r = await s.call('GET', '/ledger?kind=rd');
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ kind: 'rd', rows: [] });
+  });
+});
+
 describe('createSigner key sets per role', () => {
   const deps = (keys: any) => ({ keys, chain: new FakeChain(), log: () => {} });
   it('role bi needs exactly {issuerKey, spendKey, viewKey, viewCopies}', () => {
@@ -158,5 +204,42 @@ describe('/cert on role bi', () => {
     const s = await startBi();
     const r = await s.call('POST', '/cert', {});
     expect([r.status, r.json.error]).toEqual([403, 'role_forbidden']);
+  });
+});
+
+// Analyst Q-A / Q12 conditions on PR #62.
+describe('the ledger code path never touches the issuer key (analyst Q-A (1))', () => {
+  it('GET /ledger reads only the view copies and BI keys: no access to issuerKey after construction', async () => {
+    const chain = new FakeChain(); fund(chain, 'rd', 500n, 5);
+    let touched = 0;
+    const keys: any = { ...biKeys };
+    delete keys.issuerKey;
+    Object.defineProperty(keys, 'issuerKey', { enumerable: true, get() { touched += 1; return ISSUER; } });
+    const s = await start(chain, { cfg: biCfg, keys }); stop = s.stop;
+    touched = 0; // construction reads it once (identity account = issuer key); the request path must not
+    const r = await s.call('GET', '/ledger?kind=rd');
+    expect(r.status).toBe(200);
+    expect(r.json.rows.map((x: any) => x.bank)).toEqual(['A']);
+    expect(touched).toBe(0);
+  });
+});
+
+describe('no certificate or controller operation is ever signed with the issuer key (Q12 condition)', () => {
+  it('/cert is 403 role_forbidden for role bi and nothing is signed or sent', async () => {
+    const chain = new FakeChain(); const s = await startBi(chain);
+    const r = await s.call('POST', '/cert', { sender: issuerAddr, token: BOND, payload: '0x', expiry: '1' });
+    expect([r.status, r.json.error]).toEqual([403, 'role_forbidden']);
+    expect([chain.sent, chain.gasCalls]).toEqual([[], []]);
+  });
+  it('there is no route and no intent kind for owner/controller/minter/certificate-signer calls: 404 / 422, nothing sent', async () => {
+    const chain = new FakeChain(); const s = await startBi(chain);
+    for (const [m, p] of [['POST', '/controllers'], ['POST', '/set-controllers'], ['POST', '/transfer-ownership'], ['POST', '/add-minter'], ['POST', '/certificate-signer'], ['POST', '/sign']] as const) {
+      expect((await s.call(m, p, {})).status).toBe(404);
+    }
+    for (const kind of ['set-controllers', 'transfer-ownership', 'add-minter', 'add-certificate-signer', 'renounce-minter', 'sign-certificate']) {
+      const r = await s.call('POST', '/intent', { kind, from: 'BI', amount: '1', to: { metaAddress: A.metaAddress } });
+      expect([r.status, r.json.error]).toEqual([422, 'unknown_kind']);
+    }
+    expect([chain.sent, chain.gasCalls]).toEqual([[], []]);
   });
 });
