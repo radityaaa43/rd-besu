@@ -1,0 +1,186 @@
+# zeto S9: Paladin operator + Paladin node CR for one party, namespaced. Placeholders: ${PARTY} ${NS} ${N} (render.sh).
+# Operator objects are the upstream chart's (paladin@v1.0.0:operator/charts/paladin-operator/templates/operator/*.yaml) with
+# values equal to the live operator in ns paladin: image pinned by the digest the live pod runs, WATCH_NAMESPACE from the pod namespace.
+# No Service (the chart's is unused: the manager serves health on 8081 only), no cluster-scoped object, no Secret.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paladin-operator
+  namespace: ${NS}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paladin-operator
+  namespace: ${NS}
+rules:
+  - apiGroups: [core.paladin.io]
+    resources: [smartcontractdeployments, transactioninvokes, besus, paladins, besugeneses, paladinregistries, paladindomains, paladinregistrations]
+    verbs: [get, list, patch, update, watch]
+  - apiGroups: [core.paladin.io]
+    resources: [smartcontractdeployments/status, transactioninvokes/status, besus/status, paladins/status, besugeneses/status, paladinregistries/status, paladindomains/status, paladinregistrations/status]
+    verbs: [get, patch, update]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [get, list, create, delete, update, patch, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list, create, delete, update, patch, watch]
+  - apiGroups: [""]
+    resources: [services, configmaps, secrets, persistentvolumeclaims]
+    verbs: [get, list, create, delete, update, patch, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, create, delete, update, patch, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: paladin-operator
+  namespace: ${NS}
+subjects:
+  - {kind: ServiceAccount, name: paladin-operator, namespace: ${NS}}
+roleRef: {kind: Role, name: paladin-operator, apiGroup: rbac.authorization.k8s.io}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paladin-operator
+  namespace: ${NS}
+data:
+  config.json: |
+    {"paladin":{"image":"ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71","imagePullPolicy":"Always","labels":{"app":"paladin"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"besu":{"image":"hyperledger/besu:25.8.0","imagePullPolicy":"IfNotPresent","labels":{"app":"besu"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"postgres":{"image":"postgres:17.6","imagePullPolicy":"IfNotPresent","labels":null,"annotations":null,"envs":null}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paladin-operator
+  namespace: ${NS}
+  labels: {app.kubernetes.io/name: paladin-operator}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: paladin-operator}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: paladin-operator}
+    spec:
+      serviceAccountName: paladin-operator
+      securityContext: {runAsNonRoot: true}
+      containers:
+        - name: paladin-operator
+          image: docker.io/lfdecentralizedtrust/paladin-operator:v1.0.0@sha256:e778ee8123e0ce1e6a9efea9aacd64e139b0229cd2e112b1d3b30973cefcd9c3
+          imagePullPolicy: IfNotPresent
+          command: [/manager]
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: CONFIG_PATH, value: /etc/config}
+          livenessProbe: {httpGet: {path: /healthz, port: 8081, scheme: HTTP}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 1}
+          readinessProbe: {httpGet: {path: /readyz, port: 8081, scheme: HTTP}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 1}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: config, mountPath: /etc/config/config.json, subPath: config.json}
+      volumes:
+        - name: config
+          configMap: {name: paladin-operator}
+---
+# Domains and the registry are static node config (PLAN S9 DELTA): the operator would otherwise deploy NEW factory/registry
+# contracts from PaladinDomain/PaladinRegistry/SmartContractDeployment CRs. "A domain is either wholely defined in the static config of
+# the node, or wholely defined by reference to the CR attached. We do not attempt to merge" (paladin_controller.go:1194-1196).
+# Addresses are the live ones (CONTRACTS.md); test/check.py compares this block with the config the live operator generated for node1.
+apiVersion: core.paladin.io/v1alpha1
+kind: Paladin
+metadata:
+  name: node${N}
+  namespace: ${NS}
+spec:
+  baseLedgerEndpoint:
+    type: endpoint
+    endpoint:
+      jsonrpc: http://besu-rpc.${NS}.svc.cluster.local:8545
+      ws: ws://besu-rpc.${NS}.svc.cluster.local:8546
+  database:
+    mode: preConfigured
+    passwordSecret: paladin-pg-credentials
+    migrationMode: auto
+  secretBackedSigners:
+    - name: signer-1
+      secret: node${N}.keys
+      type: autoHDWallet
+      derivationType: bip32
+      keySelector: .*
+      keySelectorMustNotMatch: false
+  service:
+    type: ClusterIP
+    ports:
+      - {name: rpc-http, port: 8548, protocol: TCP}
+      - {name: rpc-ws, port: 8549, protocol: TCP}
+      - {name: metrics, port: 6100, protocol: TCP}
+  transports:
+    - name: grpc
+      plugin: {type: c-shared, library: /app/transports/libgrpc.so}
+      configJSON: |
+        {
+          "port": 9000,
+          "address": "0.0.0.0"
+        }
+      ports:
+        - {name: transport-grpc, port: 9000, targetPort: 9000, protocol: TCP}
+  config: |
+    log:
+      level: info
+    keyManager:
+      disableSignRPC: true
+    db:
+      type: postgres
+      postgres:
+        dsn: "postgres://{{.username}}:{{.password}}@paladin-pg.${NS}.svc.cluster.local:5432/{{.database}}?sslmode=disable"
+        dsnParams:
+          database:
+            file: /db-creds/database
+    domains:
+      noto:
+        plugin: {type: c-shared, library: /app/domains/libnoto.so}
+        config: {factoryVersion: 2}
+        registryAddress: '0x1419f612c603466f254ca71e78a324c0d922daf3'
+      pente:
+        plugin: {type: jar, library: /app/domains/pente.jar, class: io.kaleido.paladin.pente.domain.PenteDomainFactory}
+        config: {}
+        registryAddress: '0x199804944e574c6f726f5aa13b343c6cd2c73254'
+      zeto:
+        plugin: {type: c-shared, library: /app/domains/libzeto.so}
+        config:
+          domainContracts:
+            implementations:
+              - name: Zeto_Anon_V1
+                forZetoVariant: 1
+                circuits:
+                  deposit: {name: deposit}
+                  transfer: {name: anon}
+                  transferLocked: {name: anon}
+                  withdraw: {name: withdraw}
+              - name: Zeto_AnonNullifier
+                forZetoVariant: 1
+                circuits:
+                  deposit: {name: deposit}
+                  transfer: {name: anon_nullifier_transfer, usesNullifiers: true}
+                  transferLocked: {name: anon}
+                  withdraw: {name: withdraw_nullifier, usesNullifiers: true}
+          snarkProver:
+            circuitsDir: /app/domains/zeto/zkp
+            provingKeysDir: /app/domains/zeto/zkp
+        registryAddress: '0x753a64eac771adff2ff9d879585fa3bdde76cf91'
+        allowSigning: true
+        defaultGasLimit: 30000000
+    registries:
+      evm-registry:
+        plugin: {type: c-shared, library: /app/registries/libevm.so}
+        config:
+          contractAddress: '0x99f3326e056b418e40c62bbbd2ffdafd48bd7874'

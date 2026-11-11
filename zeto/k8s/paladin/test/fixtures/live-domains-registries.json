@@ -1,0 +1,90 @@
+{
+ "domains": {
+  "noto": {
+   "config": {
+    "factoryVersion": 2
+   },
+   "plugin": {
+    "library": "/app/domains/libnoto.so",
+    "type": "c-shared"
+   },
+   "registryAddress": "0x1419f612c603466f254ca71e78a324c0d922daf3"
+  },
+  "pente": {
+   "plugin": {
+    "class": "io.kaleido.paladin.pente.domain.PenteDomainFactory",
+    "library": "/app/domains/pente.jar",
+    "type": "jar"
+   },
+   "registryAddress": "0x199804944e574c6f726f5aa13b343c6cd2c73254"
+  },
+  "zeto": {
+   "allowSigning": true,
+   "config": {
+    "domainContracts": {
+     "implementations": [
+      {
+       "circuits": {
+        "deposit": {
+         "name": "deposit"
+        },
+        "transfer": {
+         "name": "anon"
+        },
+        "transferLocked": {
+         "name": "anon"
+        },
+        "withdraw": {
+         "name": "withdraw"
+        }
+       },
+       "forZetoVariant": 1,
+       "name": "Zeto_Anon_V1"
+      },
+      {
+       "circuits": {
+        "deposit": {
+         "name": "deposit"
+        },
+        "transfer": {
+         "name": "anon_nullifier_transfer",
+         "usesNullifiers": true
+        },
+        "transferLocked": {
+         "name": "anon"
+        },
+        "withdraw": {
+         "name": "withdraw_nullifier",
+         "usesNullifiers": true
+        }
+       },
+       "forZetoVariant": 1,
+       "name": "Zeto_AnonNullifier"
+      }
+     ]
+    },
+    "snarkProver": {
+     "circuitsDir": "/app/domains/zeto/zkp",
+     "provingKeysDir": "/app/domains/zeto/zkp"
+    }
+   },
+   "defaultGasLimit": 30000000,
+   "plugin": {
+    "library": "/app/domains/libzeto.so",
+    "type": "c-shared"
+   },
+   "registryAddress": "0x753a64eac771adff2ff9d879585fa3bdde76cf91"
+  }
+ },
+ "registries": {
+  "evm-registry": {
+   "config": {
+    "contractAddress": "0x99f3326e056b418e40c62bbbd2ffdafd48bd7874"
+   },
+   "plugin": {
+    "library": "/app/registries/libevm.so",
+    "type": "c-shared"
+   }
+  }
+ }
+}
