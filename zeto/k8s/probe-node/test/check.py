@@ -57,6 +57,37 @@ check(out('{"jsonrpc":"2.0","id":1,"result":[]}') == ("0", ""), "behaviour: an e
 o = out('{"jsonrpc":"2.0","id":1,"result":[{"id":"SECRET-TX-1"}]}'); check(o == ("NONZERO", ""), f"behaviour: a non-empty result prints NONZERO and never the body: {o}")
 o = out("", rc=1); check(o == ("ERROR", ""), f"behaviour: a failing call prints ERROR: {o}")
 
+# ---- negative egress probe: a throwaway pod labelled app=paladin (so paladin-egress selects it) that must NOT reach the targets; a positive control proves the probe works.
+for party in NUM:
+    ns = f"rd-zeto-{party}"
+    ds = docs(party, "negative", "--image", IMG, "--target", "1.1.1.1:443", "--target", "172.24.18.52:8548")
+    check(len(ds) == 1 and ds[0]["kind"] == "Pod", f"{party}: negative = ONE Pod (the policy under test is paladin-egress, not ours)")
+    if len(ds) != 1: continue
+    p = ds[0]; sp = p["spec"]; c = sp["containers"][0]; lab = p["metadata"]["labels"]
+    check(p["metadata"]["name"] == "egress-negative-probe" and p["metadata"]["namespace"] == ns, f"{party}: name/namespace")
+    check(lab.get("app") == "paladin" and "rd/egress-locked" not in lab and lab.get("probe") == "egress-negative", f"{party}: labelled app=paladin (selected by paladin-egress), NOT rd/egress-locked: {lab}")
+    check(sp.get("automountServiceAccountToken") is False and "volumes" not in sp and "env" not in c and "envFrom" not in c and "serviceAccountName" not in sp, f"{party}: no token, no Secret, no env, no volume")
+    check(c["image"] == IMG and c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}} and sp["securityContext"].get("runAsNonRoot") is True, f"{party}: digest image, hardened")
+    cmd = c["command"][2]
+    check(cmd.count("nc -w 3") == 3 and "1.1.1.1 443" in cmd and "172.24.18.52 8548" in cmd and "paladin-pg 5432" in cmd, f"{party}: nc to the 2 targets and the paladin-pg control only: {cmd}")
+    check(sp["restartPolicy"] == "Never" and sp.get("activeDeadlineSeconds", 999) <= 60, f"{party}: Never + deadline <= 60 s")
+    # lead's risk (2026-11-12): the probe must NEVER become a Service endpoint (live traffic would hit it). 1) a readiness probe that never passes, 2) no known Service selector is a subset of the probe's labels.
+    check(c.get("readinessProbe", {}).get("exec", {}).get("command") == ["false"], f"{party}: readinessProbe exec false (never Ready, so never an endpoint): {c.get('readinessProbe')}")
+    n = NUM[party]
+    paladin_sel = [{"app": "paladin", "app.kubernetes.io/instance": f"node{n}", "app.kubernetes.io/name": f"paladin-node{n}", "app.kubernetes.io/part-of": "paladin"},   # operator Service paladin-node<N> (read live 2026-11-12)
+                   {"app": "paladin", "app.kubernetes.io/name": f"paladin-node{n}"},                                                                                           # paladin-transport (render.sh transport)
+                   {"app": "bank-gw", "node": f"node{n}"}, {"app": "paladin-pg"}, {"app": "bundle-server"}, {"app.kubernetes.io/name": "besu-validator"}]
+    check(not any(all(lab.get(k) == v for k, v in sel.items()) for sel in paladin_sel), f"{party}: no known Service selector selects the probe's label set {lab}")
+    # behaviour: fake nc: refuses everything except paladin-pg -> BLOCKED BLOCKED CONTROL OPEN
+    ncp = os.path.join(d, "nc"); open(ncp, "w").write("#!/bin/sh\n[ \"$3\" = paladin-pg ] && exit 0\nexit 1\n"); os.chmod(ncp, 0o755)
+    r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env={"PATH": d + ":/usr/bin:/bin"})
+    check(r.stdout.split() == ["T1", "BLOCKED", "T2", "BLOCKED", "CONTROL", "OPEN"], f"{party}: behaviour: prints only T1/T2 BLOCKED and CONTROL OPEN: {r.stdout!r}")
+    ncp2 = os.path.join(d, "nc"); open(ncp2, "w").write("#!/bin/sh\nexit 0\n"); os.chmod(ncp2, 0o755)
+    r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, env={"PATH": d + ":/usr/bin:/bin"})
+    check(r.stdout.split() == ["T1", "OPEN", "T2", "OPEN", "CONTROL", "OPEN"], f"{party}: behaviour: reachable targets print OPEN: {r.stdout!r}")
+for bad in (["bi", "negative", "--image", IMG], ["bi", "negative", "--image", IMG, "--target", "1.1.1.1"], ["bi", "negative", "--image", IMG, "--target", "1.1.1.1:443;id"], ["bi", "negative", "--image", IMG, "--target", "host:443"], ["bi", "negative", "--image", "busybox:1.36", "--target", "1.1.1.1:443"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 for bad in (["bi"], ["bi", "--image", "busybox:1.36"], ["bi", "--image", IMG, "--mode", "xx"], ["bi", "--image", IMG, "--method", "x; rm"], ["bi", "--image", IMG, "--params", "[\"'; id\"]"],
             ["bank-d", "--image", IMG], ["bi", "--image", IMG, "--extra"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
