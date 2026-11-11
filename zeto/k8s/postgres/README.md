@@ -34,7 +34,7 @@ The Secret `paladin-pg-credentials` (keys `username`, `password`, `database`) is
 ```
 kubectl -n rd-zeto-bank-a create secret generic paladin-pg-credentials \
   --from-literal=username=paladin --from-literal=database=paladin \
-  --from-file=password=<(openssl rand -base64 33 | tr -d '\n')
+  --from-file=password=<(openssl rand -hex 24 | tr -d '\n')
 ```
 
 ## RED proofs (PLAN S8), in window order

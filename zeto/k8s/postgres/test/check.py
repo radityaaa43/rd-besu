@@ -148,6 +148,18 @@ with tempfile.TemporaryDirectory() as t:
     empty = run(compare, w("e", ""), w("f", ""))
     check(empty.returncode == 2, "compare-counts: two empty inputs must exit 2 (an empty DB proves nothing)")
 
+# S21 attempt 2 (2026-11-12): Paladin puts the DB password into the URL postgres://user:PASSWORD@host unescaped, so a base64 password
+# (`+`, `/`, `=`) breaks the start (PD010202 failed to parse as URL). check-pg-password.py reads the password on stdin and accepts
+# only [A-Za-z0-9] (24+ chars); it never prints the value.
+pwcheck = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "..", "check-pg-password.py")
+def pw(value):
+    return subprocess.run([sys.executable, "-I", pwcheck], input=value, capture_output=True, text=True)
+check(pw("a1B2c3D4e5F6a1B2c3D4e5F6a1B2c3D4").returncode == 0, "check-pg-password: 32 alphanumeric characters must pass")
+for bad in ("abc+DEFghij0123456789abcdef", "abc/DEFghij0123456789abcdef", "abc=DEFghij0123456789abcdef", "short1", "", "has space0123456789abcdefgh", "abc&#43;DEFghij0123456789abcdef"):
+    r = pw(bad)
+    check(r.returncode == 1, f"check-pg-password: must reject a password with a character outside [A-Za-z0-9] or shorter than 24 (len {len(bad)})")
+    check(bad == "" or bad not in r.stdout + r.stderr, "check-pg-password: must never print the password")
+
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)
