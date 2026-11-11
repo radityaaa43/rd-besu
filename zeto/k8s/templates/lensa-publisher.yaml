@@ -1,0 +1,31 @@
+# INTERIM exception (PLAN S1): Lensa's Publisher reads bundle-server status through the API-server proxy until S20 removes it.
+# Only rd-zeto-bi. No secrets, no write. The proxy path names the port (`bundle-server:sink`, frontend kube.ts:65): RBAC sees the
+# name segment, so both spellings are listed; the server dry-run / can-i in the GO window decides which one is needed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lensa-publisher
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lensa-publisher
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+rules:
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: [bundle-server, "bundle-server:sink"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lensa-publisher
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: lensa-publisher}
+subjects:
+  - {kind: ServiceAccount, name: lensa-publisher, namespace: ${NS}}

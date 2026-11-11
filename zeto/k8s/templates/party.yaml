@@ -1,0 +1,109 @@
+# zeto S1 (final-design/zeto/PLAN.md): one namespace per party on cluster 1. Rendered by ../render.sh; ${PARTY} = bi | bank-a | bank-b, ${NS} = rd-zeto-${PARTY}.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NS}
+  labels:
+    part-of: rd-zeto
+    party: ${PARTY}
+---
+# Nothing may reach any pod from outside the namespace unless a later policy opens it (gateway, p2p, ...).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# Egress stays open (PLAN S1: Besu p2p and Paladin 9000 need it; DNS is inside "open"). NetworkPolicies are additive per pod:
+# this one therefore EXCLUDES app=paladin, otherwise it would cancel rehearsal-no-9000-egress for those pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: NotIn, values: [paladin]}
+  policyTypes: [Egress]
+  egress:
+    - {}
+---
+# S9 rehearsal node must not talk to other parties: everything except TCP 9000 (endPort support on the CNI: proven by ../probe, PLAN S1 RED).
+# The 1-8999 range contains DNS (53). Lifted in S21 by deleting this object.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rehearsal-no-9000-egress
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+spec:
+  podSelector:
+    matchLabels: {app: paladin}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {protocol: TCP, port: 1, endPort: 8999}
+        - {protocol: TCP, port: 9001, endPort: 65535}
+        - {protocol: UDP, port: 1, endPort: 65535}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+---
+# secrets: create/update/patch only, never get/list/watch (README decision 25). A pod the operator creates can still mount the own
+# namespace's Secrets: that is the owner reading its own keys; nothing is granted across namespaces.
+# Not granted here (later steps extend the Role): pods/portforward and pods/exec (S5 vote, S9 psql), Paladin CRs, cert-manager Certificates.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+rules:
+  - apiGroups: [""]
+    resources: [services, configmaps, persistentvolumeclaims, pods]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: party-admin
+  namespace: ${NS}
+  labels: {part-of: rd-zeto, party: ${PARTY}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: party-admin}
+subjects:
+  - {kind: ServiceAccount, name: party-admin, namespace: ${NS}}
