@@ -10,7 +10,14 @@ Manifests only. Nothing here talks to a cluster; applying them is a separate, ap
 | `render.sh` | `render.sh [-o DIR] <bi\|bank-a\|bank-b\|all>`, `render.sh probe[-listeners\|-pods] <own> <other>` |
 | `test.sh`, `test/check.py` | Offline assertions on the rendered output (names, labels, verbs, port ranges); needs bash + python3 + PyYAML |
 
-Parties: `bi`, `bank-a`, `bank-b` (cluster 1). `bank-c` is cluster 2 (S2) and `render.sh` refuses it.
+Parties: `bi`, `bank-a`, `bank-b` (cluster 1). `bank-c` is cluster 2 (S2) and `render.sh` refuses it unless `--cluster 2` is given.
+
+## Cluster 2 (PLAN S2a/S2b, L0-SG)
+`render.sh --cluster 2 --ns-only bank-c` = the Namespace doc alone, label `cluster="2"` (GO 1). `render.sh --cluster 2 bank-c` = the same objects as cluster 1
+(4 policies, `party-admin`; no `lensa-publisher`), every object labelled `cluster="2"` (GO 2). `--cluster 2` accepts `bank-c` only; `all`, other parties and `bank-c`
+without the flag are refused. Probe inside `rd-zeto-bank-c` only: `render.sh --cluster 2 probe-listeners bank-c`, wait Ready, `probe-pods bank-c` (listeners and control
+in the same namespace, no other namespace, no kube-system). Apply with a variable, never a path: `render.sh --cluster 2 --ns-only bank-c | kubectl --kubeconfig "$KUBECONFIG_C2" apply -f -`.
+Never `kubectl get ns` without a name on cluster 2.
 
 ## Policy semantics
 NetworkPolicies are additive per pod. Egress stays open (PLAN S1), so `allow-dns-egress` selects only pods WITHOUT `app=paladin`;
