@@ -15,7 +15,7 @@
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
 party="${1:-}"; legacy=0; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; legacy-[1-4]) legacy="${party#legacy-}"; n=0; [[ "${2:-}" == besu ]] || { echo "render.sh: legacy-<N> only with the besu mode" >&2; exit 2; } ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
-shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; besu=0; op=""; vaddr=""; vdir=""; targets=(); via=""; peerns=""; txhash=""; zetotokens=""
+shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; besu=0; op=""; vaddr=""; vdir=""; targets=(); via=""; peerns=""; txhash=""; zetotokens=""; topic=""; since=""; contains=""
 [[ "${1:-}" == negative ]] && { negative=1; shift; }
 [[ "${1:-}" == lbpath ]] && { lbpath=1; shift; }
 [[ "${1:-}" == besu ]] && { besu=1; shift; }
@@ -25,6 +25,9 @@ while [[ $# -gt 0 ]]; do
     --via) via="${2:-}"; shift 2 ;;
     --peer-ns) peerns="${2:-}"; shift 2 ;;
     --tx-hash) txhash="${2:-}"; shift 2 ;;
+    --topic) topic="${2:-}"; shift 2 ;;
+    --since) since="${2:-}"; shift 2 ;;
+    --contains) contains="${2:-}"; shift 2 ;;
     --op) op="${2:-}"; shift 2 ;;
     --address) vaddr="${2:-}"; shift 2 ;;
     --drop|--add) [[ -z "$vdir" ]] || die "give --drop OR --add, not both"; vdir="${1#--}"; shift ;;
@@ -37,7 +40,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$img" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]] || die "--image must be digest-pinned (REF@sha256:<64 lowercase hex>)"
-[[ "$mode" == count || "$mode" == jq || "$mode" == ids || "$mode" == shape || "$mode" == schemas ]] || die "--mode must be count, jq, ids, shape or schemas"
+[[ "$mode" == count || "$mode" == jq || "$mode" == ids || "$mode" == shape || "$mode" == schemas || "$mode" == msgs ]] || die "--mode must be count, jq, ids, shape, schemas or msgs"
+if [[ "$mode" == msgs ]]; then
+  [[ "$topic" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || die "--mode msgs needs --topic <name>"; [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$ ]] || die "--mode msgs needs --since <RFC3339 Z>"; [[ -z "$contains" || "$contains" =~ ^0x[0-9a-f]{64}$ ]] || die "--contains must be 0x<64 hex>"
+else [[ -z "$topic$since$contains" ]] || die "--topic/--since/--contains only with --mode msgs"; fi
 if [[ "$mode" == shape || "$mode" == schemas ]]; then [[ "$txhash" =~ ^0x[0-9a-f]{64}$ ]] || die "--mode shape/schemas needs --tx-hash 0x<64 hex>"; else [[ -z "$txhash" ]] || die "--tx-hash only with --mode shape or schemas"; fi
 if [[ $besu == 1 ]]; then
   # S5b / R9: the party's OWN validator RPC (Service besu-rpc:8545 in its ns), QBFT reads and votes. Output: addresses, counts, booleans only.
@@ -285,6 +291,18 @@ elif [[ "$mode" == shape ]]; then
         dat=any(isinstance(y,dict) and 'data' in y for k in K if isinstance(st.get(k),list) for y in st[k])
         bad=dat or (un is None and cnt(st,'confirmed')>0)
         print('receipt %d: states %s | unavailable %s | unavailable-nil:%s | data:%s | domainReceiptError %s | domainReceipt %s%s'%(i,' '.join('%s=%d'%(k,cnt(st,k)) for k in K),' '.join('%s=%d'%(k,cnt(un,k)) for k in K),'yes' if un is None else 'no','yes' if dat else 'no',em,'yes' if x.get('domainReceipt') else 'no',' R1-FINDING' if bad else ''))
+except SystemExit: pass
+except Exception: print('ERROR')
+"
+  script="echo $(printf '%s' "$py" | base64 -w0) | base64 -d | python3 -"
+elif [[ "$mode" == msgs ]]; then
+  # R2 live test: does THIS node hold the privacy-group report message(s)? pgroup_queryMessages on the own node: COUNT, newest sent, and (--contains) yes/no for a tx hash inside any message data. No data/id/group is printed.
+  py="${py_head}try:
+    r=rpc('pgroup_queryMessages',[{'limit':1000,'sort':['sent DESC'],'eq':[{'field':'topic','value':'$topic'}],'greaterThan':[{'field':'sent','value':'$since'}]}])
+    if 'error' in r or not isinstance(r.get('result'),list): print('ERROR'); raise SystemExit
+    m=r['result']; print('messages %d (topic $topic, since $since)'%len(m)); print('newest sent %s'%(max(str(x.get('sent','')) for x in m) if m else 'none'))
+    c='$contains'
+    if c: print('contains %s: %s'%(c[:10],'yes' if any(c in json.dumps(x.get('data')).lower() for x in m) else 'no'))
 except SystemExit: pass
 except Exception: print('ERROR')
 "
