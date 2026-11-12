@@ -33,6 +33,7 @@ def build(d, drop=None, flip=None, nodoc=False):
         os.makedirs(f"{d}/node{n}", exist_ok=True)
         tar(f"{d}/node{n}/bi.tar.gz", "bi", {"bi": {"config": bi}}, drop=drop, flip=flip)
         tar(f"{d}/node{n}/bank.tar.gz", "bank", {"bank": {"config": {"policy": {p: {"counterparties": cp[name]} for p in policy}}}}, drop=drop and "x", flip=None)
+def fl(r): return " | ".join(l for l in r.stdout.splitlines() if l.startswith("FAIL"))[:600]
 def verdict(d, ref, extra=()):
     return subprocess.run([sys.executable, "-I", f"{here}/candidate-verdict.py", d, "--repo", repo, "--sha", sha, "--ref", ref, *extra], capture_output=True, text=True)
 tmp = tempfile.mkdtemp()
@@ -42,7 +43,7 @@ names = {"old-1-bi.tar.gz": f"{good}/node1/bi.tar.gz", "old-1-bank.tar.gz": f"{g
 for k, v in names.items(): os.symlink(v, f"{refdir}/{k}")
 ref = f"{tmp}/ref.json"
 open(ref, "w").write(subprocess.run([sys.executable, "-I", f"{here}/policy-docs.py", "ref", *[f"{refdir}/{k}" for k in names]], capture_output=True, text=True, check=True).stdout)
-r = verdict(good, ref); check(r.returncode == 0 and "VERDICT: PASS" in r.stdout, f"a complete synthetic candidate must PASS: {r.stdout[-400:]} {r.stderr[-200:]}")
+r = verdict(good, ref); check(r.returncode == 0 and "VERDICT: PASS" in r.stdout, f"a complete synthetic candidate must PASS: {fl(r)} {r.stderr[-200:]}")
 bad = f"{tmp}/missing"; build(bad, drop="bi/platform/sink/sink.rego")
 r = verdict(bad, ref, ("--no-doors",)); check(r.returncode == 1 and "missing ['bi/platform/sink/sink.rego']" in r.stdout, f"a candidate without sink.rego must FAIL naming it: {r.stdout[-300:]}")
 bad = f"{tmp}/flip"; build(bad, flip="bi/zeto/zeto.rego")
@@ -53,8 +54,9 @@ r = verdict(bad, ref, ("--no-doors",)); check(r.returncode == 1 and "Kebijakan d
 # ---- --source: fe's SOURCE tars (relative names, tree of opa/bundles/<kind> + <kind>/config/data.json + .manifest)
 sys.path.insert(0, here)
 import source_tar
-def build_src(d, mutate=None, nodoc=False):
+def build_src(d, mutate=None, nodoc=False, flags=None):
     bi = json.load(open(os.path.join(opa, "bundles/bi/bi/config/data.json")))
+    if flags: bi["caller_binding"] = {**bi["caller_binding"], **flags}
     if not nodoc: bi["policy"] = policy; bi["platforms"] = list(policy)
     for n, name in ((1, "bank-bi"), (2, "bank-a"), (3, "bank-b"), (4, "bank-c")):
         os.makedirs(f"{d}/node{n}", exist_ok=True)
@@ -83,6 +85,14 @@ for label, fn, want in (
     r = src(dd); check(r.returncode == 1 and want in r.stdout, f"--source: {label} must FAIL mentioning {want!r}: {r.stdout[-300:]}")
 dd = f"{tmp}/src-nodoc"; build_src(dd, nodoc=True)
 r = src(dd); check(r.returncode == 1 and "Kebijakan documents DIFFER" in r.stdout, f"--source: no documents must FAIL: {r.stdout[-300:]}")
+# ---- caller_binding (R32 staging): the shipped default is OFF; a candidate whose flags differ from the repo's FAILS unless --flags names exactly that change
+shipped = json.load(open(os.path.join(opa, "bundles/bi/bi/config/data.json")))
+check(shipped.get("caller_binding") == {"paladin": False, "stealth": False}, f"the SHIPPED caller_binding must be staged OFF (publish flag-off first, flip per door): {shipped.get('caller_binding')}")
+dd = f"{tmp}/flag-on"; build_src(dd, flags={"paladin": True})
+r = src(dd); check(r.returncode == 1 and "caller_binding" in r.stdout, f"--source: a candidate with paladin flipped ON but no --flags must FAIL naming caller_binding: {r.stdout[-300:]}")
+r = src(dd, ("--no-doors", "--flags", "paladin=true")); check(r.returncode == 0 and "VERDICT: PASS" in r.stdout, f"--flags paladin=true must accept exactly that flip: {r.stdout[-300:]}")
+r = src(dd, ("--no-doors", "--flags", "stealth=true")); check(r.returncode == 1 and "caller_binding" in r.stdout, f"--flags naming another door must still FAIL: {r.stdout[-300:]}")
+r = src(goods, ("--no-doors", "--flags", "paladin=true")); check(r.returncode == 1 and "caller_binding" in r.stdout, f"--flags paladin=true on a flag-OFF candidate must FAIL (the flip is not in the tars): {r.stdout[-300:]}")
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr); sys.exit(1)
 print("OK candidate-verdict: complete candidate passes; missing file / changed byte / missing documents fail")

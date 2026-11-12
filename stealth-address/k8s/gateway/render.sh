@@ -111,6 +111,9 @@ YAML
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: signer
+          # c7 / R32: bi.caller (OPA) verifies the Lensa client leaf itself: Envoy replaces any client-sent x-forwarded-client-cert by the leaf it verified
+          forward_client_cert_details: SANITIZE_SET
+          set_current_client_cert_details: {cert: true}
           route_config:
             virtual_hosts:
             - name: signer
@@ -361,7 +364,11 @@ data:
 $(indent < "$SIGNER_CA")
 YAML
   fi
-  netpol st-gw-ingress "$ns" "$p" "    matchLabels: {app: st-gw}" "    - ports: [{protocol: TCP, port: 8550}]"
+  if [[ "$FLOW_ONLY" == 1 ]]; then   # analyst condition 3: the Lensa door admits only the rd-lensa flow pods (bank gateways; st-gw-1 also serves the bank signers, refused below)
+    netpol st-gw-ingress "$ns" "$p" "    matchLabels: {app: st-gw}" $'    - from:\n      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: rd-lensa}}\n        podSelector: {matchLabels: {role: flow}}\n      ports: [{protocol: TCP, port: 8550}]'
+  else
+    netpol st-gw-ingress "$ns" "$p" "    matchLabels: {app: st-gw}" "    - ports: [{protocol: TCP, port: 8550}]"
+  fi
   netpol stealth-signer-ingress "$ns" "$p" $'    matchLabels: {app: stealth-signer}\n    matchExpressions:\n    - {key: role, operator: In, values: [bank, bi]}' $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}\n      ports: [{protocol: TCP, port: 8080}]'
   if [[ "$p" == bi ]]; then
     netpol stealth-custodian-ingress "$ns" "$p" "    matchLabels: {app: stealth-signer, role: custodian}" $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}\n      ports: [{protocol: TCP, port: 9443}]'
@@ -405,13 +412,15 @@ YAML
 fi
 sel="$1"; shift; num "$sel" >/dev/null
 here="$(cd "$(dirname "$0")" && pwd)"; CFG="$here/../../../opa/opa.yaml"
-ACL=""; CIDRS=()
+ACL=""; CIDRS=(); FLOW_ONLY=0
 while [[ $# -gt 0 ]]; do case "$1" in
+  --lensa-pod-role) [[ "${2:-}" == flow ]] || die "--lensa-pod-role: only flow on the stealth gateway"; [[ "$FLOW_ONLY" == 0 ]] || die "--lensa-pod-role flow given twice"; FLOW_ONLY=1; shift 2 ;;
   --signer-ca) signer_ca "${2:?--signer-ca needs a file}"; shift 2 ;;
   --opa-config) CFG="${2:?--opa-config needs a file}"; [[ -f "$CFG" ]] || die "--opa-config: $CFG is not a file"; shift 2 ;;
   --acl-id) ACL="${2:?--acl-id needs an ACL id}"; [[ "$ACL" =~ ^acl-[a-z0-9]+$ ]] || die "bad --acl-id"; shift 2 ;;
   --external-cidr) c="${2:?--external-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --external-cidr '$c'"; CIDRS+=("$c"); shift 2 ;;
   *) die "unknown option $1" ;; esac; done
+[[ "$FLOW_ONLY" == 0 || "$sel" != bi ]] || die "--lensa-pod-role is refused on bi: st-gw-1 also admits the bank signers (custodian / viewcopy chains) on 8550; that second source set is not ruled yet"
 [[ -z "$SIGNER_CA" || "$sel" == bi ]] || die "--signer-ca is for bi only (the viewcopy-1 chain lives on st-gw-1)"
 if [[ -n "$ACL" || ${#CIDRS[@]} -gt 0 ]]; then
   [[ "$sel" == bi ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bi only (R1: st-gw-1)"

@@ -57,6 +57,7 @@ for p, n in PARTIES.items():
         ts = default[0]["transport_socket"]["typed_config"]
         check(ts["require_client_certificate"] is True, f"{p}: default chain requires a client cert")
         hcm = default[0]["filters"][0]["typed_config"]
+        check(hcm.get("forward_client_cert_details") == "SANITIZE_SET" and hcm.get("set_current_client_cert_details") == {"cert": True}, f"{p}: the Lensa door must forward the verified client leaf (SANITIZE_SET, cert: true): bi.caller verifies it")
         ea = next(f for f in hcm["http_filters"] if f["name"] == "envoy.filters.http.ext_authz")["typed_config"]
         check(ea["failure_mode_allow"] is False, f"{p}: ext_authz fails closed")
         route = hcm["route_config"]["virtual_hosts"][0]["routes"]
@@ -204,6 +205,20 @@ for bad in (["bi", "--signer-ca", "/nonexistent"], ["bi", "--signer-ca", bad_key
     check(run(*bad).returncode != 0, f"refused: {' '.join(bad[:2])} {'(' + bad[2].split('/')[-1] + ')' if len(bad) > 2 else ''}".strip())
 for fn in (signer_ca, bad_key.name, not_pem.name):
     os.unlink(fn)
+
+# analyst condition 3 (R32): st-gw admits only the rd-lensa pods with role=flow on its Lensa door (bank gateways). st-gw-1 (bi) ALSO serves the bank signers (custodian / viewcopy chains)
+# on the same port, so the option is refused there until that second source set is ruled.
+def stingress(p, *args):
+    ds = docs(p, *args)
+    return {d["metadata"]["name"]: d for d in ds if d["kind"] == "NetworkPolicy"}["st-gw-ingress"]["spec"]["ingress"]
+for p in ("bank-a", "bank-b", "bank-c"):
+    default = stingress(p)
+    check(default == [{"ports": [{"protocol": "TCP", "port": 8550}]}], f"{p}: default st-gw-ingress unchanged (any source on 8550): {default}")
+    ing = stingress(p, "--lensa-pod-role", "flow")
+    check(ing == [{"from": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "rd-lensa"}}, "podSelector": {"matchLabels": {"role": "flow"}}}], "ports": [{"protocol": "TCP", "port": 8550}]}],
+          f"{p}: --lensa-pod-role flow: 8550 only from rd-lensa role=flow pods: {ing}")
+for bad in (["bank-a", "--lensa-pod-role", "server"], ["bank-a", "--lensa-pod-role", "flow", "--lensa-pod-role", "flow"], ["bi", "--lensa-pod-role", "flow"]):
+    check(run(*bad).returncode != 0, f"refused: {' '.join(bad)}")
 
 if fails:
     print("FAIL:\n- " + "\n- ".join(fails), file=sys.stderr)

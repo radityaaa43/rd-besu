@@ -114,6 +114,8 @@ for party, n in PARTIES.items():
             routes = hcm["route_config"]["virtual_hosts"][0]["routes"]
             catch = [r for r in routes if r["match"] == {"prefix": "/"}]
             check(len(catch) == 1 and routes[-1] is catch[0], f"{party}: listener {k}: the '/' route must be the last one")
+            if k == "paladin":   # c7 / R32: the rego verifies the client leaf itself, so Envoy must forward it (and strip anything the client sent)
+                check(hcm.get("forward_client_cert_details") == "SANITIZE_SET" and hcm.get("set_current_client_cert_details") == {"cert": True}, f"{party}: paladin listener must forward the verified client leaf (SANITIZE_SET, cert: true)")
             ce = catch[0]["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"]
             check(ce == {"target": k, "node": node}, f"{party}: listener {k} context_extensions {ce}")
             # S17: target `sink` only on the Paladin listener, before "/", forwarded to the party's own bundle-server, ext_authz not disabled
@@ -150,6 +152,19 @@ for party, n in PARTIES.items():
         check(sp["podSelector"] == {"matchLabels": {"app": "bank-gw"}} and sp["policyTypes"] == ["Ingress"], f"{party}: bank-gw-ingress selector")
         check(len(sp["ingress"]) == 1 and [p["port"] for p in sp["ingress"][0]["ports"]] == [8548, 8545] and "from" not in sp["ingress"][0], f"{party}: bank-gw-ingress must open only 8548/8545 (any source by default): {sp['ingress']}")
 
+    # analyst condition 3 (R32): the gateway ingress can be narrowed to the host source path + the rd-lensa pods of the named roles; the default render stays "any source"
+    LENSA_NS = {"kubernetes.io/metadata.name": "rd-lensa"}
+    def gw_from(*args):
+        np2 = {d["metadata"]["name"]: d for d in docs(party, *args) if d["kind"] == "NetworkPolicy"}
+        return np2["bank-gw-ingress"]["spec"]["ingress"]
+    ing = gw_from("--lensa-cidr", "8.215.62.92/32", "--lensa-pod-role", "server")
+    check(len(ing) == 1 and ing[0]["from"] == [{"ipBlock": {"cidr": "8.215.62.92/32"}}, {"namespaceSelector": {"matchLabels": LENSA_NS}, "podSelector": {"matchLabels": {"role": "server"}}}] and [x["port"] for x in ing[0]["ports"]] == [8548, 8545],
+          f"{party}: --lensa-cidr + --lensa-pod-role server: from = the host CIDR and rd-lensa role=server pods only: {ing}")
+    ing = gw_from("--lensa-cidr", "8.215.62.92/32", "--lensa-pod-role", "server", "--lensa-pod-role", "flow")
+    check([f.get("podSelector", {}).get("matchLabels") for f in ing[0]["from"][1:]] == [{"role": "server"}, {"role": "flow"}], f"{party}: roles server then flow, in the order given: {ing}")
+    check(run(party, "--lensa-pod-role", "server").returncode != 0, f"{party}: a pod role without any --lensa-cidr must be refused (it would cut the host source path)")
+    check(run(party, "--lensa-cidr", "8.215.62.92/32", "--lensa-pod-role", "admin").returncode != 0, f"{party}: only the roles server and flow exist")
+    check(run(party, "--lensa-cidr", "8.215.62.92/32", "--lensa-pod-role", "server", "--lensa-pod-role", "server").returncode != 0, f"{party}: a duplicate role must be refused")
     # bank-c LoadBalancer only behind --acl-id + --external-cidr (lead decision: no public LB without an ACL)
     if party == "bank-c":
         lb = docs("bank-c", "--acl-id", "acl-gs5m5o9vb3olr19484tyg", "--external-cidr", "8.215.62.92/32")

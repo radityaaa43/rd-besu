@@ -5,6 +5,7 @@
 # the report group = allow. Outsider-C-sealed and the live 4/4 read are LIVE checks: opa/tools/PUBLISH-REGRESSION.md.
 package regress_test
 
+import data.fabricx_pki as pki
 import data.fixtures
 import data.gw
 
@@ -21,14 +22,22 @@ bank_cfg(_) := fixtures.bank_a if not has_candidate
 
 # Thursday 2026-11-12 05:00Z = 12:00 WIB, inside any normal operating hours.
 at_noon(i, bank) if {
-	gw.allow with input as i with data.bi.config as bi_cfg with data.bank.config as bank_cfg(bank) with time.now_ns as time.parse_rfc3339_ns("2026-11-12T05:00:00Z")
+	gw.allow with input as i with data.bi.config as caller_cfg with data.bank.config as bank_cfg(bank) with time.now_ns as time.parse_rfc3339_ns("2026-11-12T05:00:00Z")
 }
 
 rd := [c | some c, t in bi_cfg.zeto.contracts; t == "RD"][0]
 
 dfabi := [c | some c, t in bi_cfg.zeto.contracts; t == "DFABI"][0]
 
-door(node, body) := {"attributes": {"contextExtensions": {"target": "paladin", "node": node}}, "parsed_body": body}
+# c7: the candidate's own caller_binding stays in force; its lensa_ca (real PEMs) is replaced by the TEST CAs and every request carries the matching test Lensa leaf,
+# so the template exercises the binding path without a live certificate. The caller rule itself is pinned in test/caller.
+caller_cfg := object.union(bi_cfg, {"lensa_ca": {"node1": pki.ca_lensa1, "node2": pki.ca_lensa2, "node3": pki.ca_lensa3, "node4": pki.ca_lensa4}})
+
+leaf_of := {"node1": pki.lensa_leaf1, "node2": pki.lensa_leaf2, "node3": pki.lensa_leaf3, "node4": pki.lensa_leaf4}
+
+xfcc(pem) := sprintf("Hash=00;Cert=\"%s\";Subject=\"x\"", [urlquery.encode(pem)])
+
+door(node, body) := {"attributes": {"contextExtensions": {"target": "paladin", "node": node}, "request": {"http": {"headers": {"x-forwarded-client-cert": xfcc(leaf_of[node])}}}}, "parsed_body": body}
 
 rpc(node, method, params) := door(node, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 

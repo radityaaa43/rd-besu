@@ -386,3 +386,44 @@ test_peer_is_not_lensa_and_not_itself if {
 	not allowed_as("node3", swap23, pki.peer_3_org3)
 	not allowed_as("node1", swap23, pki.peer_2_org2)
 }
+
+# --- c7 matrix (orchestrator option a): party X's Lensa leaf works only at X's gateway, on every WRITE op as well (the checks above use reads); issue/award are node1's.
+own_write := {
+	"node1": {"op": "issue", "to": "bank3", "type": "RD", "amount": "1"},
+	"node2": transfer("bank2", "bank3", "5"),
+	"node3": transfer("bank3", "bank2", "5"),
+	"node4": transfer("bank4", "bank2", "5"),
+}
+
+cross_pairs := {[n, m] |
+	some n in ["node1", "node2", "node3", "node4"]
+	some m in ["node1", "node2", "node3", "node4"]
+	n != m
+}
+
+test_own_leaf_own_write_allowed_matrix if every n in ["node1", "node2", "node3", "node4"] {
+	allowed_as(n, own_write[n], lensa_leaf[n])
+}
+
+# the SAME request at gateway n, presented with the Lensa leaf of every other party: denied
+test_cross_party_lensa_leaf_on_a_write_denied_matrix if every p in cross_pairs {
+	not allowed_as(p[0], own_write[p[0]], lensa_leaf[p[1]])
+}
+
+# issue / award at the issuer gateway are not reachable for a bank's Lensa leaf even when the body is valid for node1
+test_issue_with_a_bank_leaf_denied if every m in ["node2", "node3", "node4"] {
+	not allowed_as("node1", own_write.node1, lensa_leaf[m])
+	not allowed_as("node1", award_pc("bank3"), lensa_leaf[m])
+}
+
+# a peer gateway identity (CN fx-gw-<M>-peer from org M's root) is denied on EVERY op except precheck / the node1 usage probe, on every gateway
+test_peer_identity_denied_on_every_write_matrix if every n in ["node1", "node2", "node3", "node4"] {
+	not allowed_as(n, own_write[n], pki.peer_2_org2)
+	not allowed_as(n, own_write[n], pki.peer_3_org3)
+}
+
+# a peer CN issued by the wrong root (a Lensa CA, another org's root) is denied even on precheck
+test_peer_wrong_issuer_denied_on_precheck if {
+	not allowed_as("node3", swap23, pki.peer_1_lensa)
+	not allowed_as("node3", swap23, pki.peer_1_org3)
+}
