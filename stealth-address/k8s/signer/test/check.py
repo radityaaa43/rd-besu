@@ -81,7 +81,7 @@ def common(d, role, ns, party, plabel, label, extra=False):
     check(s["replicas"] == 1, f"{label}: replicas 1")
     check(s["strategy"] == {"type": "Recreate"}, f"{label}: strategy Recreate (in-memory keys, never two pods)")
     check(s["selector"]["matchLabels"] == want, f"{label}: selector {want}")
-    check(s["template"]["metadata"]["labels"] == want, f"{label}: pod labels exactly {want}")
+    check(s["template"]["metadata"]["labels"] == {**want, "rd/egress-locked": "true", "rd/egress": "stealth-custodian" if role == "custodian" else "stealth-signer"}, f"{label}: pod labels {want} + rd/egress-locked=true (excluded from allow-dns-egress) + rd/egress=<profile> (selected by egress/render.sh)")
     pod = s["template"]["spec"]
     check(pod["automountServiceAccountToken"] is False, f"{label}: automountServiceAccountToken false")
     check(pod["securityContext"] == {"runAsNonRoot": True, "runAsUser": 10001, "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}}, f"{label}: pod securityContext")
@@ -215,7 +215,7 @@ if len(ds) == 1:
     check(js["backoffLimit"] == 0, "compare: backoffLimit 0")
     check(isinstance(js.get("activeDeadlineSeconds"), int) and js["activeDeadlineSeconds"] == 240 and js["activeDeadlineSeconds"] < 300, f"compare: activeDeadlineSeconds 240 (< the 300 s schedule; got {js.get('activeDeadlineSeconds')})")
     tpl = js["template"]
-    check(tpl["metadata"]["labels"] == {"app": "stealth-viewkey", "role": "compare"}, "compare: pod labels exactly app=stealth-viewkey role=compare (not admitted by the signer NetworkPolicy)")
+    check(tpl["metadata"]["labels"] == {"app": "stealth-viewkey", "role": "compare", "rd/egress-locked": "true", "rd/egress": "stealth-viewkey"}, "compare: pod labels app=stealth-viewkey role=compare (not admitted by the signer NetworkPolicy) + rd/egress-locked=true + rd/egress=stealth-viewkey")
     pod = tpl["spec"]
     check(pod["restartPolicy"] == "Never", "compare: restartPolicy Never")
     check(pod["automountServiceAccountToken"] is False, "compare: automountServiceAccountToken false")

@@ -78,7 +78,8 @@ for party, ns in PARTIES.items():
         check(spec["podSelector"] == {"matchLabels": {"app.kubernetes.io/name": "besu-rpc"}} and spec["policyTypes"] == ["Ingress"], f"{party}: policy selects the besu-rpc pod, Ingress")
         txt = json.dumps(spec["ingress"])
         check(len(spec["ingress"]) == 1 and [(p["port"], p["protocol"]) for p in spec["ingress"][0]["ports"]] == [(8545, "TCP")], f"{party}: only TCP 8545")
-        check("st-gw" in txt and "stealth-signer" in txt and "namespaceSelector" not in txt, f"{party}: 8545 only from pods app=st-gw and app=stealth-signer of this namespace: {txt}")
+        check("st-gw" in txt and "stealth-signer" in txt and "stealth-viewkey" in txt and "namespaceSelector" not in txt, f"{party}: 8545 only from pods app=st-gw, app=stealth-signer and app=stealth-viewkey (the S11 compare Job reads eth_call/blockNumber) of this namespace: {txt}")
+        check(spec["ingress"][0]["from"] == [{"podSelector": {"matchExpressions": [{"key": "app", "operator": "In", "values": ["st-gw", "stealth-signer", "stealth-viewkey"]}]}}], f"{party}: from is exactly one podSelector with app In [st-gw, stealth-signer, stealth-viewkey]")
     check(all(d["metadata"].get("namespace") == ns for d in net), f"{party}: net objects in {ns}")
     nd = docs("node", party, "--static-nodes", sn)
     cms = {d["metadata"]["name"]: d for d in of(nd, "ConfigMap")}

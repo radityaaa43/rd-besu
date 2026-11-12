@@ -131,7 +131,7 @@ spec:
       activeDeadlineSeconds: 240 # shorter than the 5 min schedule
       template:
         metadata:
-          labels: {app: stealth-viewkey, role: compare}
+          labels: {app: stealth-viewkey, role: compare, rd/egress-locked: "true", rd/egress: stealth-viewkey} # own narrow egress (egress/render.sh compare)
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false
@@ -165,12 +165,12 @@ fi
 
 mounts=""
 if [[ "$sel" == custodian ]]; then
-  name=stealth-custodian; role=custodian; port=9443; pname=mtls
+  name=stealth-custodian; role=custodian; port=9443; pname=mtls; egress=stealth-custodian
   probe='tcpSocket: {port: 9443}' # the https listener demands a client cert, so no httpGet
   roleenv="        - {name: BANK_SIGNERS, value: \"$SIGNERS\"}"
   vols="$(secret keys stealth-cert-key certKey; secret tls stealth-custodian-mtls server.key server.crt ca.crt)"
 else
-  name=stealth-signer; role=bank; port=8080; pname=http
+  name=stealth-signer; role=bank; port=8080; pname=http; egress=stealth-signer
   probe='httpGet: {path: /health, port: 8080}'
   roleenv="        - {name: CERT_URL, value: \"$CERT\"}
         - {name: CERT_SERVERNAME, value: custodian-1}"
@@ -199,7 +199,7 @@ spec:
     matchLabels: {app: stealth-signer, role: $role}
   template:
     metadata:
-      labels: {app: stealth-signer, role: $role}
+      labels: {app: stealth-signer, role: $role, rd/egress-locked: "true", rd/egress: $egress} # own narrow egress (egress/render.sh signer|custodian): not selected by allow-dns-egress
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
