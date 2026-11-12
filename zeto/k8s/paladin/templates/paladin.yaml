@@ -50,7 +50,7 @@ metadata:
   namespace: ${NS}
 data:
   config.json: |
-    {"paladin":{"image":"ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71","imagePullPolicy":"Always","labels":{"app":"paladin","rd/role":"paladin-node"},"annotations":null,"envs":null,"tolerations":null,"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"rd/role":"paladin-node"}},"namespaceSelector":{"matchLabels":{"part-of":"rd-zeto"}},"topologyKey":"kubernetes.io/hostname"}]}},"nodeSelector":null,"securityContext":null},"besu":{"image":"hyperledger/besu:25.8.0","imagePullPolicy":"IfNotPresent","labels":{"app":"besu"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"postgres":{"image":"postgres:17.6","imagePullPolicy":"IfNotPresent","labels":null,"annotations":null,"envs":null}}
+    {"paladin":{"image":"ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71","imagePullPolicy":"Always","labels":{"app":"paladin"},"annotations":null,"envs":null,"tolerations":null,"affinity":{"podAntiAffinity":__ANTI__},"nodeSelector":null,"securityContext":null},"besu":{"image":"hyperledger/besu:25.8.0","imagePullPolicy":"IfNotPresent","labels":{"app":"besu"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"postgres":{"image":"postgres:17.6","imagePullPolicy":"IfNotPresent","labels":null,"annotations":null,"envs":null}}
 ---
 apiVersion: apps/v1
 kind: Deployment

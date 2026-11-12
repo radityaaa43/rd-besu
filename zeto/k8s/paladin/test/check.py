@@ -87,11 +87,11 @@ for party, n in PARTIES.items():
     cm = by["ConfigMap"]
     opcfg = json.loads(cm["data"]["config.json"])
     check(opcfg["paladin"]["image"] == FORK, f"{party}: operator config paladin image {opcfg['paladin']['image']} != fork digest")
-    check(opcfg["paladin"]["labels"] == {"app": "paladin", "rd/role": "paladin-node"}, f"{party}: Paladin pods must carry app=paladin (egress policies select it) AND rd/role=paladin-node (R22 anti-affinity): {opcfg['paladin']['labels']}")
+    check(opcfg["paladin"]["labels"] == {"app": "paladin"}, f"{party}: Paladin pods carry app=paladin (egress policies and the R22 anti-affinity select it; the operator sets it on every reconcile): {opcfg['paladin']['labels']}")
     # R22 (analyst GAP, 2026-11-12): bi and bank-a Paladin nodes sat on the same member node. REQUIRED podAntiAffinity: no two Paladin node pods on one node, across ALL rd-zeto-* namespaces of the cluster.
     aff = opcfg["paladin"].get("affinity") or {}
     pa = (aff.get("podAntiAffinity") or {}).get("requiredDuringSchedulingIgnoredDuringExecution") or []
-    check(len(pa) == 1 and pa[0] == {"labelSelector": {"matchLabels": {"rd/role": "paladin-node"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}, f"{party}: R22 required podAntiAffinity on rd/role=paladin-node across part-of=rd-zeto namespaces, topologyKey hostname: {pa}")
+    check(len(pa) == 1 and pa[0] == {"labelSelector": {"matchLabels": {"app": "paladin"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}, f"{party}: R22 required podAntiAffinity on app=paladin across part-of=rd-zeto namespaces, topologyKey hostname: {pa}")
     check("preferredDuringSchedulingIgnoredDuringExecution" not in (aff.get("podAntiAffinity") or {}) and "nodeAffinity" not in aff, f"{party}: R22: only the required anti-affinity, no preferred/node affinity added: {list(aff)}")
 
     # Paladin CR
@@ -295,14 +295,17 @@ for bad in (["egress", "bi"], ["egress", "bi", "--lb-ips", "bi=1.2.3.4"], ["egre
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
 # ---- sts-placement (R22): the operator (v1.0.0, paladin_controller.go:295-300) copies only containers/volumes/annotations/labels into an EXISTING StatefulSet, so the anti-affinity of
-# the operator config never reaches it. This renders ONE merge patch for the StatefulSet paladin-node<N> template: label rd/role + the required anti-affinity (+ optional nodeAffinity NotIn <node>).
-ANTI = {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {"rd/role": "paladin-node"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}]}
+# the operator config never reaches it. This renders ONE merge patch for the StatefulSet paladin-node<N> template: the required anti-affinity on app=paladin (+ optional nodeAffinity NotIn <node>).
+ANTI = {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {"app": "paladin"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}]}
 for party in PARTIES:
     r = run("sts-placement", party)
     check(r.returncode == 0 and r.stdout.count("\n") == 1, f"{party}: sts-placement prints exactly one line: rc={r.returncode} {r.stderr.strip()[:100]}")
     try: patch = json.loads(r.stdout)
     except Exception: patch = None
-    check(patch == {"spec": {"template": {"metadata": {"labels": {"rd/role": "paladin-node"}}, "spec": {"affinity": {"podAntiAffinity": ANTI}}}}}, f"{party}: sts-placement patch {r.stdout!r}")
+    check(patch == {"spec": {"template": {"spec": {"affinity": {"podAntiAffinity": ANTI}}}}}, f"{party}: sts-placement patch (no label: the operator overwrites template labels, paladin_controller.go:300) {r.stdout!r}")
+    cfg_aff = json.loads([d for d in docs(party) if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "paladin-operator"][0]["data"]["config.json"])["paladin"]["affinity"]
+    r0 = run("sts-placement", party)
+    check(cfg_aff == json.loads(r0.stdout)["spec"]["template"]["spec"]["affinity"], f"{party}: the operator config affinity (create path) and the sts-placement affinity (update path) must be equal")
     r = run("sts-placement", party, "--avoid-node", "member-16031-node")
     try: patch = json.loads(r.stdout)
     except Exception: patch = None

@@ -10,7 +10,7 @@
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
 #   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' Paladin transport (same-cluster peers: namespaceSelector + that peer's node pods; the other cluster's peer: its LB IP /32), besu-validator 8545+8546 in the own ns,
 #                                                  paladin-pg 5432 in the own ns, kube-dns 53 UDP/TCP. NOTHING else. Apply per node, ONE at a time, with the proof (docs/R17 in the S21 text).
-#   render.sh sts-placement <party> [--avoid-node NODE]   R22: ONE JSON merge patch line for the StatefulSet paladin-node<N> template (label rd/role=paladin-node + required anti-affinity, optional nodeAffinity NotIn NODE):
+#   render.sh sts-placement <party> [--avoid-node NODE]   R22: ONE JSON merge patch line for the StatefulSet paladin-node<N> template (required anti-affinity on app=paladin, optional nodeAffinity NotIn NODE):
 #                                                  render.sh sts-placement <p> | kubectl -n rd-zeto-<p> patch statefulset paladin-node<N> --type merge --patch-file /dev/stdin
 #   render.sh pull-secret <party>                  ONE JSON patch line: add `ghcr-pull` to the party ns's default ServiceAccount imagePullSecrets, appended (`/imagePullSecrets/-`), so the two ACK acr-credential-* entries stay:
 #                                                  render.sh pull-secret <p> | kubectl -n rd-zeto-<p> patch serviceaccount default --type json --patch-file /dev/stdin
@@ -26,13 +26,16 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 parties="bi bank-a bank-b bank-c"
 
+# R22: the ONE definition of the anti-affinity: the operator config (create path, paladin_controller.go:463) and the sts-placement patch (update path) both use it. app=paladin is set by the operator on every reconcile.
+ANTI='{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"app":"paladin"}},"namespaceSelector":{"matchLabels":{"part-of":"rd-zeto"}},"topologyKey":"kubernetes.io/hostname"}]}'
+
 die() { echo "render.sh: $*" >&2; exit 2; }
 num() { case "$1" in bi) echo 1 ;; bank-a) echo 2 ;; bank-b) echo 3 ;; bank-c) echo 4 ;; *) die "unknown party '$1' (allowed: $parties)" ;; esac; }
 cluster_of() { case "$1" in bank-c) echo 2 ;; *) echo 1 ;; esac; }
 host_ok() { [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$1" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; }
 subst() {
   local th="${2:-}"
-  sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-zeto-$1/g" -e "s/\${N}/$(num "$1")/g" "$here/templates/paladin.yaml" |
+  sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-zeto-$1/g" -e "s/\${N}/$(num "$1")/g" -e "s|__ANTI__|$ANTI|" "$here/templates/paladin.yaml" |
     if [[ -n "$th" ]]; then
       sed -e "s|^          \"address\": \"0.0.0.0\"\$|          \"address\": \"0.0.0.0\",\n          \"externalHostname\": \"$th\"|" \
           -e "s|^        - {name: transport-grpc, port: 9000, targetPort: 9000, protocol: TCP}\$|&\n      tls:\n        certName: paladin-node$(num "$1")-mtls\n        secretName: paladin-node$(num "$1")-mtls|"
@@ -173,11 +176,11 @@ YAML
 pull_secret() { printf '%s\n' '[{"op":"add","path":"/imagePullSecrets/-","value":{"name":"ghcr-pull"}}]'; }
 
 # R22: ONE merge patch for the StatefulSet paladin-node<N> pod template (operator v1.0.0 syncs only containers/volumes/annotations/labels into an existing sts, paladin_controller.go:295-300):
-# label rd/role + the required anti-affinity; --avoid-node adds nodeAffinity NotIn <node> (the first mover, while no other pod carries the label yet).
+# the required anti-affinity on app=paladin (NO label: the operator overwrites template labels, :300); --avoid-node adds nodeAffinity NotIn <node> (the first mover, while no other pod carries the label yet).
 sts_placement() {
   local node="${1:-}" na=""
   if [[ -n "$node" ]]; then [[ "$node" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "sts-placement: --avoid-node must be a node name"; na=",\"nodeAffinity\":{\"requiredDuringSchedulingIgnoredDuringExecution\":{\"nodeSelectorTerms\":[{\"matchExpressions\":[{\"key\":\"kubernetes.io/hostname\",\"operator\":\"NotIn\",\"values\":[\"$node\"]}]}]}}"; fi
-  printf '%s\n' '{"spec":{"template":{"metadata":{"labels":{"rd/role":"paladin-node"}},"spec":{"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"rd/role":"paladin-node"}},"namespaceSelector":{"matchLabels":{"part-of":"rd-zeto"}},"topologyKey":"kubernetes.io/hostname"}]}'"$na"'}}}}}'
+  printf '%s\n' "{\"spec\":{\"template\":{\"spec\":{\"affinity\":{\"podAntiAffinity\":$ANTI$na}}}}}"
 }
 
 pull_test() {
