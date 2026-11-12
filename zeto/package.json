@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --require ts-node/register --test test/flows-group.test.ts test/lock-check.test.ts",
+    "test": "node --require ts-node/register --test test/flows-group.test.ts test/lock-check.test.ts test/r2-chain.test.ts",
     "bootstrap": "ts-node bootstrap-zeto.ts",
     "smoke": "ts-node smoke-zeto.ts",
     "lock-check": "ts-node lock-check.ts",
@@ -14,7 +14,8 @@
     "bi-offline": "ts-node spike-zeto-bi-offline.ts",
     "e2e": "ts-node spike-zeto-e2e.ts",
     "stress": "flock /tmp/lensa-paladin.lock ts-node stress-zeto-tps.ts",
-    "typecheck:v1": "tsc -p tsconfig.check-v1.json"
+    "typecheck:v1": "tsc -p tsconfig.check-v1.json",
+    "r2-chain": "ts-node r2-chain.ts"
   },
   "devDependencies": {
     "@types/circomlibjs": "^0.1.6",
