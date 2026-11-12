@@ -142,6 +142,69 @@ if ext:
 for bad in (["bank-a", "--acl-id", ACL, "--external-cidr", CIDR], ["bi", "--acl-id", ACL], ["bi", "--external-cidr", CIDR], ["bi", "--acl-id", "x", "--external-cidr", CIDR], ["bi", "--acl-id", ACL, "--external-cidr", "nope"], ["nope"], ["envoy", "nope"], ["bundle-access", "nope"], ["bi", "--opa-config", "/nonexistent"]):
     check(run(*bad).returncode != 0, f"refused: {' '.join(bad)}")
 
+# S11 rework (B1/B2): bi only, --signer-ca adds the viewcopy-1 chain (bank-signer CA, OPA target stealth_viewcopy, body never sent to OPA); nothing else changes
+PEM = "-----BEGIN CERTIFICATE-----\nZHVtbXktcHVibGljLWNhLWZpeHR1cmU=\n-----END CERTIFICATE-----\n"  # dummy, no real key
+with tempfile.NamedTemporaryFile("w", suffix=".crt", delete=False) as f:
+    f.write(PEM)
+    signer_ca = f.name
+base = docs("bi")
+vc = docs("bi", "--signer-ca", signer_ca)
+env0, env1 = envoy(base, 1), envoy(vc, 1)
+ch0 = env0.get("static_resources", {}).get("listeners", [{}])[0].get("filter_chains", [])
+ch1 = env1.get("static_resources", {}).get("listeners", [{}])[0].get("filter_chains", [])
+check(len(ch1) == len(ch0) + 1, "bi + --signer-ca: exactly one more filter chain")
+new_c = [c for c in ch1 if c.get("filter_chain_match", {}).get("server_names") == ["viewcopy-1"]]
+check(len(new_c) == 1, "bi + --signer-ca: one chain with server_names [viewcopy-1]")
+check([c for c in ch1 if c not in new_c] == ch0, "bi + --signer-ca: the custodian passthrough chain and the Lensa default chain are unchanged")
+if new_c:
+    c = new_c[0]
+    ts = c["transport_socket"]["typed_config"]
+    check(ts["require_client_certificate"] is True, "viewcopy chain requires a client cert")
+    vctx = ts["common_tls_context"]["validation_context"]["trusted_ca"]["filename"]
+    check(vctx == "/signer-ca/ca.crt" and vctx != "/mtls/ca.crt", f"viewcopy chain trusts the bank-signer CA file, not the Lensa CA: {vctx}")
+    check(ts["common_tls_context"]["tls_certificates"] == [{"certificate_chain": {"filename": "/mtls/tls.crt"}, "private_key": {"filename": "/mtls/tls.key"}}], "viewcopy chain presents the same server cert as the default chain")
+    check(ts["common_tls_context"]["tls_params"] == {"tls_minimum_protocol_version": "TLSv1_2"}, "viewcopy chain: TLS >= 1.2")
+    hcm = c["filters"][0]["typed_config"]
+    rts = hcm["route_config"]["virtual_hosts"][0]["routes"]
+    check(len(rts) == 1 and rts[0]["match"] == {"prefix": "/viewcopy/"}, f"viewcopy chain: ONE route, prefix /viewcopy/ only: {rts}")
+    if rts:
+        r0 = rts[0]
+        check(r0["route"]["cluster"] == "signer" and float(r0["route"]["timeout"].rstrip("s")) <= 10, f"viewcopy route -> cluster signer, timeout <= 10s: {r0['route']}")
+        cs = r0["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["check_settings"]
+        check(cs["context_extensions"] == {"target": "stealth_viewcopy", "node": "node1"} and cs["disable_request_body_buffering"] is True, f"viewcopy route: target stealth_viewcopy, node node1, request body NOT buffered for OPA: {cs}")
+    ea = next(f for f in hcm["http_filters"] if f["name"] == "envoy.filters.http.ext_authz")["typed_config"]
+    check(ea["failure_mode_allow"] is False and "with_request_body" not in ea and ea["grpc_service"]["envoy_grpc"]["cluster_name"] == "opa", "viewcopy chain: ext_authz fails closed, no with_request_body at all, same opa cluster")
+    check(hcm["http_filters"][-1]["name"] == "envoy.filters.http.router", "viewcopy chain: router last")
+check({k: v for k, v in env1.get("static_resources", {}).items() if k != "listeners"} == {k: v for k, v in env0.get("static_resources", {}).items() if k != "listeners"} and bool(env1), "bi + --signer-ca: clusters unchanged (no new upstream; the existing signer cluster is reused)")
+cm = by(vc, "ConfigMap", "st-gw-1-signer-ca")
+check(cm is not None and cm["metadata"]["namespace"] == "rd-stealth-bi" and cm["data"] == {"ca.crt": PEM}, "bi + --signer-ca: ConfigMap st-gw-1-signer-ca in rd-stealth-bi holds the file content as ca.crt")
+check(by(base, "ConfigMap", "st-gw-1-signer-ca") is None, "bi without the option: no st-gw-1-signer-ca ConfigMap")
+dep0, dep1 = by(base, "Deployment", "st-gw-1"), by(vc, "Deployment", "st-gw-1")
+if dep0 and dep1:
+    pod1 = dep1["spec"]["template"]["spec"]
+    check({v["name"]: v for v in pod1["volumes"]}.get("signer-ca") == {"name": "signer-ca", "configMap": {"name": "st-gw-1-signer-ca"}}, "bi + --signer-ca: volume signer-ca from the ConfigMap")
+    check({"name": "signer-ca", "mountPath": "/signer-ca", "readOnly": True} in pod1["containers"][0]["volumeMounts"], "bi + --signer-ca: envoy mounts /signer-ca read-only")
+    strip = lambda d: [dict(v) for v in d["spec"]["template"]["spec"]["volumes"] if v["name"] != "signer-ca"]
+    check(strip(dep1) == dep0["spec"]["template"]["spec"]["volumes"] and not any("signer-ca" in str(x) for x in dep0["spec"]["template"]["spec"]["volumes"]), "bi without the option: no signer-ca volume")
+    check(pod1["containers"][1] == dep0["spec"]["template"]["spec"]["containers"][1], "bi + --signer-ca: the OPA container is unchanged")
+names = lambda ds: sorted((d["kind"], d["metadata"]["name"]) for d in ds)
+check([n for n in names(vc) if n not in names(base)] == [("ConfigMap", "st-gw-1-signer-ca")], "bi + --signer-ca: the ONLY new object is ConfigMap st-gw-1-signer-ca (no new Service/LB/NetworkPolicy)")
+rest = lambda ds: [d for d in ds if (d["kind"], d["metadata"]["name"]) not in {("ConfigMap", "st-gw-1-envoy"), ("ConfigMap", "st-gw-1-signer-ca"), ("Deployment", "st-gw-1")}]
+check(bool(vc) and rest(vc) == rest(base), "bi + --signer-ca: every other object is unchanged")
+vx = docs("bi", "--signer-ca", signer_ca, "--acl-id", ACL, "--external-cidr", CIDR)
+check(by(vx, "Service", "st-gw-1-ext") == by(docs("bi", "--acl-id", ACL, "--external-cidr", CIDR), "Service", "st-gw-1-ext") and by(vx, "ConfigMap", "st-gw-1-signer-ca") is not None, "--signer-ca composes with --acl-id/--external-cidr (same st-gw-1-ext)")
+for p in ("bank-a", "bank-b", "bank-c"):
+    check("viewcopy" not in run(p).stdout and "signer-ca" not in run(p).stdout, f"{p}: no viewcopy chain and no signer-ca volume in the bank render")
+    check(run(p, "--signer-ca", signer_ca).returncode != 0, f"refused: {p} --signer-ca (bi only)")
+envsub = run("envoy", "bi", "--signer-ca", signer_ca)
+check(envsub.returncode == 0 and yaml.safe_load(envsub.stdout) == env1, "`envoy bi --signer-ca FILE` equals the ConfigMap content")
+bad_key = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False); bad_key.write(PEM + "-----BEGIN PRIV" + "ATE KEY-----\nAAAA\n-----END PRIV" + "ATE KEY-----\n"); bad_key.close()
+not_pem = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False); not_pem.write("hello\n"); not_pem.close()
+for bad in (["bi", "--signer-ca", "/nonexistent"], ["bi", "--signer-ca", bad_key.name], ["bi", "--signer-ca", not_pem.name], ["bi", "--signer-ca"]):
+    check(run(*bad).returncode != 0, f"refused: {' '.join(bad[:2])} {'(' + bad[2].split('/')[-1] + ')' if len(bad) > 2 else ''}".strip())
+for fn in (signer_ca, bad_key.name, not_pem.name):
+    os.unlink(fn)
+
 if fails:
     print("FAIL:\n- " + "\n- ".join(fails), file=sys.stderr)
     sys.exit(1)

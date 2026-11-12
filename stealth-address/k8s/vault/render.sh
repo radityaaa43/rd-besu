@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Render the stealth S7 manifests (final-design/stealth/PLAN.md S7: per-party key store, Vault) to stdout, or to DIR/<ns>-vault.yaml with -o.
-#   render.sh [-o DIR] <bi|bank-a|bank-b|all>   ServiceAccount stealth-signer + NetworkPolicy vault-ingress (the Vault server itself = the upstream chart, values below)
+#   render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all>   ServiceAccount stealth-signer + NetworkPolicy vault-ingress (the Vault server itself = the upstream chart, values below)
 #   render.sh values <party>                    values for hashicorp/vault chart 0.34.1 (install command in values.yaml)
 #   render.sh cluster <party|all>               ClusterRoleBinding vault-auth-delegator-<ns> (cluster operator applies it; user-only)
 #   render.sh storage                           StorageClass rd-retain-essd + VolumeSnapshotClass rd-retain-snapshot (cluster-scoped, user-only)
 #   render.sh snapshot <party> <tag>            VolumeSnapshot vault-data-<tag> of the party's Vault volume
 #   render.sh probe <own> <other>               throwaway proof pods (signer reads OK; other pods blocked or login denied), prints no secret value
-# Needs bash + sed only. Never talks to a cluster. Cluster 2 (bank-c) is out of scope and refused.
+# Needs bash + sed only. Never talks to a cluster.
+# bank-c (cluster 2): rendered one party at a time (access, values, cluster, snapshot) with the label cluster: "2" like ../render.sh --cluster 2; it is NOT part of `all` / `cluster all` (cluster 1) and
+# `probe` refuses it. `storage` (cluster-scoped StorageClass + VolumeSnapshotClass) is the same file: the operator applies it once per cluster, so cluster 2 gets it from this same `storage` render.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 parties="bi bank-a bank-b"
@@ -14,7 +16,10 @@ IMAGE="hashicorp/vault:2.0.4"
 
 die() { echo "render.sh: $*" >&2; exit 2; }
 valid() { [[ " $parties " == *" $1 "* ]] || die "unknown party '$1' (allowed: $parties)"; }
-subst() { valid "$1"; sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-stealth-$1/g" "$2"; }
+c2() { # cluster 2 objects carry cluster="2" (flow-style labels and the block-style extraLabels of values.yaml)
+  if [[ "$1" == bank-c ]]; then sed -e 's/party: bank-c}/party: bank-c, cluster: "2"}/' -e '/^    party: bank-c$/a\    cluster: "2"'; else cat; fi
+}
+subst() { [[ "$1" == bank-c ]] || valid "$1"; sed -e "s/\${PARTY}/$1/g" -e "s/\${NS}/rd-stealth-$1/g" "$2" | c2 "$1"; }
 
 pod_head() { # name ns app serviceAccount
   cat <<YAML
@@ -96,7 +101,7 @@ case "${1:-}" in
   all)
     if [[ -n "$out" ]]; then mkdir -p "$out"; for p in $parties; do subst "$p" "$here/templates/access.yaml" > "$out/rd-stealth-$p-vault.yaml"; done
     else emit_all; fi ;;
-  "") die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|all> | values <party> | cluster <party> | probe <own> <other>" ;;
+  "") die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> | values <party> | cluster <party> | probe <own> <other>" ;;
   *)
     if [[ -n "$out" ]]; then mkdir -p "$out"; subst "$1" "$here/templates/access.yaml" > "$out/rd-stealth-$1-vault.yaml"; else subst "$1" "$here/templates/access.yaml"; fi ;;
 esac

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render the stealth S17 gateway manifests (final-design/stealth/PLAN.md S17, ../S17.md) to stdout. Never talks to a cluster.
-#   render.sh <bi|bank-a|bank-b|bank-c> [--opa-config FILE] [--acl-id acl-X --external-cidr CIDR...]
-#   render.sh envoy <party>          the Envoy config only (CI runs `envoy --mode validate` on it)
+#   render.sh <bi|bank-a|bank-b|bank-c> [--opa-config FILE] [--signer-ca FILE] [--acl-id acl-X --external-cidr CIDR...]
+#   render.sh envoy <party> [--signer-ca FILE]  the Envoy config only (CI runs `envoy --mode validate` on it)
 #   render.sh bundle-access <party>  NetworkPolicy bundle-server-from-stealth in rd-zeto-<party> (the only object outside rd-stealth-<party>)
 # Per party in rd-stealth-<party>: ConfigMaps st-gw-<N>-envoy and st-gw-opa, Deployment st-gw-<N> (envoy + OPA, labels app=st-gw,node=node<N>), Service st-gw-<N>
 # (ClusterIP 8550), NetworkPolicies st-gw-ingress, stealth-signer-ingress.
@@ -11,6 +11,9 @@
 # The st-gw OPA pulls bi/latest.tar.gz and bank/latest.tar.gz (signing key id = the party). NOT rendered: the besu read door (S17.md: the RPC node needs a JWT).
 # bi only: SNI passthrough chain custodian-1 -> Service stealth-custodian (ClusterIP 9443) + NetworkPolicy stealth-custodian-ingress. The pod terminates mTLS itself,
 # so the signer sees the bank's client cert (S8 verdict rule a); OPA is not in that path.
+# bi only: `--signer-ca FILE` (the PUBLIC bank-signer CA cert, PEM) adds the SNI chain viewcopy-1 (S11 rework: the banks push their view-key copy): TLS terminated here with the signer CA as trusted_ca,
+# one route /viewcopy/ -> the signer cluster, OPA target stealth_viewcopy WITHOUT the request body (a view key in the body must never reach OPA's input or its decision log), and ConfigMap
+# st-gw-1-signer-ca (FILE as ca.crt) mounted at /signer-ca. No new Service, LB or port: the door :8550 and st-gw-1-ext are reused. Without the option the render is byte-unchanged.
 # R1 (bank-c's /cert reach): `bi --acl-id ... --external-cidr ...` adds Service st-gw-1-ext, a NEW LoadBalancer with the EXISTING ACL id annotated in the first apply
 # (never loadbalancer-id: no shared CLB). Without the flags no external Service exists.
 # NOT rendered: the Secrets (the parties create st-gw-<N>-mtls and the signer secrets).
@@ -44,6 +47,50 @@ YAML
           "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
           stat_prefix: custodian
           cluster: custodian
+YAML
+  fi
+  if [[ "$p" == bi && -n "$SIGNER_CA" ]]; then cat <<YAML
+    # S11 view-key push: SNI viewcopy-1 is terminated here (client cert from the bank-signer CA, ConfigMap st-gw-1-signer-ca). Only /viewcopy/, checked by OPA (target stealth_viewcopy) with NO request body.
+    - filter_chain_match: {server_names: ["viewcopy-1"]}
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_params: {tls_minimum_protocol_version: TLSv1_2}
+            tls_certificates:
+            - certificate_chain: {filename: /mtls/tls.crt}
+              private_key: {filename: /mtls/tls.key}
+            validation_context: {trusted_ca: {filename: /signer-ca/ca.crt}}
+      filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: viewcopy
+          route_config:
+            virtual_hosts:
+            - name: viewcopy
+              domains: ["*"]
+              routes:
+              - match: {prefix: "/viewcopy/"}
+                route: {cluster: signer, timeout: 10s}
+                typed_per_filter_config:
+                  envoy.filters.http.ext_authz:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                    check_settings:
+                      disable_request_body_buffering: true
+                      context_extensions: {target: stealth_viewcopy, node: node$n}
+          http_filters:
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              failure_mode_allow: false
+              grpc_service: {envoy_grpc: {cluster_name: opa}, timeout: 2s}
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 YAML
   fi
   cat <<YAML
@@ -139,7 +186,11 @@ opaconf() { # opaconf <party> : $CFG rewritten for the stealth gateway
 }
 
 deployment() { # deployment <party>
-  local p="$1" n ns; n="$(num "$p")"; ns="rd-stealth-$p"
+  local p="$1" n ns ca_mount="" ca_vol=""; n="$(num "$p")"; ns="rd-stealth-$p"
+  if [[ "$p" == bi && -n "$SIGNER_CA" ]]; then
+    ca_mount=$'\n        - {name: signer-ca, mountPath: /signer-ca, readOnly: true}'
+    ca_vol=$'\n      - {name: signer-ca, configMap: {name: st-gw-1-signer-ca}}'
+  fi
   cat <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -171,7 +222,7 @@ spec:
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
         volumeMounts:
         - {name: envoy, mountPath: /config, readOnly: true}
-        - {name: mtls, mountPath: /mtls, readOnly: true} # empty until Secret st-gw-$n-mtls exists (the party creates it)
+        - {name: mtls, mountPath: /mtls, readOnly: true} # empty until Secret st-gw-$n-mtls exists (the party creates it)${ca_mount}
       - name: opa
         image: openpolicyagent/opa:1.21.1-envoy-1-static@sha256:c1f40d815a15c4ca0ccbdf300e0a3515fccf1d30fbd92e69917ab96bad83811d
         args:
@@ -196,7 +247,7 @@ spec:
       volumes:
       - {name: envoy, configMap: {name: st-gw-$n-envoy}}
       - {name: mtls, secret: {secretName: st-gw-$n-mtls, optional: true, defaultMode: 292}} # 0444: envoy runs as uid 10001
-      - {name: opa, configMap: {name: st-gw-opa}}
+      - {name: opa, configMap: {name: st-gw-opa}}${ca_vol}
 YAML
 }
 
@@ -296,6 +347,20 @@ YAML
   - {name: door, port: 8550, targetPort: 8550}
 YAML
   fi
+  if [[ "$p" == bi && -n "$SIGNER_CA" ]]; then cat <<YAML
+---
+# S11: the PUBLIC bank-signer CA cert (the file passed to --signer-ca), trusted_ca of the viewcopy-1 chain. No key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: st-gw-1-signer-ca
+  namespace: $ns
+  labels: {part-of: rd-stealth, party: $p}
+data:
+  ca.crt: |
+$(indent < "$SIGNER_CA")
+YAML
+  fi
   netpol st-gw-ingress "$ns" "$p" "    matchLabels: {app: st-gw}" "    - ports: [{protocol: TCP, port: 8550}]"
   netpol stealth-signer-ingress "$ns" "$p" $'    matchLabels: {app: stealth-signer}\n    matchExpressions:\n    - {key: role, operator: In, values: [bank, bi]}' $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}\n      ports: [{protocol: TCP, port: 8080}]'
   if [[ "$p" == bi ]]; then
@@ -304,7 +369,18 @@ YAML
 }
 
 [[ $# -ge 1 ]] || die "usage: render.sh <bi|bank-a|bank-b|bank-c> [--opa-config FILE] [--acl-id acl-X --external-cidr CIDR...] | render.sh envoy <party> | render.sh bundle-access <party>"
-if [[ "$1" == envoy ]]; then [[ $# -eq 2 ]] || die "usage: render.sh envoy <party>"; num "$2" >/dev/null; envoy "$2"; exit 0; fi
+SIGNER_CA=""
+signer_ca() { # signer_ca FILE : the PUBLIC bank-signer CA cert, PEM
+  [[ -f "$1" ]] || die "--signer-ca: $1 is not a file"
+  grep -q -- '-----BEGIN CERTIFICATE-----' "$1" || die "--signer-ca: $1 holds no PEM certificate"
+  ! grep -q 'PRIVATE KEY' "$1" || die "--signer-ca: $1 holds a private key (public cert only)"
+  SIGNER_CA="$1"
+}
+if [[ "$1" == envoy ]]; then
+  [[ $# -eq 2 || ( $# -eq 4 && "$3" == --signer-ca ) ]] || die "usage: render.sh envoy <party> [--signer-ca FILE]"
+  num "$2" >/dev/null; [[ $# -eq 2 ]] || { [[ "$2" == bi ]] || die "--signer-ca is for bi only"; signer_ca "$4"; }
+  envoy "$2"; exit 0
+fi
 if [[ "$1" == bundle-access ]]; then
   [[ $# -eq 2 ]] || die "usage: render.sh bundle-access <party>"; num "$2" >/dev/null
   cat <<YAML
@@ -331,10 +407,12 @@ sel="$1"; shift; num "$sel" >/dev/null
 here="$(cd "$(dirname "$0")" && pwd)"; CFG="$here/../../../opa/opa.yaml"
 ACL=""; CIDRS=()
 while [[ $# -gt 0 ]]; do case "$1" in
+  --signer-ca) signer_ca "${2:?--signer-ca needs a file}"; shift 2 ;;
   --opa-config) CFG="${2:?--opa-config needs a file}"; [[ -f "$CFG" ]] || die "--opa-config: $CFG is not a file"; shift 2 ;;
   --acl-id) ACL="${2:?--acl-id needs an ACL id}"; [[ "$ACL" =~ ^acl-[a-z0-9]+$ ]] || die "bad --acl-id"; shift 2 ;;
   --external-cidr) c="${2:?--external-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --external-cidr '$c'"; CIDRS+=("$c"); shift 2 ;;
   *) die "unknown option $1" ;; esac; done
+[[ -z "$SIGNER_CA" || "$sel" == bi ]] || die "--signer-ca is for bi only (the viewcopy-1 chain lives on st-gw-1)"
 if [[ -n "$ACL" || ${#CIDRS[@]} -gt 0 ]]; then
   [[ "$sel" == bi ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bi only (R1: st-gw-1)"
   [[ -n "$ACL" && ${#CIDRS[@]} -gt 0 ]] || die "--acl-id and --external-cidr only together"

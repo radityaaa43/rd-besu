@@ -64,6 +64,8 @@ def pod_labels(ds):
             out.append(d["spec"]["template"]["metadata"]["labels"])
         if d["kind"] == "CronJob":
             out.append(d["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"])
+        if d["kind"] == "Job":
+            out.append(d["spec"]["template"]["metadata"]["labels"])
     return out
 
 
@@ -74,13 +76,16 @@ TCP = lambda p: [{"protocol": "TCP", "port": p}]
 
 def expected(workload, party):
     """(policy name, profile label, rules) written out by hand, independent of the renderer."""
-    if workload == "signer":
+    if workload in ("signer", "viewpush"):
         if party == "bi":
             cert = {"to": [{"podSelector": {"matchLabels": {"app": "st-gw", "node": "node1"}}}], "ports": TCP(8550)}
         elif party == "bank-c":
             cert = {"to": [{"ipBlock": {"cidr": f"{LB}/32"}}], "ports": TCP(8550)}
         else:
             cert = {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "rd-stealth-bi"}}, "podSelector": {"matchLabels": {"app": "st-gw", "node": "node1"}}}], "ports": TCP(8550)}
+        if workload == "viewpush":  # S11 rework: the push Job reaches ONLY its own bank signer, the BI door and DNS (no besu-rpc, no kube API)
+            own = {"to": [{"podSelector": {"matchLabels": {"app": "stealth-signer", "role": "bank"}}}], "ports": TCP(8080)}
+            return "stealth-viewpush-egress", "stealth-viewpush", [own, cert, DNS]
         return "stealth-signer-egress", "stealth-signer", [RPC, cert, DNS]
     if workload == "custodian":
         return "stealth-custodian-egress", "stealth-custodian", [RPC, DNS]
@@ -94,7 +99,8 @@ def expected(workload, party):
 
 
 CASES = [("signer", "bi", []), ("signer", "bank-a", []), ("signer", "bank-b", []), ("signer", "bank-c", ["--cert-lb-ip", LB]), ("custodian", "bi", []), ("compare", "bi", []),
-         ("gateway", "bi", []), ("gateway", "bank-a", []), ("gateway", "bank-b", []), ("gateway", "bank-c", [])]
+         ("gateway", "bi", []), ("gateway", "bank-a", []), ("gateway", "bank-b", []), ("gateway", "bank-c", []),
+         ("viewpush", "bank-a", []), ("viewpush", "bank-b", []), ("viewpush", "bank-c", ["--cert-lb-ip", LB])]
 
 
 def workload_pods(workload, party):
@@ -105,6 +111,8 @@ def workload_pods(workload, party):
         return pod_labels(docs(SIGNER, "compare", "--image", IMG, "--chain-env", chain, "--registry", REG))
     if workload == "custodian":
         return pod_labels(docs(SIGNER, "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a"))
+    if workload == "viewpush":
+        return pod_labels(docs(SIGNER, "viewpush", party, "--image", IMG, "--door-url", CERT_URL))
     return pod_labels(docs(SIGNER, party, "--image", IMG, "--chain-env", chain, "--cert-url", CERT_URL))
 
 
@@ -129,7 +137,7 @@ for workload, party, extra in CASES:
         for t in r["to"]:
             if "ipBlock" in t:
                 check(set(t) == {"ipBlock"} and re.fullmatch(r"[0-9.]+/32", t["ipBlock"]["cidr"]) is not None and "except" not in t["ipBlock"], f"{tag}: ipBlock only as a bare /32: {t}")
-                check(workload == "signer" and party == "bank-c", f"{tag}: ipBlock ONLY for the other cluster (bank-c signer -> BI cert door LB), never same-cluster: {t}")
+                check(workload in ("signer", "viewpush") and party == "bank-c", f"{tag}: ipBlock ONLY for the other cluster (bank-c signer/viewpush -> BI cert door LB), never same-cluster: {t}")
             else:
                 ps, nss = t.get("podSelector"), t.get("namespaceSelector")
                 check(ps is not None and ps != {} and bool(ps.get("matchLabels")), f"{tag}: no podSelector {{}} / unnamed pods: {t}")
@@ -177,13 +185,40 @@ for workload, party, extra in CASES:
 
 # ---- refusals (exit 2)
 BAD = [[], ["signer"], ["signer", "bank-c"], ["signer", "bank-c", "--cert-lb-ip", "300.1.1.1"], ["signer", "bank-c", "--cert-lb-ip", "10.0.0.0/24"], ["signer", "bank-a", "--cert-lb-ip", LB], ["signer", "bi", "--cert-lb-ip", LB],
-       ["signer", "bank-d"], ["custodian", "bank-a"], ["compare", "bank-a"], ["gateway", "bank-d"], ["gateway", "bank-a", "--cert-lb-ip", LB], ["scanner", "bi"], ["vault", "bi"], ["signer", "bank-a", "--extra"],
+       ["signer", "bank-d"], ["custodian", "bank-a"], ["compare", "bank-a"], ["gateway", "bank-d"], ["gateway", "bank-a", "--cert-lb-ip", LB], ["scanner", "bi"],
+       ["viewpush", "bi"], ["viewpush", "bank-c"], ["viewpush", "bank-a", "--cert-lb-ip", LB], ["viewpush", "bank-d"], ["viewpush", "bank-c", "--cert-lb-ip", "300.1.1.1"], ["probe", "viewpush", "bi", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "stealth-signer:8080"],
+       ["probe", "viewpush", "bank-c", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "stealth-signer:8080", "--cert-lb-ip", LB], ["vault", "bi"], ["signer", "bank-a", "--extra"],
        ["probe", "signer", "bank-a", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", "busybox:1.36", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443;id", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "host:443", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "besu-rpc:8545;id"]]
 for a in BAD:
     check(run(render, *a).returncode == 2, f"render.sh {' '.join(a)} must be refused with exit 2")
+
+# ---- S11 rework D3: signer bi --kube-api-ip (repeatable) = the kube API ENDPOINT IPs :6443 for the BI signer ONLY (it patches Secret stealth-bi-viewcopies); everything else byte-unchanged
+KIP = ["203.0.113.10", "203.0.113.11"]
+plain = docs(render, "signer", "bi")
+withk = docs(render, "signer", "bi", "--kube-api-ip", KIP[0], "--kube-api-ip", KIP[1])
+check(len(plain) == 1 and len(withk) == 1, "signer bi --kube-api-ip: exactly ONE NetworkPolicy")
+if plain and withk:
+    kube = {"to": [{"ipBlock": {"cidr": f"{ip}/32"}} for ip in KIP], "ports": TCP(6443)}
+    check(withk[0]["spec"]["egress"] == plain[0]["spec"]["egress"][:-1] + [kube] + plain[0]["spec"]["egress"][-1:], f"signer bi --kube-api-ip: the plain rules + ONE rule ipBlock <ip>/32 per IP on TCP 6443, DNS last (got {withk[0]['spec']['egress']})")
+    check({k: v for k, v in withk[0].items() if k != "spec"} == {k: v for k, v in plain[0].items() if k != "spec"} and withk[0]["spec"]["podSelector"] == plain[0]["spec"]["podSelector"] and withk[0]["spec"]["policyTypes"] == ["Egress"], "signer bi --kube-api-ip: same name, labels, selector, Egress only")
+    check(all(set(t) == {"ipBlock"} and "except" not in t["ipBlock"] for t in kube["to"]) and [r for r in withk[0]["spec"]["egress"] if any("ipBlock" in t for t in r["to"])] == [kube], "signer bi --kube-api-ip: ipBlock appears only in the kube rule, as bare /32s")
+    one = docs(render, "signer", "bi", "--kube-api-ip", KIP[0])
+    check(one and one[0]["spec"]["egress"][-2] == {"to": [{"ipBlock": {"cidr": f"{KIP[0]}/32"}}], "ports": TCP(6443)}, "signer bi --kube-api-ip: a single IP works")
+    sg = {"bi": docs(SIGNER, "bi", "--image", IMG, "--chain-env", chain, "--cert-url", CERT_URL, "--viewcopy-store")}
+    base_bi = [d for d in docs(PARTY, "bi") if d["kind"] == "NetworkPolicy"]
+    for pl in pod_labels(sg["bi"]):
+        check(union(base_bi + withk, pl) == ["stealth-signer-egress"], f"signer bi --kube-api-ip: the BI signer pod (with --viewcopy-store) is selected by this policy ONLY: {union(base_bi + withk, pl)}")
+    for other in ("stealth-custodian", "stealth-viewkey", "st-gw", "stealth-viewpush"):
+        check(union(withk, {"rd/egress-locked": "true", "rd/egress": other}) == [], f"signer bi --kube-api-ip: profile {other} does NOT get :6443 from it")
+for a in (["signer", "bank-a"], ["signer", "bank-b"], ["signer", "bank-c", "--cert-lb-ip", LB], ["custodian", "bi"], ["compare", "bi"], ["gateway", "bi"], ["viewpush", "bank-a"]):
+    check(run(render, *a, "--kube-api-ip", KIP[0]).returncode == 2, f"render.sh {' '.join(a)} --kube-api-ip must be refused with exit 2 (the BI signer only)")
+for bad in ("300.1.1.1", "10.0.0.0/24", "api.example", "", "1.2.3"):
+    check(run(render, "signer", "bi", "--kube-api-ip", bad).returncode == 2, f"render.sh signer bi --kube-api-ip {bad!r} must be refused with exit 2")
+check(run(render, "signer", "bi", "--kube-api-ip").returncode == 2, "render.sh signer bi --kube-api-ip (no value) must be refused with exit 2")
+check(run(render, "signer", "bi", "--kube-api-ip", KIP[0], "--cert-lb-ip", LB).returncode == 2, "render.sh signer bi --kube-api-ip + --cert-lb-ip must be refused (cert-lb-ip is bank-c only)")
 
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
