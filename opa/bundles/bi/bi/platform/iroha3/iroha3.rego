@@ -6,7 +6,7 @@
 #   lensa              CN `lensa`, signed directly by iroha3_ca.lensa[<node>], the Lensa client CA of THIS gateway's party
 #   bank-a/b/c, bi     CN = the role, signed directly by iroha3_ca.role[<that role>], the role's own CA
 # No certificate, a second Cert element, a leaf of another CA, another CN or server-only key usage: denied.
-# Routes (iroha3-opa-ops rows 1-12; method and path match exactly, anchored, nothing else passes; row 13, the auditor, is not routed):
+# Routes (iroha3-opa-ops rows 1-12; method and path match exactly, anchored, nothing else passes; row 13, the auditor, is below the rows):
 #   1-4   GET   health, public reads, tx status (hash=<64 hex>[&scope=]), balance reads (owned_by=<I105>)   lensa, bank-*, bi
 #   5-7   POST/GET  signed tx submit, APS client calls and reads                                            bank-*, bi (not lensa)
 #   8     POST  audit capsule/approvals                                                                     bi
@@ -92,6 +92,21 @@ route(role) if {
 	role != "lensa"
 	method == "GET"
 	regex.match(`^/v1/nexus/private-settlements/(bundles/[A-Za-z0-9]+(/receipt)?|legs/[0-9a-fA-F]{64}/phase-certificates)$`, path)
+}
+
+# Row 13: the auditors. CN `<party>-auditor` exists for bi, bank-a and bank-b only (bank-c has none); the leaf is signed by that party's ROLE CA (the same CA that signs the
+# party's own client leaf, so the CN decides, never the CA alone). Each auditor reaches every gateway, only with its own party's CA, and only the two row-8 POST routes.
+auditors := {"bi", "bank-a", "bank-b"}
+
+auditor if {
+	some p in auditors
+	verified(data.bi.config.iroha3_ca.role[p]).Subject.CommonName == concat("", [p, "-auditor"])
+}
+
+allow if {
+	auditor
+	method == "POST"
+	regex.match(`^/v1/nexus/private-settlements/legs/[0-9a-fA-F]{64}/(audit-capsule|audit-approvals)$`, path)
 }
 
 # Row 8: auditor identity.
