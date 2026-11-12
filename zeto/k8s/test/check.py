@@ -58,7 +58,10 @@ for party, ns in PARTIES.items():
         check(dns["policyTypes"] == ["Egress"], f"{party}: allow-dns-egress must be Egress")
         sel = dns["podSelector"].get("matchExpressions", [])
         check(any(e["key"] == "app" and e["operator"] == "NotIn" and "paladin" in e["values"] for e in sel), f"{party}: allow-dns-egress must exclude app=paladin (else it widens the rehearsal policy)")
+        check({"key": "app", "operator": "NotIn", "values": ["paladin", "bank-gw", "bundle-server", "paladin-pg"]} in sel and {"key": "app.kubernetes.io/name", "operator": "NotIn", "values": ["besu-validator", "paladin-operator"]} in sel,
+              f"{party}: allow-dns-egress must exclude the key holders (app bank-gw/bundle-server/paladin-pg, name besu-validator/paladin-operator): each has its own narrow policy (zeto/k8s/egress, R17-zeto-other); policies are additive, an allow-all that selects them cancels it")
         check({"key": "rd/egress-locked", "operator": "DoesNotExist"} in sel, f"{party}: allow-dns-egress must exclude pods labelled rd/egress-locked (a one-off Job with its own narrow policy; policies are additive, an allow-all that selects the Job cancels it)")
+        check(dns["egress"] == [{}], f"{party}: allow-dns-egress stays allow-all for the pods it still selects")
         rh = np["rehearsal-no-9000-egress"]["spec"]
         check(rh["podSelector"] == {"matchLabels": {"app": "paladin"}} and rh["policyTypes"] == ["Egress"], f"{party}: rehearsal policy must select app=paladin, Egress")
         tcp = [r for rule in rh["egress"] for r in tcp_ranges(rule)]

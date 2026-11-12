@@ -36,6 +36,8 @@ spec:
 ---
 # Egress stays open (PLAN S1: Besu p2p and Paladin 9000 need it; DNS is inside "open"). NetworkPolicies are additive per pod:
 # this one therefore EXCLUDES app=paladin, otherwise it would cancel rehearsal-no-9000-egress for those pods.
+# R17-zeto-other: it also EXCLUDES the key holders (bank-gw, bundle-server, paladin-pg, besu-validator, paladin-operator), each with its own narrow policy
+# (egress/render.sh workload <w> <party>): apply those first (the union stays open until this edit), prove the probe, THEN apply this edit.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -45,7 +47,8 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - {key: app, operator: NotIn, values: [paladin]}
+      - {key: app, operator: NotIn, values: [paladin, bank-gw, bundle-server, paladin-pg]}
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [besu-validator, paladin-operator]}
       - {key: rd/egress-locked, operator: DoesNotExist}
   policyTypes: [Egress]
   egress:
