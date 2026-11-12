@@ -17,7 +17,9 @@ test_network_view_batch_allowed if gw.allow with input as door([call("net_peerCo
 
 # a method not on the list stays denied, alone or in a batch with the new ones
 test_unlisted_methods_denied if {
-	every m in ["admin_peers", "net_listening", "eth_subscribe", "eth_sendTransaction", "debug_traceTransaction", "txpool_content", "net_peerCountX"] {
+	every m in ["admin_peers", "net_listening", "eth_subscribe", "eth_sendTransaction", "debug_traceTransaction", "txpool_content", "net_peerCountX",
+		"admin_addPeer", "admin_removePeer", "trace_block", "trace_transaction", "perm_addNodesToAllowlist", "perm_getAccountsAllowlist",
+		"qbft_proposeValidatorVote", "qbft_getValidatorsByBlockNumber", "debug_setHead", "txpool_besuTransactions"] {
 		not gw.allow with input as door(call(m))
 		not gw.allow with input as door([call("net_peerCount"), call(m)])
 	}
