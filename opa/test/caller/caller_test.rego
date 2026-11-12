@@ -93,3 +93,40 @@ test_flag_off_is_legacy_behaviour if {
 		with data.bi.config as fixtures.bi
 		with data.bank.config as fixtures.bank_a
 }
+
+# --- stealth door st-gw (target `stealth`): same leaf rule; the Envoy principal check of bi/bank.platform.stealth stays and must ALSO hold
+stealth_bound := object.union(bound, {"caller_binding": {"paladin": true, "stealth": true}})
+
+stealth_req(node, pem) := {"attributes": {
+	"contextExtensions": {"target": "stealth", "node": node},
+	"source": {"principal": "CN=lensa"},
+	"request": {"http": {"method": "POST", "path": "/intent", "headers": {"x-forwarded-client-cert": xfcc(pem)}}},
+}}
+
+stealth_allowed(i) if {
+	gw.allow with input as i
+		with data.bi.config as stealth_bound
+		with data.bank.config as fixtures.bank_a
+}
+
+test_stealth_own_leaf_allowed if every n in {"node1", "node2", "node3", "node4"} {
+	stealth_allowed(stealth_req(n, leaf[n]))
+}
+
+test_stealth_other_party_leaf_denied if {
+	every n in {"node1", "node2", "node3", "node4"} {
+		every m in {"node1", "node2", "node3", "node4"} {
+			m != n
+			not stealth_allowed(stealth_req(n, leaf[m]))
+		}
+	}
+}
+
+test_stealth_no_leaf_denied if {
+	i := object.union(stealth_req("node2", leaf.node2), {"attributes": {"request": {"http": {"headers": {}}}}})
+	not stealth_allowed(i)
+}
+
+test_stealth_foreign_ca_denied if not stealth_allowed(stealth_req("node2", pki.lensa_by_gw))
+
+test_shipped_data_binds_the_stealth_door if data.bi.config.caller_binding.stealth == true

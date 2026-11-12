@@ -57,6 +57,7 @@ for p, n in PARTIES.items():
         ts = default[0]["transport_socket"]["typed_config"]
         check(ts["require_client_certificate"] is True, f"{p}: default chain requires a client cert")
         hcm = default[0]["filters"][0]["typed_config"]
+        check(hcm.get("forward_client_cert_details") == "SANITIZE_SET" and hcm.get("set_current_client_cert_details") == {"cert": True}, f"{p}: the Lensa door must forward the verified client leaf (SANITIZE_SET, cert: true): bi.caller verifies it")
         ea = next(f for f in hcm["http_filters"] if f["name"] == "envoy.filters.http.ext_authz")["typed_config"]
         check(ea["failure_mode_allow"] is False, f"{p}: ext_authz fails closed")
         route = hcm["route_config"]["virtual_hosts"][0]["routes"]
