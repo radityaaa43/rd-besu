@@ -114,6 +114,8 @@ for party, n in PARTIES.items():
             routes = hcm["route_config"]["virtual_hosts"][0]["routes"]
             catch = [r for r in routes if r["match"] == {"prefix": "/"}]
             check(len(catch) == 1 and routes[-1] is catch[0], f"{party}: listener {k}: the '/' route must be the last one")
+            if k == "paladin":   # c7 / R32: the rego verifies the client leaf itself, so Envoy must forward it (and strip anything the client sent)
+                check(hcm.get("forward_client_cert_details") == "SANITIZE_SET" and hcm.get("set_current_client_cert_details") == {"cert": True}, f"{party}: paladin listener must forward the verified client leaf (SANITIZE_SET, cert: true)")
             ce = catch[0]["typed_per_filter_config"]["envoy.filters.http.ext_authz"]["check_settings"]["context_extensions"]
             check(ce == {"target": k, "node": node}, f"{party}: listener {k} context_extensions {ce}")
             # S17: target `sink` only on the Paladin listener, before "/", forwarded to the party's own bundle-server, ext_authz not disabled
