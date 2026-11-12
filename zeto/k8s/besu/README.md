@@ -6,7 +6,7 @@ plus 1 LoadBalancer and 1 PVC on cluster 2; the one added rule in the old ns `be
 | File | What |
 |---|---|
 | `render.sh net\|nodeinfo\|node <party>` | stage objects: Services + NetworkPolicy, key-info Job, ConfigMaps + StatefulSet. Parties `bi`, `bank-a`, `bank-b`, `bank-c` |
-| `templates/config.toml` | the live validator `config.toml` (snapshot in `test/fixtures/live-config.toml`) with exactly two changes: `discovery-enabled=false`, `p2p-host="${P2P_HOST}"` |
+| `templates/config.toml` | the live validator `config.toml` (snapshot in `test/fixtures/live-config.toml`) with exactly four changes: `discovery-enabled=false`, `p2p-host="${P2P_HOST}"`, `rpc-http-api` narrowed to ETH/NET/WEB3/QBFT/ADMIN, `rpc-ws-api` to ETH/NET/WEB3 (2026-11-12) |
 | `genesis.sh <party>` | ConfigMap `besu-genesis`, `data` copied from ns `besu` (admin read), so it is byte-identical to the live chain config |
 | `nodekey.sh <party>` | Secret `besu-nodekey`: `openssl rand -hex 32` piped into `kubectl create secret`, never written, never printed (run with the party kubeconfig) |
 | `static-nodes.sh` | IP-only `static-nodes.json`; converts the live `besu-peers` DNS entries to old pod IPs; `--new-validators FILE --party P` prints the other 3 new validators only (repoint, below) |
@@ -36,7 +36,7 @@ Gate before each restart: other 3 in sync and 4/4 proposers over 20 blocks (`qbf
 Rollback: re-apply the live `besu-static-nodes` saved before the change and restart that pod again.
 
 ## Choices to read
-- Config parity with the live validators except the two lines; `--Xdns-enabled`/`--Xdns-update-enabled` (live args) are NOT used: new enodes carry IPs.
+- Config parity with the old live validators except those four lines (no DEBUG/TRACE/TXPOOL/PERM: never called in 16 h of `besu_rpc_request_time`; clients reach 8545 only via bank-gw, which has its own method allowlist); `--Xdns-enabled`/`--Xdns-update-enabled` (live args) are NOT used: new enodes carry IPs.
 - Live args kept: `--min-gas-price=0 --nat-method=NONE`; liveness `/liveness` after 180 s; no readiness probe (as live).
 - cluster 1: requests 500m / 2500M (CPU 1 -> 500m by the 2026-11-12 resize, from idle samples; memory unchanged), limits 3 CPU / 5G, `nodeAffinity` off `member-16033-node` and `member-16034-node`, required pod anti-affinity among the new validators
   (`namespaceSelector part-of=rd-zeto`). bank C: requests 250m / 1500M, limits 2 / 3G (first guess, cluster 2 memory is tight [unverified]).
