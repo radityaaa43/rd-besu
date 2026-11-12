@@ -9,7 +9,7 @@ plus 1 LoadBalancer and 1 PVC on cluster 2; the one added rule in the old ns `be
 | `templates/config.toml` | the live validator `config.toml` (snapshot in `test/fixtures/live-config.toml`) with exactly two changes: `discovery-enabled=false`, `p2p-host="${P2P_HOST}"` |
 | `genesis.sh <party>` | ConfigMap `besu-genesis`, `data` copied from ns `besu` (admin read), so it is byte-identical to the live chain config |
 | `nodekey.sh <party>` | Secret `besu-nodekey`: `openssl rand -hex 32` piped into `kubectl create secret`, never written, never printed (run with the party kubeconfig) |
-| `static-nodes.sh` | IP-only `static-nodes.json`; converts the live `besu-peers` DNS entries to old pod IPs |
+| `static-nodes.sh` | IP-only `static-nodes.json`; converts the live `besu-peers` DNS entries to old pod IPs; `--new-validators FILE --party P` prints the other 3 new validators only (repoint, below) |
 | `old-netpol-patch.sh` | prints (APPLY=1 runs) the four add-only patches for TCP 30303 from `rd-zeto-*` / `rd-stealth-*` on the old `besu-node-validator-N-ingress` |
 | `../test-besu.sh`, `test/check.py` | offline assertions; needs bash, python3, PyYAML |
 
@@ -25,6 +25,15 @@ plus 1 LoadBalancer and 1 PVC on cluster 2; the one added rule in the old ns `be
 
 Other new nodes are only reachable after their own steps 2-3; start with the old validators in `static-nodes.json` and re-render the ConfigMap (and restart the pod) when a peer's enode becomes known.
 The old pod IPs last only while the old pods live (PLAN S3 interim): re-run step 4-5 after an old-pod restart.
+
+## Repoint to the new validators only (ConfigMap `besu-static-nodes`, no old ns `besu` pod IP)
+The QBFT set is already the 4 new validators; the old 4 are followers. Input: `new-validators.json` = `{"bi": ENODE, "bank-a": ENODE, "bank-b": ENODE, "bank-c": ENODE}`
+(IP enodes: `admin_nodeInfo` id + the `besu-p2p` LB IP, `?discport=0`; see `test/fixtures/new-validators.json`).
+`./static-nodes.sh --new-validators new-validators.json --party <p> > static-nodes.json` prints the other 3 in the order bi, bank-a, bank-b, bank-c.
+`./render.sh node <p> --p2p-host <LB IP> --static-nodes static-nodes.json` renders `besu-config`, `besu-static-nodes` and the StatefulSet: apply ONLY the `besu-static-nodes` document
+(the other two may differ from live), then restart `besu-validator-0` of ONE party at a time. Besu does not reload `static-nodes.json`.
+Gate before each restart: other 3 in sync and 4/4 proposers over 20 blocks (`qbft_getSignerMetrics`). Proof after: `admin_peers` of the restarted node = exactly the other 3 new enodes (old nodes may still dial in while ns `besu` runs).
+Rollback: re-apply the live `besu-static-nodes` saved before the change and restart that pod again.
 
 ## Choices to read
 - Config parity with the live validators except the two lines; `--Xdns-enabled`/`--Xdns-update-enabled` (live args) are NOT used: new enodes carry IPs.
