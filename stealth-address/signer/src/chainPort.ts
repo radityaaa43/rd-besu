@@ -1,5 +1,6 @@
 import { Contract, FetchRequest, Interface, JsonRpcProvider, zeroPadValue, type Provider } from 'ethers';
 import { LOG_RANGE, type LoggedAnnouncement } from '../../ts/chain.ts';
+import { SCHEME_ID } from '../../ts/stealth.ts';
 import type { ChainPort } from './types.ts';
 
 // ABIs inline (analyst verdict 2). Event/function signatures: src/ERC5564Announcer.sol, src/DvPFactory.sol, ERC1400 + ERC1400TokensValidator.
@@ -10,6 +11,7 @@ const abi = new Interface([
   'function balanceOfByPartition(bytes32 partition, address holder) view returns (uint256)',
   'function generateDomainSeparator() view returns (bytes32)',
   'function usedCertificateNonce(address token, address sender) view returns (uint256)',
+  'function stealthMetaAddressOf(address registrant, uint256 schemeId) view returns (bytes)', // ERC-6538 registry, src/ERC6538Registry.sol:22
 ]);
 
 export type ChainPortOptions = {
@@ -17,6 +19,7 @@ export type ChainPortOptions = {
   announcer: string; validator: string; dvpFactory: string; // contract addresses
   rd: string; bond: string; // announcements are read for these two tokens (caller topic)
   fromBlock: number; // isEscrow scans DvPFactory logs from here
+  registry?: string; // public ERC-6538 registry address (registryMetaAddress only)
 };
 
 // JSON-RPC provider for the party's own Besu node; `token` (see rpcToken.ts) is called per request, so a short-lived JWT never goes stale.
@@ -57,6 +60,11 @@ export function createChainPort(o: ChainPortOptions): ChainPort {
     usedCertificateNonce: (token, sender) => at(o.validator).usedCertificateNonce(token, sender),
     // ponytail: scans DvPFactory logs per call; cache or index if /cert volume matters
     async isEscrow(a) { return (await logs(o.dvpFactory, [topic('EscrowCreated'), null, pad(a)], o.fromBlock)).length > 0; },
+    async registryMetaAddress(identity) {
+      if (!o.registry) throw new Error('registry address not configured');
+      const v: string = await at(o.registry).stealthMetaAddressOf(identity, SCHEME_ID);
+      return v === '0x' ? null : v;
+    },
     async sendRawTransaction(raw) { return (await p.broadcastTransaction(raw)).hash; },
   };
 }
