@@ -17,6 +17,7 @@ default allow := false
 allow if {
 	ext.target == "paladin"
 	data.bi.config.nodes[ext.node]
+	data.bi.caller.ok("paladin", ext.node)
 	data.bi.paladin.allow
 	data.bank.paladin.allow
 	data.bi.balance.allow

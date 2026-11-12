@@ -70,7 +70,7 @@ test_server_only_leaf_denied if not allowed(door_as("node2", read, pki.peer_serv
 
 test_no_ca_data_denies if {
 	not gw.allow with input as door_as("node2", read, leaf.node2)
-		with data.bi.config as object.union(bound, {"lensa_ca": {}})
+		with data.bi.config as object.union(object.remove(bound, ["lensa_ca"]), {"lensa_ca": {}})
 		with data.bank.config as fixtures.bank_a
 }
 

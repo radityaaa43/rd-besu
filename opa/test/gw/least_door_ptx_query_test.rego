@@ -9,8 +9,8 @@ door(node, method, params) := {
 	"parsed_body": {"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
 }
 
-# gw/allow with the shipped documents of both bundles
-allowed(i) if gw.allow with input as i
+# gw/allow with the shipped documents of both bundles; the caller check (opa/test/caller) is out of scope here: these inputs carry no client leaf
+allowed(i) if gw.allow with input as i with data.bi.config.caller_binding as {}
 
 kept := ["ptx_queryTransactions", "ptx_queryTransactionsFull", "ptx_queryTransactionReceipts"]
 
