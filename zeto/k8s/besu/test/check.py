@@ -136,6 +136,11 @@ for party, ns in PARTIES.items():
         check(s["serviceName"] == "besu-validator", f"{party}: serviceName besu-validator")
         aff = json.dumps(pod.get("affinity", {}))
         check("podAntiAffinity" in aff and "namespaceSelector" in aff, f"{party}: anti-affinity across the rd-zeto namespaces (namespaceSelector)")
+        # R22 (analyst GAP): the anti-affinity selects the shared label rd/role=besu-validator (the same label the pod carries), required, hostname topology, across part-of=rd-zeto namespaces.
+        tl = s["template"]["metadata"]["labels"]
+        check(tl.get("rd/role") == "besu-validator", f"{party}: R22 pod label rd/role=besu-validator: {tl}")
+        paa = (pod.get("affinity", {}).get("podAntiAffinity") or {}).get("requiredDuringSchedulingIgnoredDuringExecution") or []
+        check(paa == [{"labelSelector": {"matchLabels": {"rd/role": "besu-validator"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}], f"{party}: R22 required podAntiAffinity on rd/role=besu-validator: {paa}")
         if party != "bank-c":
             check("member-16033-node" in aff and "member-16034-node" in aff and "NotIn" in aff, f"{party}: nodeAffinity keeps the pod off member-16033/16034")
             check(res["requests"] == {"cpu": "500m", "memory": "2500M"} and res["limits"] == {"cpu": "3", "memory": "5G"}, f"{party}: cluster-1 requests 500m / 2500M (resize 2026-11-12: CPU 1 -> 500m, memory unchanged), limits unchanged 3 / 5G")
