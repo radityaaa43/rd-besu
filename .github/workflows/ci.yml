@@ -41,6 +41,7 @@ jobs:
           version: v1.7.1
       - run: npm ci
       - run: forge test
+      - run: npm test   # tsc --noEmit && vitest run (signer + stealth TS); added with the S11 push code, first run of these in CI
 
   opa:
     runs-on: ubuntu-latest

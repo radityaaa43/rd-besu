@@ -4,6 +4,7 @@ import { CERTIFICATE_LENGTH, parseBondMetadata, payloadWithoutCertificate, signC
 import { TRANCHE_A, biRows, pay, read } from '../../ts/chain.ts';
 import { metaAddressOf, scan } from '../../ts/stealth.ts';
 import { parseTokenMetadata } from '../../ts/token.ts';
+import { PARTIES, compareViewKeys } from './compare.ts';
 import type { BankKeys, BiKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
 
 // ABIs inline (analyst verdict 2): the image has no forge output. Signatures: src/RupiahDigital.sol, src/DfabiBond.sol, ERC1400.
@@ -22,6 +23,8 @@ const SEL_PLAIN = bondAbi.getFunction('transferByPartition')!.selector;
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 const MAX_BODY = 64 * 1024;
+const MAX_COPY_BODY = 4096; // a view-key copy is ~300 bytes
+const COPY_IDS = PARTIES.filter((p) => p !== 'bi'); // the slots a bank may push: bank-a, bank-b, bank-c
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message = code) { super(message); }
@@ -29,12 +32,12 @@ class HttpError extends Error {
 
 const sameAddr = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+async function readBody(req: IncomingMessage, max = MAX_BODY): Promise<unknown> {
   let n = 0;
   const chunks: Buffer[] = [];
   for await (const c of req) {
     n += (c as Buffer).length;
-    if (n > MAX_BODY) throw new HttpError(413, 'body_too_large');
+    if (n > max) throw new HttpError(413, 'body_too_large');
     chunks.push(c as Buffer);
   }
   try {
@@ -188,6 +191,28 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     return biRows(cfg.chainId, anns, bi.viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx }));
   }
 
+  // S11 rework: a bank pushes ITS OWN view-key copy (never a spend key) through BI's gateway; OPA already limited the caller to its own slot. Validate, check against the
+  // ERC-6538 registry (same rule as the compare job), write the Secret FIRST, then update the in-memory copies. The body is never logged or echoed.
+  const identities = new Map<string, string>(); // identity address of each copy pushed since start (the copies loaded from disk carry none)
+  async function viewCopy(id: string, body: Record<string, unknown>) {
+    const { viewKey, metaAddress, identityAddress } = body;
+    if (Object.keys(body).length !== 3 || typeof viewKey !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(viewKey) || typeof metaAddress !== 'string' || !/^0x[0-9a-fA-F]{132}$/.test(metaAddress)
+      || typeof identityAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(identityAddress) || !isAddress(identityAddress)) throw new HttpError(422, 'bad_body', 'viewKey, metaAddress and identityAddress required, nothing else');
+    const row = (await compareViewKeys({ registry: (i) => chain.registryMetaAddress(i), banks: [{ id, viewKey, metaAddress, identityAddress }] })).find((r) => r.bank === id)!;
+    if (row.status === 'bad_copy') throw new HttpError(422, 'bad_copy', 'view key does not belong to the meta-address');
+    if (row.status === 'unregistered') throw new HttpError(422, 'unregistered', 'no meta-address registered under the identity address');
+    if (row.status === 'MISMATCH') throw new HttpError(422, 'mismatch', 'registered viewing key differs from the pushed copy');
+    if (row.status !== 'OK') throw new Error('registry read failed'); // generic 502, no cause echoed
+    const cur = bi.viewCopies.find((c) => c.id === id);
+    if (cur && cur.viewKey === viewKey && cur.metaAddress === metaAddress && identities.get(id) === identityAddress) return { status: 200, body: { id, status: 'unchanged' }, note: `viewcopy=${id}` };
+    if (!deps.viewCopyStore) throw new HttpError(502, 'store_error', 'no view copy store configured');
+    try { await deps.viewCopyStore.put(id, { viewKey, metaAddress, identityAddress }); }
+    catch { throw new HttpError(502, 'store_error', 'view copy store write failed'); } // never echo the cause
+    bi.viewCopies = [...bi.viewCopies.filter((c) => c.id !== id), { id, viewKey, metaAddress }].sort((a, b) => (a.id < b.id ? -1 : 1));
+    identities.set(id, identityAddress);
+    return { status: 200, body: { id, status: 'stored' }, note: `viewcopy=${id}` };
+  }
+
   // Custodian: sign only what the rules (a)-(d) of the analyst verdict allow. Nonce and domain come from the chain.
   async function cert(req: IncomingMessage) {
     if (cfg.role !== 'custodian') throw new HttpError(403, 'role_forbidden', '/cert is served by the custodian only');
@@ -235,6 +260,15 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       return { status: 200, body: { kind, rows: await ledger(kind) } };
     }
     if (r === 'GET /history') return { status: 200, body: { party: cfg.party, history: await history() } };
+    if (req.method === 'PUT' && pathname.startsWith('/viewcopy/')) {
+      if (cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'view copies are stored by the BI signer only');
+      const id = pathname.slice('/viewcopy/'.length);
+      if (!COPY_IDS.includes(id)) throw new HttpError(404, 'not_found');
+      const body = (await readBody(req, MAX_COPY_BODY)) as Record<string, unknown>;
+      const run = queue.then(() => viewCopy(id, body));
+      queue = run.catch(() => undefined);
+      return run;
+    }
     if (r === 'POST /intent') {
       const body = await readBody(req);
       const run = queue.then(() => intent(body));

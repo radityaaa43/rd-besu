@@ -2,6 +2,8 @@
 // Env: PARTY, ROLE (bank|custodian|bi), PORT, CHAIN_ID, RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY, FROM_BLOCK, RPC_URL,
 // RPC_JWT_KEY_FILE (optional: the node's RS256 private key; the signer mints <= 900 s tokens from it), KEYS_DIR (bank: files spendKey, viewKey, identityKey; bi: issuerKey, spendKey, viewKey + the view copies <id>.viewKey and <id>.metaAddress from VIEWCOPIES_DIR (default ${KEYS_DIR}/viewcopies; a missing directory means no copies); custodian: file certKey ONLY),
 // VIEWCOPIES_DIR (bi only, optional): directory of the per-bank view copies, e.g. the mount of the optional Secret stealth-bi-viewcopies.
+// REGISTRY (bi only, optional): public ERC-6538 registry address; with it `PUT /viewcopy/<id>` checks the pushed copy against the registry. The write of a pushed copy
+// uses the projected ServiceAccount of the pod (token, ca.crt, namespace) and the Role on the one Secret stealth-bi-viewcopies.
 // bank and bi: CERT_URL + optional CERT_SERVERNAME + TLS_DIR (client.key, client.crt, ca.crt); custodian: TLS_DIR (server.key, server.crt, ca.crt) + BANK_SIGNERS (comma list of "CN=...").
 import { readFileSync } from 'node:fs';
 import { createServer as createHttps } from 'node:https';
@@ -12,6 +14,7 @@ import { loadKeys } from './keys.ts';
 import { createRpcTokenSource } from './rpcToken.ts';
 import { createMtlsFetch } from './mtls.ts';
 import { createSigner } from './server.ts';
+import { createViewCopyStore } from './viewcopyStore.ts';
 import type { SignerConfig } from './types.ts';
 
 const env = (n: string) => process.env[n] ?? (() => { throw new Error(`missing env ${n}`); })();
@@ -29,7 +32,7 @@ const keys = loadKeys(role, dir, undefined, undefined, process.env.VIEWCOPIES_DI
 const jwt = process.env.RPC_JWT_KEY_FILE ? createRpcTokenSource(readFileSync(process.env.RPC_JWT_KEY_FILE, 'utf8')) : undefined;
 const chain = createChainPort({
   provider: createProvider(env('RPC_URL'), cfg.chainId, jwt),
-  announcer: env('ANNOUNCER'), validator: env('VALIDATOR'), dvpFactory: env('DVP_FACTORY'), rd: cfg.rd, bond: cfg.bond, fromBlock: cfg.fromBlock,
+  announcer: env('ANNOUNCER'), validator: env('VALIDATOR'), dvpFactory: env('DVP_FACTORY'), rd: cfg.rd, bond: cfg.bond, fromBlock: cfg.fromBlock, registry: process.env.REGISTRY || undefined,
 });
 const log = (line: string) => process.stdout.write(line + '\n');
 const tls = process.env.TLS_DIR;
@@ -41,7 +44,7 @@ const peer = (req: import('node:http').IncomingMessage) => {
   const cn = (req.socket as TLSSocket).getPeerCertificate?.()?.subject?.CN;
   return cn ? { subject: `CN=${cn}` } : undefined;
 };
-const app = createSigner(cfg, { keys, chain, log, cert: certClient, peer });
+const app = createSigner(cfg, { keys, chain, log, cert: certClient, peer, viewCopyStore: role === 'bi' ? createViewCopyStore() : undefined });
 const port = Number(process.env.PORT ?? 8080);
 
 if (role === 'custodian') {
