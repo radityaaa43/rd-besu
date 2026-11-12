@@ -10,7 +10,7 @@
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
 #   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' Paladin transport (same-cluster peers: namespaceSelector + that peer's node pods; the other cluster's peer: its LB IP /32), besu-validator 8545+8546 in the own ns,
 #                                                  paladin-pg 5432 in the own ns, kube-dns 53 UDP/TCP. NOTHING else. Apply per node, ONE at a time, with the proof (docs/R17 in the S21 text).
-#   render.sh sts-placement <party> [--avoid-node NODE]   R22: ONE JSON merge patch line for the StatefulSet paladin-node<N> template (required anti-affinity on app=paladin, optional nodeAffinity NotIn NODE):
+#   render.sh sts-placement <party> [--avoid-node NODE | --undo]   R22 (--undo = the inverse merge patch, affinity null; party-admin has no apps/controllerrevisions, so no `rollout undo`): ONE JSON merge patch line for the StatefulSet paladin-node<N> template (required anti-affinity on app=paladin, optional nodeAffinity NotIn NODE):
 #                                                  render.sh sts-placement <p> | kubectl -n rd-zeto-<p> patch statefulset paladin-node<N> --type merge --patch-file /dev/stdin
 #   render.sh pull-secret <party>                  ONE JSON patch line: add `ghcr-pull` to the party ns's default ServiceAccount imagePullSecrets, appended (`/imagePullSecrets/-`), so the two ACK acr-credential-* entries stay:
 #                                                  render.sh pull-secret <p> | kubectl -n rd-zeto-<p> patch serviceaccount default --type json --patch-file /dev/stdin
@@ -279,7 +279,8 @@ case "${1:-}" in
   probe-placement) [[ $# == 2 ]] || die "usage: render.sh probe-placement <party>"; num "$2" >/dev/null; probe_placement "$2"; exit 0 ;;
   probe-listener) [[ $# == 2 ]] || die "usage: render.sh probe-listener <party>"; num "$2" >/dev/null; probe_listener "$2"; exit 0 ;;
   egress) [[ $# == 4 && "$3" == --lb-ips ]] || die "usage: render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP"; egress "$2" "$4"; exit 0 ;;
-  sts-placement) [[ $# == 2 || ( $# == 4 && "$3" == --avoid-node ) ]] || die "usage: render.sh sts-placement <party> [--avoid-node NODE]"; num "$2" >/dev/null; sts_placement "${4:-}"; exit 0 ;;
+  sts-placement) [[ $# == 2 || ( $# == 3 && "$3" == --undo ) || ( $# == 4 && "$3" == --avoid-node ) ]] || die "usage: render.sh sts-placement <party> [--avoid-node NODE | --undo]"; num "$2" >/dev/null
+    if [[ "${3:-}" == --undo ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"affinity":null}}}}'; else sts_placement "${4:-}"; fi; exit 0 ;;
   pull-secret) [[ $# == 2 ]] || die "usage: render.sh pull-secret <party>"; num "$2" >/dev/null; pull_secret; exit 0 ;;
   pull-test) [[ $# == 4 && "$3" == --image ]] || die "usage: render.sh pull-test <party> --image REF"; num "$2" >/dev/null; pull_test "$2" "$4"; exit 0 ;;
   probe-client) [[ $# == 4 ]] || die "usage: render.sh probe-client <party> <name> <IPv4>"; num "$2" >/dev/null; probe_client "$2" "$3" "$4"; exit 0 ;;

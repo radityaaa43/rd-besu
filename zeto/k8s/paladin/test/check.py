@@ -312,6 +312,22 @@ for party in PARTIES:
     want = {"podAntiAffinity": ANTI, "nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "NotIn", "values": ["member-16031-node"]}]}]}}}
     check(r.returncode == 0 and patch is not None and patch["spec"]["template"]["spec"]["affinity"] == want, f"{party}: sts-placement --avoid-node patch {r.stdout!r}")
     check("podAffinity" not in r.stdout.replace("podAntiAffinity", "") and "preferred" not in r.stdout and "name" not in json.dumps(patch.get("metadata", {}) if patch else {}), f"{party}: no soft rules, no object name in the patch")
+def merge_patch(doc, patch):  # RFC 7386
+    if not isinstance(patch, dict): return patch
+    out = dict(doc) if isinstance(doc, dict) else {}
+    for k, v in patch.items():
+        if v is None: out.pop(k, None)
+        else: out[k] = merge_patch(out.get(k), v)
+    return out
+for party in PARTIES:
+    r = run("sts-placement", party, "--undo")
+    check(r.returncode == 0 and r.stdout == '{"spec":{"template":{"spec":{"affinity":null}}}}\n', f"{party}: sts-placement --undo prints the inverse merge patch: rc={r.returncode} {r.stdout!r}")
+    base = {"spec": {"replicas": 1, "template": {"metadata": {"labels": {"app": "paladin"}}, "spec": {"containers": [{"name": "paladin"}], "volumes": []}}}}
+    for extra in ([], ["--avoid-node", "member-16031-node"]):
+        do = json.loads(run("sts-placement", party, *extra).stdout); undo = json.loads(r.stdout)
+        check(merge_patch(merge_patch(base, do), undo) == base, f"{party}: undo applied after the patch {extra} must give back the original template (affinity absent)")
+for bad in (["sts-placement", "bi", "--undo", "--avoid-node", "x"], ["sts-placement", "bi", "--undo", "x"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 for bad in (["sts-placement"], ["sts-placement", "nobody"], ["sts-placement", "bi", "--avoid-node"], ["sts-placement", "bi", "--avoid-node", "Bad Node"], ["sts-placement", "bi", "--avoid-node", "a", "b"], ["sts-placement", "bi", "--other", "x"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
