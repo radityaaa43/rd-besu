@@ -37,7 +37,7 @@
       "ptx_getPreparedTransaction", "ptx_getStoredABI", "ptx_getTransactionDependencies",
       "ptx_getPublicTransactionByHash", "ptx_getPublicTransactionByNonce",
       "ptx_queryTransactions", "ptx_queryTransactionsFull", "ptx_queryTransactionReceipts",
-      "ptx_queryPendingTransactions", "ptx_queryPreparedTransactions", "ptx_queryPublicTransactions",
+      "ptx_queryPublicTransactions",
       "ptx_queryPendingPublicTransactions", "ptx_queryStoredABIs",
       "ptx_resolveVerifier", "ptx_call", "ptx_decodeCall", "ptx_decodeEvent", "ptx_decodeError",
       "pstate_listSchemas", "pstate_getSchemaById", "pstate_queryStates", "pstate_queryContractStates",
