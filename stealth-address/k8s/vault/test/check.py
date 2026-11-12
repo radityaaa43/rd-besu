@@ -134,6 +134,28 @@ if len(pods) == 4:
         s = pods[n]["spec"]["containers"][0]["command"][-1]
         check("timeout 5 nc -z" in s and "BLOCKED" in s and "REFUSED" in s and "for i in 1 2 3" in s, f"{n}: nc with timeout, BLOCKED vs REFUSED, 3 attempts")
 
+# operator-exec: the ONLY exec power on the key holder, bound to the operator's own human User/Group, time-boxed (no session/SA ever execs into vault-0)
+for party, ns in WITH_C.items():
+    for kind, name in (("User", "alice@example.org"), ("Group", "rd-vault-operators")):
+        ds = docs(render, "operator-exec", party, "--subject-kind", kind, "--subject-name", name)
+        check(sorted(d["kind"] for d in ds) == ["Role", "RoleBinding"], f"{party}: operator-exec kinds must be exactly Role + RoleBinding: {[d['kind'] for d in ds]}")
+        for d in ds:
+            m = d["metadata"]
+            check(m["name"] == "vault-operator-exec" and m.get("namespace") == ns and m.get("labels") == {**lab(party), "rd/time-boxed": "true"} and m.get("annotations") == {"rd/time-box": "delete after the S7 window"}, f"{party}: {d['kind']} vault-operator-exec needs namespace {ns}, labels {lab(party)} + rd/time-boxed, annotation rd/time-box: {m}")
+        r, rb = of(ds, "Role"), of(ds, "RoleBinding")
+        if r and rb:
+            check(r[0]["rules"] == [{"apiGroups": [""], "resources": ["pods"], "resourceNames": ["vault-0"], "verbs": ["get"]}, {"apiGroups": [""], "resources": ["pods/exec"], "resourceNames": ["vault-0"], "verbs": ["create", "get"]}], f"{party}: vault-operator-exec rules exactly pods get + pods/exec create,get on vault-0: {r[0]['rules']}")
+            check(rb[0]["roleRef"] == {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "vault-operator-exec"} and rb[0]["subjects"] == [{"apiGroup": "rbac.authorization.k8s.io", "kind": kind, "name": name}], f"{party}: RoleBinding has ONE subject, the {kind} {name} (no ServiceAccount): {rb[0]['subjects']}")
+ok = ("--subject-kind", "User", "--subject-name", "alice@example.org")
+for bad in (["operator-exec", "bi", "--subject-kind", "ServiceAccount", "--subject-name", "x"], ["operator-exec", "bi", "--subject-kind", "user", "--subject-name", "x"],
+            ["operator-exec", "bi", "--subject-kind", "User", "--subject-name", ""], ["operator-exec", "bi", "--subject-kind", "User", "--subject-name", "party-admin"],
+            ["operator-exec", "bi", "--subject-kind", "User", "--subject-name", "x-party-admin-y"], ["operator-exec", "bi", "--subject-kind", "Group", "--subject-name", "system:masters"],
+            ["operator-exec", "bi", "--subject-kind", "User"], ["operator-exec", "bi", "--subject-name", "x"], ["operator-exec", "bi"], ["operator-exec"],
+            ["operator-exec", "nope", *ok], ["operator-exec", "all", *ok], ["operator-exec", "bi", *ok, "--extra", "1"], ["operator-exec", "bi", *ok, "bank-a"],
+            ["operator-exec", "bi", "--subject-kind", "User", "--subject-kind", "Group", "--subject-name", "x"]):
+    o = run(render, *bad)
+    check(o.returncode == 2 and not o.stdout, f"operator-exec must be refused with exit 2 and no output: {' '.join(bad)} -> {o.returncode}")
+
 # optional: render the real pinned chart
 chart_dir = os.environ.get("VAULT_CHART_DIR")
 if chart_dir and shutil.which("helm"):

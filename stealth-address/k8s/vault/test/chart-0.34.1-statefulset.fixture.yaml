@@ -1,0 +1,43 @@
+# FIXTURE, not a render. It mirrors what `helm template vault <hashicorp/vault chart 0.34.1> -n rd-stealth-<party> -f <render.sh values <party>>` produces for the
+# server StatefulSet pod template and the two Services (labels, selectors, volumes, serviceAccountName), reduced to the fields the egress tests use.
+# It is REPLACED by the real render when VAULT_CHART_DIR (unpacked chart 0.34.1) and helm are available (zeto/k8s/egress/test/gate.py prints which source ran).
+# UNVERIFIED against the real chart: the exact volume list and whether server.extraLabels reach the pod template. The labels name/instance/component are the
+# ones vault-ingress (templates/access.yaml) selects. ${NS} and ${PARTY} are substituted by the tests (bi | bank-a | bank-b | bank-c).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: ${NS}
+spec:
+  serviceName: vault-internal
+  selector:
+    matchLabels: {app.kubernetes.io/name: vault, app.kubernetes.io/instance: vault, component: server}
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: vault-0.34.1
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/instance: vault
+        component: server
+        part-of: rd-stealth
+        party: ${PARTY}
+    spec:
+      serviceAccountName: vault
+      containers:
+        - name: vault
+          image: hashicorp/vault:2.0.4
+      volumes:
+        - {name: config, configMap: {name: vault-config}}
+        - {name: home, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vault, namespace: ${NS}}
+spec:
+  selector: {app.kubernetes.io/name: vault, app.kubernetes.io/instance: vault, component: server}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vault-internal, namespace: ${NS}}
+spec:
+  selector: {app.kubernetes.io/name: vault, app.kubernetes.io/instance: vault, component: server}

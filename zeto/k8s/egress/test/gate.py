@@ -2,10 +2,12 @@
 """R17-zeto-other GATE (offline): no pod template that holds key material may be selected by an allow-all egress policy (`egress: [{}]`) of its own namespace.
 Key material = a Secret volume, a secretKeyRef/secretRef env, a projected Secret, or a mounted ServiceAccount token (serviceAccountName set, automount not false).
 Policies come from the party baselines (zeto/k8s/templates/party.yaml, stealth-address/k8s/templates/party.yaml); pods from the existing workload renders.
+The Vault StatefulSet (stealth-address/k8s/vault, upstream chart 0.34.1, no render of ours) comes from `helm template` when VAULT_CHART_DIR (unpacked chart) and helm are available, else from the
+checked-in fixture stealth-address/k8s/vault/test/chart-0.34.1-statefulset.fixture.yaml; the source used is printed.
 Usage: gate.py (run from anywhere). Exit 0 = gate holds; 1 = failures on stderr. Needs PyYAML + bash; no cluster.
 Second rule: every key holder must be selected by at least one Egress policy (a pod no Egress policy selects has OPEN egress) - the narrow policies come from zeto/k8s/egress and
 stealth-address/k8s/egress. Also proves the gate can fail: the PRE-R17 baselines (inlined below) must flag the known key holders, and every known holder must have been collected."""
-import json, os, subprocess, sys, tempfile, yaml
+import json, os, shutil, subprocess, sys, tempfile, yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ZETO = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -26,6 +28,27 @@ def docs(*cmd):
         fails.append(f"{' '.join(os.path.relpath(c) if os.path.exists(c) else c for c in cmd)[:120]} exited {r.returncode}: {r.stderr.strip()[:160]}")
         return []
     return [d for d in yaml.safe_load_all(r.stdout) if d]
+
+
+VAULT_FIX = os.path.join(STEALTH, "vault", "test", "chart-0.34.1-statefulset.fixture.yaml")
+VAULT_SRC = set()
+
+
+def vault_sts(p):
+    """The Vault StatefulSet of rd-stealth-<p>: the real chart render if VAULT_CHART_DIR + helm are there, else the fixture (mirrors chart 0.34.1)."""
+    chart = os.environ.get("VAULT_CHART_DIR")
+    if chart and shutil.which("helm"):
+        vals = os.path.join(tmp, f"vault-values-{p}.yaml")
+        r = subprocess.run(["bash", f"{STEALTH}/vault/render.sh", "values", p], capture_output=True, text=True)
+        open(vals, "w").write(r.stdout)
+        h = subprocess.run(["helm", "template", "vault", chart, "-n", f"rd-stealth-{p}", "-f", vals], capture_output=True, text=True)
+        if r.returncode != 0 or h.returncode != 0:
+            fails.append(f"vault {p}: values/helm template failed: {(r.stderr + h.stderr).strip()[:160]}")
+            return []
+        VAULT_SRC.add("helm render")
+        return [d for d in yaml.safe_load_all(h.stdout) if d and d["kind"] == "StatefulSet"]
+    VAULT_SRC.add("fixture")
+    return [d for d in yaml.safe_load_all(open(VAULT_FIX).read().replace("${NS}", f"rd-stealth-{p}").replace("${PARTY}", p)) if d and d["kind"] == "StatefulSet"]
 
 
 def templates(ds):
@@ -127,6 +150,7 @@ for p in ("bi", "bank-a", "bank-b", "bank-c"):
     add(docs(f"{STEALTH}/rpc/render.sh", *c2, "node", p, "--static-nodes", sn))
     add(docs(f"{STEALTH}/gateway/render.sh", p))
     add(docs(f"{STEALTH}/signer/render.sh", p, "--image", IMG, "--chain-env", chain, "--cert-url", CERT))
+    add(vault_sts(p))
 ZE, SE = f"{ZETO}/egress/render.sh", f"{STEALTH}/egress/render.sh"
 for p in ("bi", "bank-a", "bank-b", "bank-c"):
     lb = ["--other-cluster-lb", "203.0.113.31", "--other-cluster-lb", "203.0.113.32", "--other-cluster-lb", "203.0.113.33"] if p == "bank-c" else ["--other-cluster-lb", "203.0.113.30"]
@@ -135,6 +159,7 @@ for p in ("bi", "bank-a", "bank-b", "bank-c"):
     narrow += docs(SE, "besu-rpc", p)
     narrow += docs(SE, "signer", p, *(["--cert-lb-ip", "203.0.113.9"] if p == "bank-c" else []))
     narrow += docs(SE, "gateway", p)
+    narrow += docs(SE, "vault", p, "--kube-api-ip", "198.51.100.12")
 for w in ("custodian", "compare"):
     narrow += docs(SE, w, "bi")
 add(docs(f"{STEALTH}/signer/render.sh", "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a"))
@@ -143,7 +168,7 @@ add(docs(f"{STEALTH}/signer/render.sh", "compare", "--image", IMG, "--chain-env"
 # collection completeness: the key holders the orchestrator named must have been found (else the gate would pass by looking at nothing)
 want = {("Deployment/bank-gw-1", "rd-zeto-bi"), ("Deployment/bank-gw-4", "rd-zeto-bank-c"), ("Deployment/bundle-server", "rd-zeto-bank-a"), ("StatefulSet/besu-validator", "rd-zeto-bank-b"),
         ("Deployment/paladin-operator", "rd-zeto-bi"), ("StatefulSet/paladin-pg", "rd-zeto-bank-c"), ("StatefulSet/besu-rpc", "rd-stealth-bank-c"), ("StatefulSet/besu-rpc", "rd-stealth-bi"),
-        ("Deployment/stealth-signer", "rd-stealth-bank-a"), ("Deployment/st-gw-1", "rd-stealth-bi")}
+        ("Deployment/stealth-signer", "rd-stealth-bank-a"), ("Deployment/st-gw-1", "rd-stealth-bi"), ("StatefulSet/vault", "rd-stealth-bank-a"), ("StatefulSet/vault", "rd-stealth-bank-c")}
 got = {(t, n) for t, n, _, _ in holders}
 for w in sorted(want - got):
     fails.append(f"gate collected no key holder {w[0]} in {w[1]} (renders changed? the gate would pass by looking at nothing)")
@@ -151,7 +176,7 @@ for w in sorted(want - got):
 old_pols = [old(f"rd-zeto-{p}", OLD_ZETO) for p in ("bi", "bank-a", "bank-b", "bank-c")] + [old(f"rd-stealth-{p}", OLD_STEALTH) for p in ("bi", "bank-a", "bank-b", "bank-c")]
 red = gate(holders, old_pols)
 flagged = {o.split(" in ")[0] for o in red}
-for must in ("Deployment/bank-gw-1", "Deployment/bundle-server", "StatefulSet/besu-validator", "Deployment/paladin-operator", "StatefulSet/paladin-pg", "StatefulSet/besu-rpc"):
+for must in ("Deployment/bank-gw-1", "Deployment/bundle-server", "StatefulSet/besu-validator", "Deployment/paladin-operator", "StatefulSet/paladin-pg", "StatefulSet/besu-rpc", "StatefulSet/vault"):
     if must not in flagged:
         fails.append(f"RED fixture: the PRE-R17 baselines must flag {must}, the gate did not")
 if "--show-old" in sys.argv:
@@ -165,6 +190,7 @@ for tag, ns, lab, why in holders:  # no Egress policy at all = open egress
 
 for e in exempt_seen[:1]:
     print("EXEMPT " + e)
+print("vault pod template source: " + " + ".join(sorted(VAULT_SRC)))
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)
