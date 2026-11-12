@@ -10,7 +10,7 @@
 #   1-4   GET   health, public reads, tx status (hash=<64 hex>[&scope=]), balance reads (owned_by=<I105>)   lensa, bank-*, bi
 #   5-7   POST/GET  signed tx submit, APS client calls and reads                                            bank-*, bi (not lensa)
 #   8     POST  audit capsule/approvals                                                                     bi
-#   9-10  GET /healthz, POST /settle-grant, /dvp-native                                                     lensa
+#   9-10  GET /healthz, POST /settle-grant, /dvp-native, /transfer                                          lensa
 #   11    POST /mint                                                                                        lensa, node bi only
 #   12    GET /tx/<64 hex>                                                                                  lensa; bi role at node bi only
 #   14    GET /balance?asset=<Base58> (exactly one param)                                                   lensa only
@@ -123,7 +123,7 @@ route("lensa") if {
 
 route("lensa") if {
 	method == "POST"
-	path in {"/settle-grant", "/dvp-native"}
+	path in {"/settle-grant", "/dvp-native", "/transfer"}
 }
 
 # Row 11: BI-only mint.

@@ -127,7 +127,7 @@ rows := [
 		"deny": [{"roles": ["bank-a", "bank-b", "bank-c", "bi"], "nodes": nodes}],
 	},
 	{
-		"row": 10, "method": "POST", "paths": ["/settle-grant", "/dvp-native"],
+		"row": 10, "method": "POST", "paths": ["/settle-grant", "/dvp-native", "/transfer"],
 		"allow": [{"roles": ["lensa"], "nodes": nodes}],
 		"deny": [{"roles": ["bank-a", "bank-b", "bank-c", "bi"], "nodes": nodes}],
 	},
@@ -190,6 +190,7 @@ test_bank_cannot_settle_grant if {
 		every n in nodes {
 			not allowed(n, role, "POST", "/settle-grant")
 			not allowed(n, role, "POST", "/dvp-native")
+			not allowed(n, role, "POST", "/transfer")
 		}
 	}
 }
