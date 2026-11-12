@@ -6,12 +6,12 @@ Stacked on #14 (stealth L0 namespaces); retarget to `main` after #14 merges.
 
 | File | What |
 |---|---|
-| `values.yaml` | values for chart `hashicorp/vault` **0.34.1** (Vault **2.0.4**): standalone, file storage on a 20Gi PVC of class `rd-retain-essd`, injector/csi/ui off, `fullnameOverride: vault`, own NetworkPolicy and auth-delegator |
+| `values.yaml` | values for chart `hashicorp/vault` **0.34.1** (Vault **2.0.4**): standalone, file storage on a 5Gi PVC of class `rd-retain-essd`, injector/csi/ui off, `fullnameOverride: vault`, own NetworkPolicy and auth-delegator |
 | `templates/access.yaml` | ServiceAccount `stealth-signer` (token on) + NetworkPolicy `vault-ingress` (only pods `app=stealth-signer` of the same namespace, TCP 8200) |
 | `templates/auth-delegator.yaml` | the only cluster-scoped object: ClusterRoleBinding `vault-auth-delegator-<ns>` (`system:auth-delegator` for SA `vault`), applied by the cluster operator |
 | `templates/storage.yaml`, `templates/snapshot.yaml` | cluster-scoped StorageClass `rd-retain-essd` (cloud_essd, **Retain**, WaitForFirstConsumer) + VolumeSnapshotClass `rd-retain-snapshot` (Retain); `render.sh snapshot <party> <tag>` = VolumeSnapshot of `data-vault-0` |
 | `policies/stealth-signer.hcl` | the signer reads exactly `secret/data/stealth-keys` |
-| `render.sh` | `<bi\|bank-a\|bank-b\|all>`, `values <party>`, `cluster <party\|all>`, `storage`, `snapshot <party> <tag>`, `probe <own> <other>`; `bank-c` (cluster 2) is refused |
+| `render.sh` | `<bi\|bank-a\|bank-b\|bank-c\|all>`, `values <party>`, `cluster <party\|all>`, `storage`, `snapshot <party> <tag>`, `probe <own> <other>`; `bank-c` (cluster 2) renders the same objects with label `cluster: "2"`, is not part of `all`/`cluster all`, and `probe` refuses it; `storage` is applied once per cluster (the same file on cluster 2) |
 | `test.sh`, `test/check.py` | offline assertions; `VAULT_CHART_DIR=<unpacked chart 0.34.1>` also renders the real chart with helm (else SKIP is printed) |
 
 Changes to stealth L0 (#14) in this PR, both on LIVE objects once L0 is applied:
@@ -74,4 +74,4 @@ Expected: `vprobe-signer READ-OK`, `vprobe-wrongsa LOGIN-DENIED`, `vprobe-gw rd-
 - **Cluster-scoped binding**: `vault-auth-delegator-<ns>` is the one cluster-scoped grant (TokenReview). Whether kubernetes auth works as configured on ACK is [unverified]; the alternative is AppRole (a Secret again).
 - **Probe image applets** (`nc`, `timeout`, exit codes 124/143) in `hashicorp/vault:2.0.4` are [unverified] until the first run; the probe pods print `ERROR` or `REFUSED` if wrong, which is not a result.
 - **Hard limit 6** (PLAN): the signer holds the spending key in memory; Vault holds it at rest only. **Licence**: Vault has been under BUSL since 1.16; the licence of 2.0.4 was not read [unverified]; OpenBao is the open fork if that matters [not decided here].
-- Sizes (20Gi PVC, 100m/256Mi requests) are a first guess [unverified]; the snapshot restore test is the S9 gate (Backup section).
+- Sizes (5Gi PVC, 100m/256Mi requests) are a first guess [unverified]; the snapshot restore test is the S9 gate (Backup section).

@@ -5,7 +5,8 @@ Needs PyYAML only; no cluster. VAULT_CHART_DIR (+ helm) adds a render of the pin
 import os, re, shutil, subprocess, sys, yaml
 
 render, s1render, policy = sys.argv[1:4]
-PARTIES = {"bi": "rd-stealth-bi", "bank-a": "rd-stealth-bank-a", "bank-b": "rd-stealth-bank-b"}
+PARTIES = {"bi": "rd-stealth-bi", "bank-a": "rd-stealth-bank-a", "bank-b": "rd-stealth-bank-b"}  # cluster 1: what `all` renders
+WITH_C = {**PARTIES, "bank-c": "rd-stealth-bank-c"}  # bank-c is on cluster 2: same objects, labels carry cluster "2", never part of `all`
 CHART, IMAGE = "0.34.1", "hashicorp/vault:2.0.4"
 fails = []
 
@@ -29,11 +30,15 @@ def docs(cmd, *args):
 def of(ds, kind):
     return [d for d in ds if d["kind"] == kind]
 
-for party, ns in PARTIES.items():
+def lab(party):
+    return {"part-of": "rd-stealth", "party": party, **({"cluster": "2"} if party == "bank-c" else {})}
+
+
+for party, ns in WITH_C.items():
     ds = docs(render, party)
     check(sorted(d["kind"] for d in ds) == ["NetworkPolicy", "ServiceAccount"], f"{party}: kinds must be exactly ServiceAccount + NetworkPolicy (no Secret, no key material): {[d['kind'] for d in ds]}")
     for d in ds:
-        check(d["metadata"].get("namespace") == ns and d["metadata"].get("labels", {}).get("part-of") == "rd-stealth" and d["metadata"]["labels"].get("party") == party, f"{party}: {d['kind']}/{d['metadata']['name']} needs namespace {ns} and labels part-of=rd-stealth, party={party}")
+        check(d["metadata"].get("namespace") == ns and d["metadata"].get("labels") == lab(party), f"{party}: {d['kind']}/{d['metadata']['name']} needs namespace {ns} and labels {lab(party)} (cluster \"2\" for bank-c only)")
     sa = of(ds, "ServiceAccount")
     check(len(sa) == 1 and sa[0]["metadata"]["name"] == "stealth-signer" and sa[0].get("automountServiceAccountToken") is True, f"{party}: ServiceAccount stealth-signer with a token (Vault kubernetes auth needs it)")
     np = of(ds, "NetworkPolicy")
@@ -56,9 +61,9 @@ for party, ns in PARTIES.items():
         check(srv["networkPolicy"]["enabled"] is False, f"{party}: chart NetworkPolicy off (ours is vault-ingress)")
         check(srv["image"] == {"repository": "hashicorp/vault", "tag": "2.0.4"}, f"{party}: image pinned hashicorp/vault:2.0.4: {srv.get('image')}")
         ds_ = srv["dataStorage"]
-        check(ds_["enabled"] is True and ds_["size"] == "20Gi" and ds_["storageClass"] == "rd-retain-essd" and ds_["accessMode"] == "ReadWriteOnce", f"{party}: dataStorage 20Gi rd-retain-essd (Retain) RWO")
+        check(ds_["enabled"] is True and ds_["size"] == "5Gi" and ds_["storageClass"] == "rd-retain-essd" and ds_["accessMode"] == "ReadWriteOnce", f"{party}: dataStorage 5Gi rd-retain-essd (Retain) RWO")
         check(set(srv["resources"].get("requests", {})) >= {"cpu", "memory"} and set(srv["resources"].get("limits", {})) >= {"cpu", "memory"}, f"{party}: requests and limits set")
-        check(srv["extraLabels"] == {"part-of": "rd-stealth", "party": party}, f"{party}: extraLabels part-of, party")
+        check(srv["extraLabels"] == lab(party), f"{party}: extraLabels {lab(party)}")
         check('storage "file"' in srv["standalone"]["config"] and "tls_disable = 1" in srv["standalone"]["config"], f"{party}: standalone config uses file storage on the PVC")
     else:
         check(False, f"{party}: render.sh values {party} must emit one document")
@@ -70,13 +75,16 @@ for party, ns in PARTIES.items():
         check(cl[0]["roleRef"] == {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "system:auth-delegator"} and cl[0]["subjects"] == [{"kind": "ServiceAccount", "name": "vault", "namespace": ns}], f"{party}: binds only system:auth-delegator to ServiceAccount vault of {ns}")
 
     # stealth S1 (PR #14) allow-same-namespace would let st-gw reach the key store (policies add up)
-    s1 = docs(s1render, party)
+    s1 = docs(s1render, "--cluster", "2", party) if party == "bank-c" else docs(s1render, party)
     same = [d for d in of(s1, "NetworkPolicy") if d["metadata"]["name"] == "allow-same-namespace"]
     sel = same[0]["spec"]["podSelector"].get("matchExpressions", []) if same else []
     check(any(e["key"] == "app.kubernetes.io/name" and e["operator"] == "NotIn" and "vault" in e["values"] for e in sel), f"{party}: S1 allow-same-namespace must exclude app.kubernetes.io/name=vault, else vault-ingress restricts nothing")
 
-check(run(render, "bank-c").returncode != 0, "render.sh bank-c must fail (cluster 2 is out of scope)")
-check([d["metadata"]["namespace"] for d in docs(render, "all") if d["kind"] == "NetworkPolicy"] == list(PARTIES.values()), "all: one vault-ingress per party in order bi, bank-a, bank-b")
+check(run(render, "probe", "bank-c", "bank-a").returncode != 0 and run(render, "probe", "bank-a", "bank-c").returncode != 0, "probe: bank-c (cluster 2) is refused (a probe across clusters proves nothing)")
+check(run(render, "bank-d").returncode != 0 and run(render, "values", "bank-d").returncode != 0, "unknown party refused")
+sn_c = docs(render, "snapshot", "bank-c", "t1")
+check(len(sn_c) == 1 and sn_c[0]["metadata"]["namespace"] == "rd-stealth-bank-c" and sn_c[0]["metadata"]["labels"] == lab("bank-c"), "snapshot bank-c: namespace rd-stealth-bank-c, labels with cluster 2")
+check([d["metadata"]["namespace"] for d in docs(render, "all") if d["kind"] == "NetworkPolicy"] == list(PARTIES.values()), "all: one vault-ingress per cluster-1 party in order bi, bank-a, bank-b (bank-c is cluster 2: never in `all`)")
 
 # cluster-scoped storage (user-only): a Retain class for the key store and a Retain snapshot class
 st = docs(render, "storage")
@@ -91,7 +99,7 @@ sn = docs(render, "snapshot", "bank-a", "pre-s9")
 check(len(sn) == 1 and sn[0]["kind"] == "VolumeSnapshot" and sn[0]["metadata"]["name"] == "vault-data-pre-s9" and sn[0]["metadata"]["namespace"] == "rd-stealth-bank-a" and sn[0]["spec"]["source"] == {"persistentVolumeClaimName": "data-vault-0"} and sn[0]["spec"]["volumeSnapshotClassName"] == "rd-retain-snapshot", f"snapshot: VolumeSnapshot vault-data-pre-s9 of PVC data-vault-0, class rd-retain-snapshot: {sn}")
 check(run(render, "snapshot", "bank-a", "Pre S9!").returncode != 0, "snapshot: the tag must be a DNS label fragment")
 cl_all = docs(render, "cluster", "all")
-check([d["metadata"]["name"] for d in cl_all] == [f"vault-auth-delegator-{n}" for n in PARTIES.values()], "cluster all: exactly the three vault-auth-delegator ClusterRoleBindings in order")
+check([d["metadata"]["name"] for d in cl_all] == [f"vault-auth-delegator-{n}" for n in PARTIES.values()], "cluster all: exactly the three cluster-1 vault-auth-delegator ClusterRoleBindings in order (bank-c's is `cluster bank-c`, applied on cluster 2)")
 
 # policy: the signer may read exactly one path
 try:
@@ -143,7 +151,7 @@ if chart_dir and shutil.which("helm"):
         check(not of(h, "ClusterRoleBinding") and not of(h, "Deployment") and not of(h, "NetworkPolicy"), "chart: no ClusterRoleBinding, injector Deployment or NetworkPolicy")
         check([d["metadata"]["name"] for d in of(h, "Service")] == ["vault-internal", "vault"] or sorted(d["metadata"]["name"] for d in of(h, "Service")) == ["vault", "vault-internal"], "chart: Services vault, vault-internal")
         vct = (sts[0]["spec"].get("volumeClaimTemplates") or [{}]) if sts else [{}]
-        check(any(t.get("spec", {}).get("storageClassName") == "rd-retain-essd" and t["spec"]["resources"]["requests"]["storage"] == "20Gi" for t in vct), "chart: PVC 20Gi rd-retain-essd")
+        check(any(t.get("spec", {}).get("storageClassName") == "rd-retain-essd" and t["spec"]["resources"]["requests"]["storage"] == "5Gi" for t in vct), "chart: PVC 5Gi rd-retain-essd")
         lab = sts[0]["spec"]["template"]["metadata"]["labels"] if sts else {}
         check(lab.get("app.kubernetes.io/name") == "vault" and lab.get("component") == "server", f"chart: pod labels must match vault-ingress selector: {lab}")
 else:
