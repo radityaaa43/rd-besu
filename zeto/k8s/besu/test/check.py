@@ -92,14 +92,18 @@ for party, ns in PARTIES.items():
     check([n["metadata"]["name"] for n in np] == ["besu-validator-ingress"], f"{party}: one NetworkPolicy besu-validator-ingress")
     if np:
         ing = np[0]["spec"]["ingress"]
-        check(all([p["port"] for p in r["ports"]] == [30303] and r["ports"][0]["protocol"] == "TCP" for r in ing), f"{party}: policy opens only TCP 30303")
-        frm = json.dumps(ing)
-        check("rd-zeto" in frm and "besu" in frm, f"{party}: 30303 allowed from rd-zeto-* and ns besu")
-        sel = [f["namespaceSelector"] for r in ing for f in r["from"] if "namespaceSelector" in f]
-        stealth = [s for s in sel if "rd-stealth" in json.dumps(s)]
-        check(stealth == [{"matchLabels": {"kubernetes.io/metadata.name": "rd-stealth-" + party.replace("bank-c", "bank-c")}}], f"{party}: stealth may reach 30303 ONLY from its own party namespace rd-stealth-{party}: {stealth}")
-        zsel = [s for s in sel if "matchExpressions" in s]
-        check(zsel == [{"matchExpressions": [{"key": "part-of", "operator": "In", "values": ["rd-zeto"]}]}], f"{party}: the part-of selector must name rd-zeto only (no wildcard over rd-stealth-*): {zsel}")
+        # rule 0: p2p 30303 from the other new validators only (ns part-of=rd-zeto); the old ns besu and the stealth RPC nodes are gone
+        check(len(ing) == 2, f"{party}: two ingress rules (p2p, then RPC from the own gateway and Paladin): {len(ing)}")
+        p2p = ing[0] if ing else {}
+        check([(p["port"], p["protocol"]) for p in p2p.get("ports", [])] == [(30303, "TCP")], f"{party}: rule 0 opens only TCP 30303")
+        check(p2p.get("from") == [{"namespaceSelector": {"matchExpressions": [{"key": "part-of", "operator": "In", "values": ["rd-zeto"]}]}}],
+              f"{party}: 30303 only from ns part-of=rd-zeto (no ns besu, no rd-stealth-*): {p2p.get('from')}")
+        check("rd-stealth" not in json.dumps(ing) and '"besu"' not in json.dumps(ing), f"{party}: no stale selector for ns besu or rd-stealth-*")
+        # rule 1: JSON-RPC 8545/8546 only from the SAME namespace's bank-gw and Paladin pods (stealth reaches the validator through bank-gw)
+        rpc = ing[1] if len(ing) > 1 else {}
+        check(rpc == {"from": [{"podSelector": {"matchExpressions": [{"key": "app", "operator": "In", "values": ["bank-gw", "paladin"]}]}}],
+                      "ports": [{"protocol": "TCP", "port": 8545}, {"protocol": "TCP", "port": 8546}]},
+              f"{party}: rule 1 must open 8545/8546 to same-ns app in (bank-gw, paladin) only: {rpc}")
     for d in net:
         check(d["metadata"].get("namespace") == ns, f"{party} net: {d['kind']}/{d['metadata']['name']} not in {ns}")
     ext = docs("net", party, "--external-cidr", "203.0.113.7/32")
@@ -114,7 +118,8 @@ for party, ns in PARTIES.items():
                   "service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id": "acl-test123", "service.beta.kubernetes.io/backend-type": "eni"}, f"{party}: ACL annotations {ann}")
     check(lsvc["spec"].get("loadBalancerSourceRanges") == ["203.0.113.7/32"], f"{party}: loadBalancerSourceRanges must equal the --external-cidr list: {lsvc['spec'].get('loadBalancerSourceRanges')}")
     ling = of(live, "NetworkPolicy")[0]["spec"]["ingress"]
-    check(len(ling) == 2 and ling[1] == {"from": [{"ipBlock": {"cidr": "100.64.0.0/10"}}], "ports": [{"protocol": "TCP", "port": 30303}]}, f"{party}: second ingress rule must be the CLB health CIDR on TCP 30303: {ling[1:]}")
+    check(len(ling) == 3 and ling[2] == {"from": [{"ipBlock": {"cidr": "100.64.0.0/10"}}], "ports": [{"protocol": "TCP", "port": 30303}]}, f"{party}: third ingress rule must be the CLB health CIDR on TCP 30303: {ling[2:]}")
+    check({"ipBlock": {"cidr": "203.0.113.7/32"}} in ling[0]["from"], f"{party}: --external-cidr lands in the p2p rule only")
     check(run(render, "net", party, "--acl-id", "bad id").returncode != 0 and run(render, "net", party, "--acl-id", "acl-x").returncode != 0, f"{party}: --acl-id must match acl-[a-z0-9]+ and needs at least one --external-cidr")
     # stage nodeinfo
     ni = docs("nodeinfo", party)

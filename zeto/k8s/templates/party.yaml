@@ -26,9 +26,11 @@ metadata:
   labels: {part-of: rd-zeto, party: ${PARTY}}
 spec:
   # S8/S16: excludes the party database and the Paladin pods; policies are additive, so paladin-pg-ingress (postgres/), paladin-ingress (gateway/) and paladin-transport-ingress (paladin/) are their only ingress.
+  # Also excludes the validator: besu-validator-ingress (besu/) is its only ingress (8545/8546 from bank-gw and Paladin only).
   podSelector:
     matchExpressions:
       - {key: app, operator: NotIn, values: [paladin-pg, paladin]}
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [besu-validator]}
   policyTypes: [Ingress]
   ingress:
     - from:

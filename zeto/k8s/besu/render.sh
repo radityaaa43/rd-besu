@@ -82,8 +82,9 @@ spec:
     - {name: json-rpc, port: 8545, targetPort: json-rpc, protocol: TCP}
     - {name: ws, port: 8546, targetPort: ws, protocol: TCP}
 ---
-# 8545/8546 are reached from this namespace (S1 allow-same-namespace: gateway, Paladin). 30303 TCP only: from the other new validators, the
-# stealth RPC node of the SAME party (user decision: each bank's stealth RPC peers only with its own zeto node), the old validators (ns besu) and, across clusters, from the CIDRs given with --external-cidr (source IP of the LB path: unverified).
+# This policy is the validator's ONLY ingress (allow-same-namespace excludes it). 30303 TCP: from the other new validators (ns part-of=rd-zeto)
+# and, across clusters, from the CIDRs given with --external-cidr. 8545/8546: only from this namespace's bank-gw (Lensa and the stealth signer
+# reach the validator through it, OPA method allowlist) and Paladin. The old ns besu and the stealth RPC nodes were deleted (user, 2026-11-12).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -99,15 +100,18 @@ spec:
         - namespaceSelector:
             matchExpressions:
               - {key: part-of, operator: In, values: [rd-zeto]}
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: rd-stealth-${party}}
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: besu}
 YAML
   local c; for c in "${cidrs[@]:-}"; do [[ -z "$c" ]] || printf '        - ipBlock:\n            cidr: %s\n' "$c"; done
   cat <<YAML
       ports:
         - {protocol: TCP, port: 30303}
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app, operator: In, values: [bank-gw, paladin]}
+      ports:
+        - {protocol: TCP, port: 8545}
+        - {protocol: TCP, port: 8546}
 YAML
   if [[ -n "$health" ]]; then
     printf '    - from:\n        - ipBlock:\n            cidr: %s\n      ports:\n        - {protocol: TCP, port: 30303}\n' "$health"
