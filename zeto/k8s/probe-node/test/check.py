@@ -195,6 +195,19 @@ for party in NUM:
     check(o == f"DISCARD {A8[4][:10]} true" and calls == [("qbft_discardValidatorVote", [A8[4]])], f"{party}: discard = ONE call: {o!r} {calls}")
     o, _ = besu_run(party, ["--op", "pending"], {"qbft_getPendingVotes": {"jsonrpc": "2.0", "id": 1, "result": {A8[4]: False, A8[5]: True}}})
     check(o == f"pending 2: {A8[4][:10]}=drop {A8[5][:10]}=add", f"{party}: pending votes: {o!r}")
+# legacy validators (S5b: the OLD QBFT validators in ns `besu`, R19 (b)3, cluster-admin by the operator): party `legacy-<N>` (N=1..4) -> ns besu, Service besu-node-validator-<N>:8545;
+# THREE objects: Pod besu-probe, NetworkPolicy besu-probe (egress to that old validator pod :8545 + kube-dns), NetworkPolicy s5b-vote-ingress-<N> (ingress to that ONE old validator from the probe pod only, :8545).
+for n in (1, 2, 3, 4):
+    ds = docs(f"legacy-{n}", "besu", "--image", IMG, "--op", "propose", "--address", A8[4], "--drop")
+    check([d["kind"] for d in ds] == ["Pod", "NetworkPolicy", "NetworkPolicy"] and all(d["metadata"]["namespace"] == "besu" for d in ds), f"legacy-{n}: Pod + 2 NetworkPolicy in ns besu: {[(d['kind'], d['metadata'].get('namespace')) for d in ds]}")
+    if len(ds) == 3:
+        cmd = ds[0]["spec"]["containers"][0]["command"][2]; src = base64.b64decode(re.search(r"echo ([A-Za-z0-9+/=]+) \|", cmd).group(1)).decode()
+        sel = {"app.kubernetes.io/namespace": "besu", "app.kubernetes.io/part-of": f"besu-node-validator-{n}", "app.kubernetes.io/release": f"validator-{n}"}
+        check(f"http://besu-node-validator-{n}:8545" in src and ds[1]["spec"]["egress"][0] == {"to": [{"podSelector": {"matchLabels": sel}}], "ports": [{"protocol": "TCP", "port": 8545}]}, f"legacy-{n}: url + egress to that ONE old validator only")
+        ing = ds[2]["spec"]
+        check(ds[2]["metadata"]["name"] == f"s5b-vote-ingress-{n}" and ing["podSelector"] == {"matchLabels": sel} and ing["policyTypes"] == ["Ingress"] and ing["ingress"] == [{"from": [{"podSelector": {"matchLabels": {"rd/egress-locked": "true", "app": "besu-probe"}}}], "ports": [{"protocol": "TCP", "port": 8545}]}], f"legacy-{n}: ingress to that old validator from the probe pod only: {ing}")
+for bad in (["legacy-5", "besu", "--image", IMG, "--op", "read"], ["legacy-1", "--image", IMG], ["legacy-1", "negative", "--image", IMG, "--target", "1.1.1.1:443"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 for bad in (["bi", "besu", "--image", IMG], ["bi", "besu", "--image", IMG, "--op", "x"], ["bi", "besu", "--image", IMG, "--op", "propose"], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x12", "--drop"],
             ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40, "--drop", "--add"],
             ["bi", "besu", "--image", IMG, "--op", "read", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "discard", "--address", "0x" + "a" * 40 + ";id"]):

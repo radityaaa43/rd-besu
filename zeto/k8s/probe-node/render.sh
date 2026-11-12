@@ -14,7 +14,7 @@
 # Parameterised for the Paladin pending [] gate now; Iroha / stealth RPC reads reuse the pattern with their own Service and port (a new render).
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
-party="${1:-}"; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
+party="${1:-}"; legacy=0; case "$party" in bi) n=1 ;; bank-a) n=2 ;; bank-b) n=3 ;; bank-c) n=4 ;; legacy-[1-4]) legacy="${party#legacy-}"; n=0; [[ "${2:-}" == besu ]] || { echo "render.sh: legacy-<N> only with the besu mode" >&2; exit 2; } ;; *) die "usage: render.sh <bi|bank-a|bank-b|bank-c> --image REF@sha256:<64 hex> [--mode count|jq] [--method M] [--params JSON]" ;; esac
 shift; img=""; mode=count; method=ptx_queryPendingTransactions; params='[{"limit":20},false]'; negative=0; lbpath=0; besu=0; op=""; vaddr=""; vdir=""; targets=(); via=""; peerns=""; txhash=""; zetotokens=""
 [[ "${1:-}" == negative ]] && { negative=1; shift; }
 [[ "${1:-}" == lbpath ]] && { lbpath=1; shift; }
@@ -45,8 +45,10 @@ if [[ $besu == 1 ]]; then
     propose) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && ( "$vdir" == drop || "$vdir" == add ) ]] || die "--op propose needs --address 0x<40 hex> and --drop or --add" ;;
     discard) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && -z "$vdir" ]] || die "--op discard needs --address 0x<40 hex> (no --drop/--add)" ;;
     *) die "--op must be read, pending, propose or discard" ;; esac
+  if [[ $legacy != 0 ]]; then besu_url="http://besu-node-validator-$legacy:8545"; ns="besu"; vsel="{app.kubernetes.io/namespace: besu, app.kubernetes.io/part-of: besu-node-validator-$legacy, app.kubernetes.io/release: validator-$legacy}"
+  else besu_url="http://besu-rpc:8545"; ns="rd-zeto-$party"; vsel="{app.kubernetes.io/name: besu-validator}"; fi
   head="import json,urllib.request
-u='http://besu-rpc:8545'
+u='$besu_url'
 def rpc(m,p):
     r=urllib.request.Request(u,json.dumps({'jsonrpc':'2.0','id':1,'method':m,'params':p}).encode(),{'content-type':'application/json'})
     return json.load(urllib.request.urlopen(r,timeout=10))
@@ -76,14 +78,13 @@ except Exception: print('ERROR')
 except Exception: print('ERROR')
 " ;;
   esac
-  ns="rd-zeto-$party"
   cat <<YAML
 apiVersion: v1
 kind: Pod
 metadata:
   name: besu-probe
   namespace: $ns
-  labels: {"rd/egress-locked": "true", app: besu-probe, part-of: rd-zeto, party: $party}
+  labels: {"rd/egress-locked": "true", app: besu-probe, part-of: rd-zeto, party: ${party}}
 spec:
   restartPolicy: Never
   activeDeadlineSeconds: 60
@@ -109,7 +110,7 @@ spec:
   egress:
     - to:
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: besu-validator}
+            matchLabels: $vsel
       ports:
         - {protocol: TCP, port: 8545}
     - to:
@@ -121,6 +122,26 @@ spec:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
 YAML
+  if [[ $legacy != 0 ]]; then cat <<YAML
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: s5b-vote-ingress-$legacy
+  namespace: besu
+  labels: {part-of: rd-zeto, throwaway: s5b-vote}
+spec:
+  podSelector:
+    matchLabels: $vsel
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {"rd/egress-locked": "true", app: besu-probe}
+      ports:
+        - {protocol: TCP, port: 8545}
+YAML
+  fi
   exit 0
 fi
 if [[ $lbpath == 1 ]]; then
