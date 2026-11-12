@@ -231,7 +231,19 @@ for party in NUM:
     o, _ = besu_run(party, ["--op", "peers"], {"admin_nodeInfo": PEERS["admin_nodeInfo"], "admin_peers": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "x"}}})
     check(o == "ERROR", f"{party}: peers op, admin_peers error -> ERROR: {o!r}")
 for n in (1, 2, 3, 4):
-    check(run(f"legacy-{n}", "besu", "--image", IMG, "--op", "peers").returncode == 2, f"legacy-{n}: peers op refused (legacy supports only propose/discard)")
+    check(run(f"legacy-{n}", "besu", "--image", IMG, "--op", "peers").returncode == 2, f"legacy-{n}: peers op refused (legacy supports only propose/discard/pending)")
+# legacy-<N> --op pending (S5b step 4 condition 1: read the OLD validator's pending QBFT votes before voting): same one-validator ingress policy, bash /dev/tcp, same output lines as the party op.
+for n in (1, 2, 3, 4):
+    ds = docs(f"legacy-{n}", "besu", "--image", IMG, "--op", "pending")
+    check([d["kind"] for d in ds] == ["Pod", "NetworkPolicy", "NetworkPolicy"] and all(d["metadata"]["namespace"] == "besu" for d in ds), f"legacy-{n} pending: Pod + 2 NetworkPolicy in ns besu")
+    if len(ds) == 3:
+        cmd = ds[0]["spec"]["containers"][0]["command"][2]; m = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d \| bash$", cmd); src = base64.b64decode(m.group(1)).decode() if m else ""
+        check(m is not None and f"/dev/tcp/besu-node-validator-{n}/8545" in src and "python" not in cmd and ds[2]["metadata"]["name"] == f"s5b-vote-ingress-{n}", f"legacy-{n} pending: bash /dev/tcp to that ONE old validator")
+        for ans, want in (({"jsonrpc": "2.0", "id": 1, "result": {A8[4]: False, A8[5]: True}}, f"pending 2: {A8[4][:10]}=drop {A8[5][:10]}=add"), ({"jsonrpc": "2.0", "id": 1, "result": {}}, "pending 0:"), ({"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}, "ERROR")):
+            Canned.answers = {"qbft_getPendingVotes": ans}; calls.clear()
+            r = subprocess.run(["bash", "-c", src.replace(f"/dev/tcp/besu-node-validator-{n}/8545", f"/dev/tcp/127.0.0.1/{srv.server_address[1]}")], capture_output=True, text=True, timeout=20)
+            check(r.stdout.strip() == want and (want == "ERROR" or calls == [("qbft_getPendingVotes", [])]), f"legacy-{n} pending: prints {want!r}: {r.stdout!r} {calls}")
+check(run("legacy-1", "besu", "--image", IMG, "--op", "pending", "--address", "0x" + "a" * 40).returncode == 2, "legacy pending takes no --address")
 check(run("bi", "besu", "--image", IMG, "--op", "peers", "--address", "0x" + "a" * 40).returncode == 2, "peers op takes no --address")
 for bad in (["bi", "besu", "--image", IMG], ["bi", "besu", "--image", IMG, "--op", "x"], ["bi", "besu", "--image", IMG, "--op", "propose"], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x12", "--drop"],
             ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40, "--drop", "--add"],
