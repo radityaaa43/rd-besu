@@ -6,6 +6,7 @@
 # bank-gw-<N> copied from opa/k8s/bank-gw-<N>.yaml (only the namespace changes); Service bank-gw-<N>-ext (NodePort; LoadBalancer for bank-c on
 # cluster 2, no cloud annotations: those are added later by flags, like zeto/k8s/besu/render.sh net --acl-id); NetworkPolicies.
 #   --lensa-cidr   limit the gateway ports to this source (repeatable); default: any source on 8548/8545, mTLS is the gate (README, assumptions)
+#   --lensa-pod-role server|flow   (repeatable, needs --lensa-cidr) also admit the rd-lensa pods with label role=<r> (analyst condition 3); the sources are then the CIDRs + those pods only
 #   --bundle-path latest   OPA pulls <name>/latest.tar.gz (bi/latest.tar.gz, bank/latest.tar.gz) from the per-party bundle-server (S17, zeto/k8s/bundle-server) instead of
 #                  the old <N>/bi.tar.gz, <N>/bank.tar.gz of namespace `paladin` (default, unchanged); only the two --set=bundles.<name>.resource args of the Deployment change
 #   --opa-config   ConfigMap bank-gw-opa-v2 content from FILE instead of opa/opa.yaml (the party's opa-config.yaml = opa.yaml + public keys, from opa/keys.sh)
@@ -116,7 +117,9 @@ spec:
   ingress:
 YAML
   if [[ $# -gt 0 ]]; then
-    echo "    - from:"; local c; for c in "$@"; do printf '        - ipBlock: {cidr: %s}\n' "$c"; done
+    echo "    - from:"; local c r; for c in "$@"; do printf '        - ipBlock: {cidr: %s}\n' "$c"; done
+    # analyst condition 3: the rd-lensa pods of the named roles (server now; flow in the window of its own GO), next to the host source path
+    for r in ${PODROLES[@]+"${PODROLES[@]}"}; do printf '        - namespaceSelector:\n            matchLabels: {kubernetes.io/metadata.name: rd-lensa}\n          podSelector:\n            matchLabels: {role: %s}\n' "$r"; done
     echo "      ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8545}]"
   else
     echo "    - ports: [{protocol: TCP, port: 8548}, {protocol: TCP, port: 8545}]"
@@ -127,15 +130,18 @@ out=""
 if [[ "${1:-}" == -o ]]; then out="${2:?-o needs a directory}"; shift 2; fi
 [[ $# -ge 1 ]] || die "usage: render.sh [-o DIR] <bi|bank-a|bank-b|bank-c|all> [--lensa-cidr CIDR]... [--opa-config FILE] [--bundle-path latest]"
 sel="$1"; shift
-BPATH=""; cidrs=(); cfg="$repo/opa/opa.yaml"; ACL=""; EXTCIDRS=()
+BPATH=""; cidrs=(); PODROLES=(); cfg="$repo/opa/opa.yaml"; ACL=""; EXTCIDRS=()
 while [[ $# -gt 0 ]]; do case "$1" in
   --lensa-cidr) c="${2:?--lensa-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --lensa-cidr '$c'"; cidrs+=("$c"); shift 2 ;;
   --acl-id) ACL="${2:?--acl-id needs an ACL id}"; [[ "$ACL" =~ ^acl-[a-z0-9]+$ ]] || die "bad --acl-id"; shift 2 ;;
   --external-cidr) c="${2:?--external-cidr needs a CIDR}"; [[ "$c" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]] || die "bad --external-cidr '$c'"; EXTCIDRS+=("$c"); shift 2 ;;
   --bundle-path) BPATH="${2:?--bundle-path needs a value}"; [[ "$BPATH" == latest ]] || die "--bundle-path: only 'latest' is supported"; shift 2 ;;
+  --lensa-pod-role) r="${2:?--lensa-pod-role needs server|flow}"; [[ "$r" == server || "$r" == flow ]] || die "--lensa-pod-role: only server or flow (got '$r')"
+    for x in ${PODROLES[@]+"${PODROLES[@]}"}; do [[ "$x" != "$r" ]] || die "--lensa-pod-role $r given twice"; done; PODROLES+=("$r"); shift 2 ;;
   --opa-config) cfg="${2:?--opa-config needs a file}"; [[ -f "$cfg" ]] || die "--opa-config: $cfg is not a file"; shift 2 ;;
   *) die "unknown option $1" ;; esac; done
 [[ "$sel" == all ]] && sel="$parties" || num "$sel" >/dev/null
+[[ ${#PODROLES[@]} -eq 0 || ${#cidrs[@]} -gt 0 ]] || die "--lensa-pod-role needs at least one --lensa-cidr (the host source path stays admitted; narrowing without it would cut the host Lensa)"
 if [[ -n "$ACL" || ${#EXTCIDRS[@]} -gt 0 ]]; then
   [[ "$sel" == bank-c ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bank-c only"
   [[ -n "$ACL" && ${#EXTCIDRS[@]} -gt 0 ]] || die "--acl-id and --external-cidr only together"
