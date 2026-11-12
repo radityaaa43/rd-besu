@@ -27,7 +27,7 @@ transfer := {"jsonrpc": "2.0", "id": 1, "method": "ptx_sendTransaction", "params
 	"data": {"transfers": [{"to": "bankB@node3", "amount": 10, "data": "0x"}]},
 }]}
 
-as(node, body, pem) := door_with(node, body, {"x-forwarded-client-cert": xfcc(pem)})
+door_as(node, body, pem) := door_with(node, body, {"x-forwarded-client-cert": xfcc(pem)})
 
 allowed(i) if {
 	gw.allow with input as i
@@ -36,18 +36,18 @@ allowed(i) if {
 }
 
 # --- the party's own Lensa leaf at its own gateway: reads and the existing write shapes pass
-test_own_leaf_read_allowed if allowed(as("node2", read, leaf.node2))
+test_own_leaf_read_allowed if allowed(door_as("node2", read, leaf.node2))
 
-test_own_leaf_write_allowed if allowed(as("node2", transfer, leaf.node2))
+test_own_leaf_write_allowed if allowed(door_as("node2", transfer, leaf.node2))
 
 # --- every other leaf, header shape or CA is refused (same request, only the caller differs)
-test_other_party_leaf_read_denied if not allowed(as("node2", read, leaf.node3))
+test_other_party_leaf_read_denied if not allowed(door_as("node2", read, leaf.node3))
 
-test_other_party_leaf_write_denied if not allowed(as("node2", transfer, leaf.node3))
+test_other_party_leaf_write_denied if not allowed(door_as("node2", transfer, leaf.node3))
 
 test_every_cross_party_pair_denied if {
 	every n in {"node1", "node3", "node4"} {
-		not allowed(as("node2", read, leaf[n]))
+		not allowed(door_as("node2", read, leaf[n]))
 	}
 }
 
@@ -62,14 +62,14 @@ test_two_cert_elements_denied if {
 	not allowed(door_with("node2", read, {"x-forwarded-client-cert": concat(",", [one, one])}))
 }
 
-test_lensa_named_leaf_from_a_foreign_ca_denied if not allowed(as("node2", read, pki.lensa_by_gw))
+test_lensa_named_leaf_from_a_foreign_ca_denied if not allowed(door_as("node2", read, pki.lensa_by_gw))
 
-test_other_cn_from_the_right_ca_denied if not allowed(as("node2", read, pki.peer_1_lensa))
+test_other_cn_from_the_right_ca_denied if not allowed(door_as("node2", read, pki.peer_1_lensa))
 
-test_server_only_leaf_denied if not allowed(as("node2", read, pki.peer_server_eku))
+test_server_only_leaf_denied if not allowed(door_as("node2", read, pki.peer_server_eku))
 
 test_no_ca_data_denies if {
-	not gw.allow with input as as("node2", read, leaf.node2)
+	not gw.allow with input as door_as("node2", read, leaf.node2)
 		with data.bi.config as object.union(bound, {"lensa_ca": {}})
 		with data.bank.config as fixtures.bank_a
 }
