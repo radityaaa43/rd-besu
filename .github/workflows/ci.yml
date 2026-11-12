@@ -71,6 +71,7 @@ jobs:
       - run: stealth-address/k8s/egress/test.sh
       - run: stealth-address/k8s/rbac/test.sh
       - run: stealth-address/k8s/vault/test.sh
+      - run: stealth-address/k8s/keygen/test.sh
       - run: stealth-address/k8s/test-rpc.sh
       - name: envoy --mode validate on every party config (throwaway certs stand in for Secret st-gw-<N>-mtls)
         run: |

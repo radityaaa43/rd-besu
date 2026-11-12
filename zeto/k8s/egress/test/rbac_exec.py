@@ -12,7 +12,7 @@ ZETO, STEALTH = f"{ROOT}/zeto/k8s", f"{ROOT}/stealth-address/k8s"
 IMG = "postgres@sha256:" + "0" * 64
 # every file that defines a Role/ClusterRole/binding; a new one must be added here AND rendered below
 SOURCES = {
-    "stealth-address/k8s/rbac/render.sh", "stealth-address/k8s/templates/party.yaml", "stealth-address/k8s/vault/templates/auth-delegator.yaml",
+    "stealth-address/k8s/keygen/render.sh", "stealth-address/k8s/rbac/render.sh", "stealth-address/k8s/templates/party.yaml", "stealth-address/k8s/vault/templates/auth-delegator.yaml",
     "stealth-address/k8s/vault/templates/operator-exec.yaml", "zeto/k8s/paladin/templates/paladin.yaml", "zeto/k8s/postgres/rotate/render.sh",
     "zeto/k8s/templates/lensa-publisher.yaml", "zeto/k8s/templates/party.yaml",
 }
@@ -78,6 +78,7 @@ for p in ("bi", "bank-a", "bank-b"):
     RUNS += [[f"{STEALTH}/render.sh", p], [f"{ZETO}/render.sh", p]]
 RUNS += [[f"{STEALTH}/render.sh", "--cluster", "2", "bank-c"], [f"{ZETO}/render.sh", "--cluster", "2", "bank-c"], [f"{STEALTH}/rbac/render.sh", "viewcopies"],
          [f"{STEALTH}/vault/render.sh", "cluster", "all"], [f"{STEALTH}/vault/render.sh", "cluster", "bank-c"]]
+RUNS += [[f"{STEALTH}/keygen/render.sh", w, "--image", "ghcr.io/x/y@sha256:" + "a" * 64, "--kube-api-ip", "203.0.113.1"] for w in ("cert", "bi")]
 for p in ("bi", "bank-a", "bank-b", "bank-c"):
     RUNS += [[f"{ZETO}/paladin/render.sh", p], [f"{ZETO}/postgres/rotate/render.sh", p, "--image", IMG, "--api-ips", "203.0.113.1"]]
     for k in ("User", "Group"):
