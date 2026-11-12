@@ -107,8 +107,6 @@ bi := {
 			"ptx_queryTransactions",
 			"ptx_queryTransactionsFull",
 			"ptx_queryTransactionReceipts",
-			"ptx_queryPendingTransactions",
-			"ptx_queryPreparedTransactions",
 			"ptx_queryPublicTransactions",
 			"ptx_queryPendingPublicTransactions",
 			"ptx_queryStoredABIs",
