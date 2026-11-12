@@ -67,7 +67,8 @@ for party, n in PARTIES.items():
     lr = by["LimitRange"]
     item = lr["spec"]["limits"][0]
     check(lr["metadata"]["name"] == "paladin-defaults" and len(lr["spec"]["limits"]) == 1 and item["type"] == "Container", f"{party}: LimitRange paladin-defaults, one Container item")
-    check(item.get("defaultRequest") == {"cpu": "250m", "memory": "1Gi"} and item.get("default") == {"cpu": "2", "memory": "3Gi"}, f"{party}: LimitRange defaults {item}")
+    # 2026-11-13: Zeto proving OOM-killed node2/node4 (SystemOOM on the K8s node) while the pods were BestEffort: 1 CPU / 3Gi requested, 3 / 6Gi cap
+    check(item.get("defaultRequest") == {"cpu": "1", "memory": "3Gi"} and item.get("default") == {"cpu": "3", "memory": "6Gi"}, f"{party}: LimitRange defaults {item}")
     # operator: namespaced only, one namespace watched, image pinned, fork digest in its ConfigMap
     role = by["Role"]
     seen = {r for rule in role["rules"] if "core.paladin.io" in rule["apiGroups"] for r in rule["resources"] if "/" not in r}
@@ -121,6 +122,9 @@ for party, n in PARTIES.items():
     check(tr and json.loads(tr[0]["configJSON"]) == {"port": 9000, "address": "0.0.0.0"}, f"{party}: transport configJSON must be port 9000 on 0.0.0.0")
     conf = yaml.safe_load(s["config"])
     check(conf.get("keyManager", {}).get("disableSignRPC") is True, f"{party}: keyManager.disableSignRPC must be true")
+    # The coordinator's assemble request (Zeto proof inside) expires at now + stateTimeout (sequencer/coordinator/transaction/assembling.go:150);
+    # the 10s default cancels proofs of many-input locks and re-pools them, so retries pile up until the node runs out of memory
+    check(conf.get("sequencerManager") == {"stateTimeout": "60s"}, f"{party}: sequencerManager.stateTimeout 60s: {conf.get('sequencerManager')}")
     check(conf.get("log", {}).get("level") == "info", f"{party}: log.level info")
     pg = conf.get("db", {}).get("postgres", {})
     check(conf.get("db", {}).get("type") == "postgres", f"{party}: db.type must be postgres (preConfigured does not set it)")
@@ -197,7 +201,7 @@ for party, n in PARTIES.items():
     check(len(pp) == 1 and pp[0]["kind"] == "Pod" and pp[0]["metadata"]["namespace"] == f"rd-zeto-{party}" and pp[0]["metadata"]["labels"].get("throwaway") == "zeto-s9-placement", f"{party}: probe-placement pod")
     if pp:
         c0 = pp[0]["spec"]["containers"][0]
-        check(c0["resources"]["requests"] == {"cpu": "250m", "memory": "1Gi"}, f"{party}: placement pod requests = the LimitRange defaultRequest: {c0['resources']}")
+        check(c0["resources"]["requests"] == {"cpu": "1", "memory": "3Gi"}, f"{party}: placement pod requests = the LimitRange defaultRequest: {c0['resources']}")
         check(pp[0]["metadata"]["labels"].get("app") != "paladin", f"{party}: placement pod must not carry app=paladin (no netpol/service effect)")
 
 # gen-certs: own CA per node, CN node<N>, SAN = the LB IP; keys never inside the repo

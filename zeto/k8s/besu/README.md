@@ -38,8 +38,9 @@ Rollback: re-apply the live `besu-static-nodes` saved before the change and rest
 ## Choices to read
 - Config parity with the old live validators except those four lines (no DEBUG/TRACE/TXPOOL/PERM: never called in 16 h of `besu_rpc_request_time`; clients reach 8545 only via bank-gw, which has its own method allowlist); `--Xdns-enabled`/`--Xdns-update-enabled` (live args) are NOT used: new enodes carry IPs.
 - Live args kept: `--min-gas-price=0 --nat-method=NONE`; liveness `/liveness` after 180 s; no readiness probe (as live).
-- cluster 1: requests 500m / 2500M (CPU 1 -> 500m by the 2026-11-12 resize, from idle samples; memory unchanged), limits 3 CPU / 5G, `nodeAffinity` off `member-16033-node` and `member-16034-node`, required pod anti-affinity among the new validators
-  (`namespaceSelector part-of=rd-zeto`). bank C: requests 250m / 1500M, limits 2 / 3G (first guess, cluster 2 memory is tight [unverified]).
+- All four validators (2026-11-13): requests 500m / 3Gi, limits 3 CPU / 6Gi (`BESU_OPTS -XX:MaxRAMPercentage=70`: heap up to 4.2Gi). Before: cluster 1
+  500m / 2500M, limits 3 / 5G (CPU 1 -> 500m by the 2026-11-12 resize); bank C 250m / 1500M, limits 2 / 3G.
+- cluster 1: `nodeAffinity` off `member-16033-node` and `member-16034-node`, required pod anti-affinity among the new validators (`namespaceSelector part-of=rd-zeto`).
 - PVC 40Gi, class default `alicloud-essd-wffc` (zone follows the pod; reclaim Delete, but the StatefulSet keeps PVCs on delete/scale), `--storage-class` overrides.
 - init container `busybox:1.36` (live uses unpinned `busybox`; the pull is a new image reference on these nodes: [unverified]).
 - Not here: S5a/S5b votes beyond the helper `vote.sh` (below; RPC by port-forward with the admin kubeconfig: `party-admin` has no `pods/portforward`), gateway and Paladin pointing at `besu-rpc` (S9, S16).

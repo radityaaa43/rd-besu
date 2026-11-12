@@ -93,7 +93,9 @@ spec:
 ---
 # Paladin pods get no resources from the operator: it sets none on the container (paladin_controller.go only sizes PVCs), the CR has no resources
 # field and the stub's containers are replaced wholesale on every reconcile (:297-306). The namespace default therefore comes from a LimitRange.
-# Old node1: ~940 Mi RSS, 4 m CPU idle (measured 2026-11-11), no requests/limits; first-start ZK proving peaks are unmeasured, hence limit 3Gi.
+# Old node1: ~940 Mi RSS, 4 m CPU idle (measured 2026-11-11). 2026-11-13: Zeto proving of many-input locks reached 4.8 Gi RSS on node2 and the
+# K8s nodes OOM-killed node2 and node4 (SystemOOM, victim java) while they were BestEffort: 1 CPU / 3Gi requested, capped at 3 / 6Gi
+# (JVM default heap = 25% of the limit = 1.5Gi; it was 25% of the K8s node, ~1.6Gi).
 apiVersion: v1
 kind: LimitRange
 metadata:
@@ -102,8 +104,8 @@ metadata:
 spec:
   limits:
     - type: Container
-      defaultRequest: {cpu: 250m, memory: 1Gi}
-      default: {cpu: "2", memory: 3Gi}
+      defaultRequest: {cpu: "1", memory: 3Gi}
+      default: {cpu: "3", memory: 6Gi}
 ---
 # Paused stub (orchestrator deviation: no rehearsal start; PLAN S9 "scaled to 0"). The Paladin CR has no replicas field. The operator creates
 # its StatefulSet only if none exists (paladin_controller.go:287-292) and on update touches only containers, volumes and template annotations/
@@ -179,6 +181,10 @@ spec:
       level: info
     keyManager:
       disableSignRPC: true
+    # The assemble request (Zeto proof inside) expires at now + stateTimeout (sequencer/coordinator/transaction/assembling.go:150). The 10s
+    # default cancelled proofs of many-input locks and re-pooled them; the retries piled up until the K8s node ran out of memory (2026-11-12).
+    sequencerManager:
+      stateTimeout: 60s
     db:
       type: postgres
       postgres:

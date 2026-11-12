@@ -176,9 +176,9 @@ for party, ns in PARTIES.items():
         check(paa == [{"labelSelector": {"matchLabels": {"rd/role": "besu-validator"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}], f"{party}: R22 required podAntiAffinity on rd/role=besu-validator: {paa}")
         if party != "bank-c":
             check("member-16033-node" in aff and "member-16034-node" in aff and "NotIn" in aff, f"{party}: nodeAffinity keeps the pod off member-16033/16034")
-            check(res["requests"] == {"cpu": "500m", "memory": "2500M"} and res["limits"] == {"cpu": "3", "memory": "5G"}, f"{party}: cluster-1 requests 500m / 2500M (resize 2026-11-12: CPU 1 -> 500m, memory unchanged), limits unchanged 3 / 5G")
-        else:
-            check(res["requests"] == {"cpu": "250m", "memory": "1500M"} and res["limits"] == {"cpu": "2", "memory": "3G"}, f"{party}: bank C validator untouched by the resize (250m / 1500M, limits 2 / 3G)")
+        # 2026-11-13: one size for all four validators (bank C no longer smaller): requests 500m / 3Gi, limits 3 / 6Gi
+        check(res["requests"] == {"cpu": "500m", "memory": "3Gi"} and res["limits"] == {"cpu": "3", "memory": "6Gi"}, f"{party}: requests 500m / 3Gi, limits 3 / 6Gi: {res}")
+        if party == "bank-c":
             na = pod["affinity"].get("nodeAffinity", {})
             pref = na.get("preferredDuringSchedulingIgnoredDuringExecution", [])
             check("requiredDuringSchedulingIgnoredDuringExecution" not in na, f"{party}: no REQUIRED nodeAffinity on cluster 2 (the Immediate PV zone fixes the pod zone; a hard selector can deadlock)")
