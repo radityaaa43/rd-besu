@@ -23,3 +23,10 @@ Stealth has no Paladin node, so there is no rehearsal egress policy and no probe
 ## `party-admin`
 `secrets`: `create`, `update`, `patch` only (never get/list/watch). Workloads, services, configmaps, PVCs, networkpolicies, pods, `pods/log` as in zeto S1, plus
 `batch` jobs and cronjobs (the S11 view-key compare CronJob in `rd-stealth-bi`). Not granted: `pods/portforward`, `pods/exec`, anything cluster-scoped.
+
+## Narrow egress per workload (R17-stealth, `egress/`)
+`egress/render.sh <signer|custodian|compare|gateway> <party>` = ONE NetworkPolicy (`stealth-signer-egress`, `stealth-custodian-egress`, `stealth-viewkey-egress`, `st-gw-egress`) selecting `rd/egress=<profile>`;
+`egress/render.sh probe ...` = the never-Ready negative probe pod. Selector form (a same-cluster `ipBlock /32` is CLOSED on this CNI): same-cluster peers by exact namespace + pod labels, `ipBlock /32` only for
+bank-c's BI cert door (`--cert-lb-ip`), kube-dns by selector, no wildcard, no `podSelector {}`, no kube API (no workload mounts a token). The workload pods carry `rd/egress-locked=true` (so `allow-dns-egress`
+does not select them) and `rd/egress=<profile>`. Order per party: apply `allow-dns-egress` (S8-0), apply the policy, prove the union, run the probe, THEN start the pod. Offline test: `egress/test.sh`.
+`besu-rpc-ingress` also admits `app=stealth-viewkey` (the S11 compare Job reads the node).

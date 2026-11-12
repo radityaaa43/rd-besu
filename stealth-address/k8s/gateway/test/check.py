@@ -104,7 +104,7 @@ for p, n in PARTIES.items():
     check(dep is not None, f"{p}: Deployment st-gw-{n}")
     if dep:
         pod = dep["spec"]["template"]["spec"]
-        check(dep["spec"]["selector"]["matchLabels"] == {"app": "st-gw", "node": f"node{n}"} and dep["spec"]["template"]["metadata"]["labels"] == {"app": "st-gw", "node": f"node{n}"}, f"{p}: pod labels app=st-gw,node=node{n} (selected by the Services and policies)")
+        check(dep["spec"]["selector"]["matchLabels"] == {"app": "st-gw", "node": f"node{n}"} and dep["spec"]["template"]["metadata"]["labels"] == {"app": "st-gw", "node": f"node{n}", "rd/egress-locked": "true", "rd/egress": "st-gw"}, f"{p}: pod labels app=st-gw,node=node{n} (selected by the Services and policies) + rd/egress-locked=true + rd/egress=st-gw")
         cs = {c["name"]: c for c in pod["containers"]}
         check(set(cs) == {"envoy", "opa"}, f"{p}: containers envoy + opa")
         args = cs["opa"]["args"]

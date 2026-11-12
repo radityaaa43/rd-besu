@@ -154,7 +154,7 @@ spec:
     matchLabels: {app: st-gw, node: node$n}
   template:
     metadata:
-      labels: {app: st-gw, node: node$n}
+      labels: {app: st-gw, node: node$n, rd/egress-locked: "true", rd/egress: st-gw} # own narrow egress (egress/render.sh gateway): not selected by allow-dns-egress
     spec:
       automountServiceAccountToken: false
       securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: RuntimeDefault}}

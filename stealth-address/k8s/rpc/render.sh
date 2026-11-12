@@ -52,7 +52,7 @@ spec:
   ports:
     - {name: json-rpc, port: 8545, targetPort: json-rpc, protocol: TCP}
 ---
-# 8545 only from the gateway (app=st-gw) and the signer (app=stealth-signer) of this namespace. S1's allow-same-namespace excludes the
+# 8545 only from the gateway (app=st-gw), the signer (app=stealth-signer) and the S11 compare Job (app=stealth-viewkey, eth_call/blockNumber token) of this namespace. S1's allow-same-namespace excludes the
 # besu-rpc pod, so this is its only ingress. The node dials the zeto validators (outbound only; the zeto policy admits rd-stealth-*).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -68,7 +68,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - {key: app, operator: In, values: [st-gw, stealth-signer]}
+              - {key: app, operator: In, values: [st-gw, stealth-signer, stealth-viewkey]}
       ports:
         - {protocol: TCP, port: 8545}
 YAML
