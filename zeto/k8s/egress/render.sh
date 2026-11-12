@@ -101,15 +101,10 @@ YAML
     besu-validator)
       if [[ "$p" != bank-c ]]; then
         for k in bi bank-a bank-b; do [[ "$k" == "$p" ]] || peer "rd-zeto-$k" "{app.kubernetes.io/name: besu-validator}"; done | rule "{protocol: TCP, port: 30303}"
-        cat <<'YAML'
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: besu}
-          podSelector:
-            matchExpressions:
-              - {key: statefulset.kubernetes.io/pod-name, operator: In, values: [besu-node-validator-1-0, besu-node-validator-2-0, besu-node-validator-3-0, besu-node-validator-4-0]}
-      ports: [{protocol: TCP, port: 30303}]
-YAML
+        # old validators (ns besu, still running as non-validators): ONE matchLabels peer per pod. The matchExpressions `In` form did not match on this CNI (live positive leg BLOCKED 2026-11-12).
+        for i in 1 2 3 4; do
+          printf '        - namespaceSelector:\n            matchLabels: {kubernetes.io/metadata.name: besu}\n          podSelector:\n            matchLabels: {statefulset.kubernetes.io/pod-name: besu-node-validator-%s-0}\n' "$i"
+        done | rule "{protocol: TCP, port: 30303}"
       fi
       for ip in "${lbs[@]}"; do echo "        - ipBlock: {cidr: $ip/32}"; done | rule "{protocol: TCP, port: 30303}"
       dns ;;
