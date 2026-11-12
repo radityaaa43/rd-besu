@@ -219,9 +219,9 @@ PK = lambda c: c * 128
 def enode(c, ip, port=30303): return f"enode://{PK(c)}@{ip}:{port}?discport=0"
 PEERS = {"admin_nodeInfo": {"jsonrpc": "2.0", "id": 1, "result": {"enode": enode("a", "10.0.0.5"), "ip": "10.0.0.5", "id": PK("a")}},
          "admin_peers": {"jsonrpc": "2.0", "id": 1, "result": [
-             {"id": PK("b"), "enode": enode("b", "8.215.38.252"), "network": {"remoteAddress": "8.215.38.252:30303", "localAddress": "172.28.1.2:55555"}},
-             {"id": PK("c"), "enode": enode("c", "172.24.18.10"), "network": {"remoteAddress": "172.24.18.10:30303"}},
-             {"id": PK("d"), "enode": enode("d", "100.97.1.1"), "network": {"remoteAddress": "100.97.1.1:41000"}}]}}
+             {"id": "0x" + PK("b"), "enode": enode("b", "8.215.38.252"), "network": {"remoteAddress": "8.215.38.252:30303", "localAddress": "172.28.1.2:55555"}},
+             {"id": "0x" + PK("c"), "enode": enode("c", "172.24.18.10"), "network": {"remoteAddress": "172.24.18.10:30303"}},
+             {"id": "0x" + PK("d"), "enode": enode("d", "100.97.1.1"), "network": {"remoteAddress": "100.97.1.1:41000"}}]}}
 for party in NUM:
     o, ds = besu_run(party, ["--op", "peers"], PEERS)
     check(o is not None and o.splitlines() == ["own aaaaaaaa", "peers 3", "peer bbbbbbbb cross-cluster-LB", "peer cccccccc in-cluster", "peer dddddddd in-cluster"], f"{party}: peers op prints own prefix + count + per-peer prefix and class: {o!r}")
