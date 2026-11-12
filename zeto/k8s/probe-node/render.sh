@@ -48,10 +48,10 @@ if [[ "$mode" == shape || "$mode" == schemas ]]; then [[ "$txhash" =~ ^0x[0-9a-f
 if [[ $besu == 1 ]]; then
   # S5b / R9: the party's OWN validator RPC (Service besu-rpc:8545 in its ns), QBFT reads and votes. Output: addresses, counts, booleans only.
   [[ $legacy == 0 || "$op" == propose || "$op" == discard ]] || die "legacy-<N> supports only --op propose and --op discard"
-  case "$op" in read|pending) [[ -z "$vaddr" && -z "$vdir" ]] || die "--op $op takes no --address/--drop/--add" ;;
+  case "$op" in read|pending|peers) [[ -z "$vaddr" && -z "$vdir" ]] || die "--op $op takes no --address/--drop/--add" ;;
     propose) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && ( "$vdir" == drop || "$vdir" == add ) ]] || die "--op propose needs --address 0x<40 hex> and --drop or --add" ;;
     discard) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && -z "$vdir" ]] || die "--op discard needs --address 0x<40 hex> (no --drop/--add)" ;;
-    *) die "--op must be read, pending, propose or discard" ;; esac
+    *) die "--op must be read, pending, peers, propose or discard" ;; esac
   if [[ $legacy != 0 ]]; then besu_url="http://besu-node-validator-$legacy:8545"; ns="besu"; vsel="{app.kubernetes.io/namespace: besu, app.kubernetes.io/part-of: besu-node-validator-$legacy, app.kubernetes.io/release: validator-$legacy}"
   else besu_url="http://besu-rpc:8545"; ns="rd-zeto-$party"; vsel="{app.kubernetes.io/name: besu-validator}"; fi
   head="import json,urllib.request
@@ -66,6 +66,18 @@ def rpc(m,p):
     w=2*len(v); m=rpc('qbft_getSignerMetrics',[hex(max(h-w+1,0)),hex(h)])['result']
     print('height %d'%h); print('validators %d: %s'%(len(v),','.join(v))); print('peers %d'%pc)
     print('signers(last %d blocks): %s'%(w,' '.join('%s=%d'%(x['address'],int(x['proposedBlockCount'],16)) for x in m)))
+except Exception: print('ERROR')
+" ;;
+    peers) body="import ipaddress
+try:
+    ni=rpc('admin_nodeInfo',[]); pr=rpc('admin_peers',[])
+    if 'error' in ni or 'error' in pr or not isinstance(pr.get('result'),list): print('ERROR'); raise SystemExit
+    print('own %s'%ni['result']['enode'][8:16]); print('peers %d'%len(pr['result']))
+    for x in pr['result']:
+        h=str((x.get('network') or {}).get('remoteAddress') or x.get('enode','').split('@')[-1]).rsplit(':',1)[0].split('?')[0].strip('[]')
+        c='in-cluster' if not ipaddress.ip_address(h).is_global else 'cross-cluster-LB'
+        print('peer %s %s'%(str(x.get('id') or x['enode'][8:])[:8],c))
+except SystemExit: pass
 except Exception: print('ERROR')
 " ;;
     pending) body="try:
