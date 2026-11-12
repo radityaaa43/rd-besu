@@ -87,7 +87,12 @@ for party, n in PARTIES.items():
     cm = by["ConfigMap"]
     opcfg = json.loads(cm["data"]["config.json"])
     check(opcfg["paladin"]["image"] == FORK, f"{party}: operator config paladin image {opcfg['paladin']['image']} != fork digest")
-    check(opcfg["paladin"]["labels"] == {"app": "paladin"}, f"{party}: Paladin pods must carry app=paladin (S1 rehearsal egress policy selects it)")
+    check(opcfg["paladin"]["labels"] == {"app": "paladin", "rd/role": "paladin-node"}, f"{party}: Paladin pods must carry app=paladin (egress policies select it) AND rd/role=paladin-node (R22 anti-affinity): {opcfg['paladin']['labels']}")
+    # R22 (analyst GAP, 2026-11-12): bi and bank-a Paladin nodes sat on the same member node. REQUIRED podAntiAffinity: no two Paladin node pods on one node, across ALL rd-zeto-* namespaces of the cluster.
+    aff = opcfg["paladin"].get("affinity") or {}
+    pa = (aff.get("podAntiAffinity") or {}).get("requiredDuringSchedulingIgnoredDuringExecution") or []
+    check(len(pa) == 1 and pa[0] == {"labelSelector": {"matchLabels": {"rd/role": "paladin-node"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}, f"{party}: R22 required podAntiAffinity on rd/role=paladin-node across part-of=rd-zeto namespaces, topologyKey hostname: {pa}")
+    check("preferredDuringSchedulingIgnoredDuringExecution" not in (aff.get("podAntiAffinity") or {}) and "nodeAffinity" not in aff, f"{party}: R22: only the required anti-affinity, no preferred/node affinity added: {list(aff)}")
 
     # Paladin CR
     cr = by["Paladin"]

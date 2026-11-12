@@ -180,7 +180,7 @@ node() {
                   - {key: topology.kubernetes.io/zone, operator: In, values: [ap-southeast-1a]}
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector: {matchLabels: {app.kubernetes.io/name: besu-validator}}
+            - labelSelector: {matchLabels: {rd/role: besu-validator}}
               namespaceSelector: {matchLabels: {part-of: rd-zeto}}
               topologyKey: kubernetes.io/hostname"
   else
@@ -192,7 +192,7 @@ node() {
                   - {key: kubernetes.io/hostname, operator: NotIn, values: [member-16033-node, member-16034-node]}
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector: {matchLabels: {app.kubernetes.io/name: besu-validator}}
+            - labelSelector: {matchLabels: {rd/role: besu-validator}}
               namespaceSelector: {matchLabels: {part-of: rd-zeto}}
               topologyKey: kubernetes.io/hostname"
   fi
@@ -240,7 +240,7 @@ spec:
     matchLabels: {app.kubernetes.io/name: besu-validator}
   template:
     metadata:
-      labels: {${lbl}, app.kubernetes.io/name: besu-validator}
+      labels: {${lbl}, app.kubernetes.io/name: besu-validator, rd/role: besu-validator}
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9545", prometheus.io/path: /metrics}
     spec:
       enableServiceLinks: false   # Service besu-p2p would inject BESU_P2P_PORT=tcp://..., read by Besu as --p2p-port
