@@ -37,6 +37,8 @@ def docs(exe, *a):
 
 chain = os.path.join(tmp, "chain.env")
 open(chain, "w").write("".join(f"{k}={v}\n" for k, v in {"CHAIN_ID": "1337", "RD": "0x" + "1" * 40, "BOND": "0x" + "2" * 40, "ANNOUNCER": "0x" + "3" * 40, "VALIDATOR": "0x" + "4" * 40, "DVP_FACTORY": "0x" + "5" * 40, "FROM_BLOCK": "1"}.items()))
+SN = os.path.join(tmp, "sn.json")
+open(SN, "w").write('["enode://' + "a" * 128 + '@203.0.113.1:30303?discport=0"]')
 SIGNER, GATEWAY, PARTY = f"{K8S}/signer/render.sh", f"{K8S}/gateway/render.sh", f"{K8S}/render.sh"
 
 
@@ -60,7 +62,7 @@ def union(pols, lab):
 def pod_labels(ds):
     out = []
     for d in ds:
-        if d["kind"] == "Deployment":
+        if d["kind"] in ("Deployment", "StatefulSet"):
             out.append(d["spec"]["template"]["metadata"]["labels"])
         if d["kind"] == "CronJob":
             out.append(d["spec"]["jobTemplate"]["spec"]["template"]["metadata"]["labels"])
@@ -72,8 +74,25 @@ RPC = {"to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "besu-r
 TCP = lambda p: [{"protocol": "TCP", "port": p}]
 
 
+ZP = ["bi", "bank-a", "bank-b"]  # the cluster-1 zeto parties
+LB_C, LB_1 = ["203.0.113.30"], ["203.0.113.31", "203.0.113.32", "203.0.113.33"]  # besu-p2p LB of bank-c / of the three cluster-1 validators (documentation addresses)
+VAL = {"app.kubernetes.io/name": "besu-validator"}
+ZETO = lambda k: {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-zeto-{k}"}}, "podSelector": {"matchLabels": VAL}}
+RPC_SEL = {"matchLabels": {"app.kubernetes.io/name": "besu-rpc"}}
+
+
+def rpc_rules(party, multi):
+    """besu-rpc p2p 30303: default = the OWN party's zeto validator only (README decision); --multi-peer = every zeto validator (catch-up phase): same cluster by selector, the other cluster by LB /32."""
+    if not multi:
+        return [{"to": [ZETO(party)], "ports": TCP(30303)}, DNS]
+    same = ZP if party in ZP else ["bank-c"]
+    return [{"to": [ZETO(k) for k in same], "ports": TCP(30303)}, {"to": [{"ipBlock": {"cidr": f"{ip}/32"}} for ip in (LB_1 if party == "bank-c" else LB_C)], "ports": TCP(30303)}, DNS]
+
+
 def expected(workload, party):
-    """(policy name, profile label, rules) written out by hand, independent of the renderer."""
+    """(policy name, profile label, rules) written out by hand, independent of the renderer. besu-rpc has no profile label: its pod keeps its labels (no restart), the policy selects app.kubernetes.io/name=besu-rpc."""
+    if workload == "besu-rpc":
+        return "besu-rpc-egress", None, rpc_rules(party, False)
     if workload == "signer":
         if party == "bi":
             cert = {"to": [{"podSelector": {"matchLabels": {"app": "st-gw", "node": "node1"}}}], "ports": TCP(8550)}
@@ -93,12 +112,14 @@ def expected(workload, party):
     return "st-gw-egress", "st-gw", rules + [DNS]
 
 
-CASES = [("signer", "bi", []), ("signer", "bank-a", []), ("signer", "bank-b", []), ("signer", "bank-c", ["--cert-lb-ip", LB]), ("custodian", "bi", []), ("compare", "bi", []),
+CASES = [("besu-rpc", "bi", []), ("besu-rpc", "bank-a", []), ("besu-rpc", "bank-b", []), ("besu-rpc", "bank-c", []), ("signer", "bi", []), ("signer", "bank-a", []), ("signer", "bank-b", []), ("signer", "bank-c", ["--cert-lb-ip", LB]), ("custodian", "bi", []), ("compare", "bi", []),
          ("gateway", "bi", []), ("gateway", "bank-a", []), ("gateway", "bank-b", []), ("gateway", "bank-c", [])]
 
 
 def workload_pods(workload, party):
     """The pod label sets the real workload renders produce (the policy must select exactly these)."""
+    if workload == "besu-rpc":
+        return pod_labels(docs(f"{K8S}/rpc/render.sh", *(["--cluster", "2"] if party == "bank-c" else []), "node", party, "--static-nodes", SN))
     if workload == "gateway":
         return pod_labels(docs(GATEWAY, party))
     if workload == "compare":
@@ -121,7 +142,8 @@ for workload, party, extra in CASES:
     lab = pol["metadata"].get("labels", {})
     check(lab.get("part-of") == "rd-stealth" and lab.get("party") == party and (lab.get("cluster") == "2") == (party == "bank-c"), f"{tag}: labels part-of=rd-stealth, party={party}, cluster=2 only for bank-c: {lab}")
     sp = pol["spec"]
-    check(sp["podSelector"] == {"matchLabels": {"rd/egress": profile}} and sp["policyTypes"] == ["Egress"] and "ingress" not in sp, f"{tag}: selects rd/egress={profile} only, Egress only: {sp['podSelector']}")
+    want_sel = RPC_SEL if workload == "besu-rpc" else {"matchLabels": {"rd/egress": profile}}
+    check(sp["podSelector"] == want_sel and sp["policyTypes"] == ["Egress"] and "ingress" not in sp, f"{tag}: selects {want_sel} only, Egress only: {sp['podSelector']}")
     check(sp["egress"] == rules, f"{tag}: egress rules are exactly the expected list\n   got  {sp['egress']}\n   want {rules}")
     # the form rule, asserted on every destination of every rule
     for r in sp["egress"]:
@@ -136,12 +158,18 @@ for workload, party, extra in CASES:
                 check(nss is None or (set(nss) == {"matchLabels"} and list(nss["matchLabels"]) == ["kubernetes.io/metadata.name"]), f"{tag}: namespaceSelector only by exact name, never wildcard/expressions: {t}")
     # union proof (the R17-stealth gate, offline): allow-dns-egress of this ns + the new policy => the workload pods are selected by the new policy ONLY; besu-rpc stays on allow-dns-egress
     base = [d for d in docs(PARTY, "--cluster", "2", party) if d["kind"] == "NetworkPolicy"] if party == "bank-c" else [d for d in docs(PARTY, party) if d["kind"] == "NetworkPolicy"]
+    old_base = [{"kind": "NetworkPolicy", "metadata": {"name": "allow-dns-egress"}, "spec": {"podSelector": {"matchExpressions": [{"key": "rd/egress-locked", "operator": "DoesNotExist"}]}, "policyTypes": ["Egress"], "egress": [{}]}}]
     pods = workload_pods(workload, party)
     check(len(pods) == 1, f"{tag}: the workload render has exactly one pod template")
     for pl in pods:
         check(union(base + [pol], pl) == [name], f"{tag}: union of ALL Egress policies selecting the pod = {[name]} (got {union(base + [pol], pl)})")
-        check(pl.get("rd/egress-locked") == "true" and pl.get("rd/egress") == profile, f"{tag}: pod template carries rd/egress-locked=true, rd/egress={profile}: {pl}")
-    check(union(base + [pol], {"app.kubernetes.io/name": "besu-rpc"}) == ["allow-dns-egress"], f"{tag}: the besu-rpc pod is NOT touched (stays on allow-dns-egress)")
+        if workload == "besu-rpc":  # R17-zeto-other: no label change, no restart; the edited baseline stops selecting it, so besu-rpc-egress is its ONLY egress policy
+            check(union(old_base + [pol], pl) == ["allow-dns-egress", name], f"{tag}: inert stage (OLD baseline + {name}) selects the pod with both: {union(old_base + [pol], pl)}")
+            check("rd/egress-locked" not in pl and "rd/egress" not in pl, f"{tag}: the live pod labels are unchanged (no restart): {pl}")
+        else:
+            check(pl.get("rd/egress-locked") == "true" and pl.get("rd/egress") == profile, f"{tag}: pod template carries rd/egress-locked=true, rd/egress={profile}: {pl}")
+    if workload != "besu-rpc":
+        check(union(base + [pol], {"app.kubernetes.io/name": "besu-rpc"}) == [], f"{tag}: the besu-rpc pod is NOT touched by this policy, and the edited baseline no longer selects it (its own policy besu-rpc-egress does)")
     check(union(base + [pol], {"app.kubernetes.io/name": "vault"}) == ["allow-dns-egress"], f"{tag}: the vault pod is NOT touched")
 
 # ---- the negative probe: a pod labelled like the workload (selected by the same policy), never Ready, never a Service endpoint
@@ -160,10 +188,19 @@ for workload, party, extra in CASES:
     p = ds[0]; sp = p["spec"]; c = sp["containers"][0]; lab = p["metadata"]["labels"]
     check(p["metadata"]["name"] == "egress-negative-probe" and p["metadata"]["namespace"] == f"rd-stealth-{party}", f"{tag}: name/namespace")
     want_lab = {"rd/egress-locked": "true", "rd/egress": profile, "app": "egress-negative-probe", "probe": "egress-negative", "part-of": "rd-stealth", "party": party}
+    if workload == "besu-rpc":  # selected by app.kubernetes.io/name (the live pod has no rd/egress label); rd/egress-locked keeps allow-dns-egress (old and new) off the probe
+        del want_lab["rd/egress"]
+        want_lab["app.kubernetes.io/name"] = "besu-rpc"
     if party == "bank-c":
         want_lab["cluster"] = "2"
     check(lab == want_lab, f"{tag}: labels exactly {want_lab} (selected by the policy; NOT app=stealth-signer/st-gw): {lab}")
-    check(not any(all(lab.get(k) == v for k, v in s["spec"]["selector"].items()) for s in services), f"{tag}: no Service of the real workloads selects the probe's labels")
+    hit = sorted(s["metadata"]["name"] for s in services if all(lab.get(k) == v for k, v in s["spec"]["selector"].items()))
+    # besu-rpc: the policy selects the pod's identity label, which its Services select too; harmless while the probe is never Ready (below). A StatefulSet claims only pods named besu-rpc-<ordinal>.
+    check(hit == (["besu-rpc", "besu-rpc-hs"] if workload == "besu-rpc" else []), f"{tag}: Services selecting the probe's labels = {['besu-rpc', 'besu-rpc-hs'] if workload == 'besu-rpc' else []}: {hit}")
+    check(not (workload == "besu-rpc" and re.fullmatch(r"besu-rpc-[0-9]+", p["metadata"]["name"])), f"{tag}: the probe is not named like a besu-rpc StatefulSet pod")
+    if workload == "besu-rpc":
+        sts = [d for d in docs(f"{K8S}/rpc/render.sh", *(["--cluster", "2"] if party == "bank-c" else []), "node", party, "--static-nodes", SN) if d["kind"] == "StatefulSet"]
+        check(len(sts) == 1 and sts[0]["metadata"]["name"] == "besu-rpc", f"{tag}: the besu-rpc StatefulSet is listed from the render")
     check(c.get("readinessProbe", {}).get("exec", {}).get("command") == ["false"], f"{tag}: readinessProbe exec false (never Ready => never an endpoint)")
     check(sp.get("automountServiceAccountToken") is False and "volumes" not in sp and "env" not in c and "envFrom" not in c and "serviceAccountName" not in sp, f"{tag}: no token, no Secret, no env, no volume")
     check(c["image"] == BUSY and sp["securityContext"].get("runAsNonRoot") is True and c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, f"{tag}: digest image, hardened")
@@ -176,16 +213,33 @@ for workload, party, extra in CASES:
         check(r.stdout.split() == out, f"{tag}: behaviour {ncbody!r} -> {out}: {r.stdout!r}")
 
 # ---- refusals (exit 2)
-BAD = [[], ["signer"], ["signer", "bank-c"], ["signer", "bank-c", "--cert-lb-ip", "300.1.1.1"], ["signer", "bank-c", "--cert-lb-ip", "10.0.0.0/24"], ["signer", "bank-a", "--cert-lb-ip", LB], ["signer", "bi", "--cert-lb-ip", LB],
+MULTI_BAD = [["besu-rpc", "bi", "--other-cluster-lb", LB_C[0]], ["besu-rpc", "bi", "--multi-peer"], ["besu-rpc", "bi", "--multi-peer", "--other-cluster-lb", LB_1[0], "--other-cluster-lb", LB_1[1]], ["besu-rpc", "bank-c", "--multi-peer", "--other-cluster-lb", LB_1[0]],
+             ["besu-rpc", "bank-c", "--multi-peer", *[a for ip in LB_1[:2] for a in ("--other-cluster-lb", ip)]], ["besu-rpc", "bi", "--multi-peer", "--other-cluster-lb", "300.1.1.1"],
+             ["besu-rpc", "bi", "--multi-peer", "--other-cluster-lb", LB_C[0], "--other-cluster-lb", LB_C[0]], ["besu-rpc", "bi", "--cert-lb-ip", LB_C[0]], ["besu-rpc", "bank-d"], ["besu-rpc"],
+             ["signer", "bi", "--multi-peer"], ["gateway", "bi", "--multi-peer"], ["baseline"], ["baseline", "bank-d"], ["baseline", "bi", "bank-a"], ["baseline", "bi", "--extra"]]
+BAD = MULTI_BAD + [[], ["signer"], ["signer", "bank-c"], ["signer", "bank-c", "--cert-lb-ip", "300.1.1.1"], ["signer", "bank-c", "--cert-lb-ip", "10.0.0.0/24"], ["signer", "bank-a", "--cert-lb-ip", LB], ["signer", "bi", "--cert-lb-ip", LB],
        ["signer", "bank-d"], ["custodian", "bank-a"], ["compare", "bank-a"], ["gateway", "bank-d"], ["gateway", "bank-a", "--cert-lb-ip", LB], ["scanner", "bi"], ["vault", "bi"], ["signer", "bank-a", "--extra"],
        ["probe", "signer", "bank-a", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", "busybox:1.36", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443;id", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "host:443", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "besu-rpc:8545;id"]]
+# ---- besu-rpc --multi-peer (the catch-up phase: README "Initial sync"): every zeto validator, same cluster by selector, the other cluster by LB /32
+for party in ("bi", "bank-a", "bank-b", "bank-c"):
+    lbs = LB_1 if party == "bank-c" else LB_C
+    ds = docs(render, "besu-rpc", party, "--multi-peer", *[a for ip in lbs for a in ("--other-cluster-lb", ip)])
+    check(len(ds) == 1 and ds[0]["spec"]["egress"] == rpc_rules(party, True) and ds[0]["spec"]["podSelector"] == RPC_SEL, f"besu-rpc --multi-peer/{party}: rules exactly {rpc_rules(party, True)}: {ds[0]['spec'] if ds else ds}")
+    if ds:
+        ips = [t["ipBlock"]["cidr"] for r in ds[0]["spec"]["egress"] for t in r["to"] if "ipBlock" in t]
+        check(ips == [f"{ip}/32" for ip in lbs], f"besu-rpc --multi-peer/{party}: ipBlock only for the OTHER cluster's LBs: {ips}")
+# ---- baseline: the edited allow-dns-egress of the stealth namespace, byte-for-byte what stealth-address/k8s/render.sh renders
+for party in ("bi", "bank-a", "bank-b", "bank-c"):
+    full = [d for d in docs(PARTY, *(["--cluster", "2"] if party == "bank-c" else []), party) if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "allow-dns-egress"]
+    check(docs(render, "baseline", party) == full and len(full) == 1, f"baseline/{party}: prints exactly the allow-dns-egress of the party render")
+
 for a in BAD:
     check(run(render, *a).returncode == 2, f"render.sh {' '.join(a)} must be refused with exit 2")
 
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)
     sys.exit(1)
-print(f"OK stealth egress: {len(CASES)} policies + {len(CASES)} probes + {len(BAD)} refusals checked")
+print(f"OK stealth egress: {len(CASES)} policies + {len(CASES)} probes + 4 multi-peer + 4 baselines + {len(BAD)} refusals checked")

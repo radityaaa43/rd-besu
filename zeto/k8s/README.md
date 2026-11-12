@@ -20,7 +20,7 @@ in the same namespace, no other namespace, no kube-system). Apply with a variabl
 Never `kubectl get ns` without a name on cluster 2.
 
 ## Policy semantics
-NetworkPolicies are additive per pod. Egress stays open (PLAN S1), so `allow-dns-egress` selects only pods WITHOUT `app=paladin`;
+NetworkPolicies are additive per pod. Egress stays open (PLAN S1), so `allow-dns-egress` selects only pods WITHOUT `app=paladin` and without the key holders (R17-zeto-other: bank-gw, bundle-server, paladin-pg, besu-validator, paladin-operator; each has its own narrow policy, `egress/render.sh`, test `egress/test.sh`);
 `rehearsal-no-9000-egress` selects `app=paladin` and allows TCP 1-8999 and 9001-65535 plus UDP (DNS 53 is inside). Lifted in S21 by deleting that object.
 
 ## Probe (run in the S1 window, then delete by label)

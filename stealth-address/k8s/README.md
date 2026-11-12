@@ -18,7 +18,7 @@ Never `kubectl get ns` without a name on cluster 2.
 
 ## Policy semantics
 Stealth has no Paladin node, so there is no rehearsal egress policy and no probe. Egress stays open (Besu p2p to the validators, JWT RPC reads, DNS):
-`allow-dns-egress` selects all pods with an allow-all rule. Ingress is denied except from the same namespace; later steps add the gateway and p2p rules.
+`allow-dns-egress` selects all pods with an allow-all rule, except those labelled `rd/egress-locked` and the RPC node `besu-rpc` (R17-zeto-other: `egress/render.sh besu-rpc <party>`). Ingress is denied except from the same namespace; later steps add the gateway and p2p rules.
 
 ## `party-admin`
 `secrets`: `create`, `update`, `patch` only (never get/list/watch). Workloads, services, configmaps, PVCs, networkpolicies, pods, `pods/log` as in zeto S1, plus

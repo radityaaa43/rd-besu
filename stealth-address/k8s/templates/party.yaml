@@ -45,9 +45,11 @@ metadata:
   labels: {part-of: rd-stealth, party: ${PARTY}}
 spec:
   # every pod EXCEPT those labelled rd/egress-locked (a signer/scanner/one-off Job with its OWN narrow egress policy; policies are additive, so an
-  # allow-all that selects them would cancel it). R17-stealth gate.
+  # allow-all that selects them would cancel it). R17-stealth gate. R17-zeto-other: also the RPC node besu-rpc (key holder; its own narrow policy besu-rpc-egress,
+  # egress/render.sh besu-rpc <party>: apply it first, prove the probe, THEN apply this edit).
   podSelector:
     matchExpressions:
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [besu-rpc]}
       - {key: rd/egress-locked, operator: DoesNotExist}
   policyTypes: [Egress]
   egress:
