@@ -33,6 +33,7 @@ def build(d, drop=None, flip=None, nodoc=False):
         os.makedirs(f"{d}/node{n}", exist_ok=True)
         tar(f"{d}/node{n}/bi.tar.gz", "bi", {"bi": {"config": bi}}, drop=drop, flip=flip)
         tar(f"{d}/node{n}/bank.tar.gz", "bank", {"bank": {"config": {"policy": {p: {"counterparties": cp[name]} for p in policy}}}}, drop=drop and "x", flip=None)
+def fl(r): return " | ".join(l for l in r.stdout.splitlines() if l.startswith("FAIL"))[:600]
 def verdict(d, ref, extra=()):
     return subprocess.run([sys.executable, "-I", f"{here}/candidate-verdict.py", d, "--repo", repo, "--sha", sha, "--ref", ref, *extra], capture_output=True, text=True)
 tmp = tempfile.mkdtemp()
@@ -42,7 +43,7 @@ names = {"old-1-bi.tar.gz": f"{good}/node1/bi.tar.gz", "old-1-bank.tar.gz": f"{g
 for k, v in names.items(): os.symlink(v, f"{refdir}/{k}")
 ref = f"{tmp}/ref.json"
 open(ref, "w").write(subprocess.run([sys.executable, "-I", f"{here}/policy-docs.py", "ref", *[f"{refdir}/{k}" for k in names]], capture_output=True, text=True, check=True).stdout)
-r = verdict(good, ref); check(r.returncode == 0 and "VERDICT: PASS" in r.stdout, f"a complete synthetic candidate must PASS: {r.stdout[-400:]} {r.stderr[-200:]}")
+r = verdict(good, ref); check(r.returncode == 0 and "VERDICT: PASS" in r.stdout, f"a complete synthetic candidate must PASS: {fl(r)} {r.stderr[-200:]}")
 bad = f"{tmp}/missing"; build(bad, drop="bi/platform/sink/sink.rego")
 r = verdict(bad, ref, ("--no-doors",)); check(r.returncode == 1 and "missing ['bi/platform/sink/sink.rego']" in r.stdout, f"a candidate without sink.rego must FAIL naming it: {r.stdout[-300:]}")
 bad = f"{tmp}/flip"; build(bad, flip="bi/zeto/zeto.rego")

@@ -74,8 +74,9 @@ test_no_ca_data_denies if {
 		with data.bank.config as fixtures.bank_a
 }
 
-# --- the flag is the rollout switch for legacy fixtures; the SHIPPED data must switch the binding on (a missing key would silently open every gateway)
-test_shipped_data_binds_the_paladin_door if data.bi.config.caller_binding.paladin == true
+# --- the flag is the rollout switch. R32 staging (orchestrator): the SHIPPED data is OFF; the publish goes out flag-off first and each door is flipped by a
+# candidate that names it (tools/candidate-verdict.py --flags). A missing key would also be OFF, so the shipped keys are pinned by name.
+test_shipped_caller_binding_is_staged_off if data.bi.config.caller_binding == {"paladin": false, "stealth": false}
 
 test_shipped_lensa_ca_covers_the_four_nodes if {
 	count(data.bi.config.lensa_ca) == 4
@@ -134,4 +135,11 @@ test_stealth_no_leaf_denied if {
 
 test_stealth_foreign_ca_denied if not stealth_allowed(stealth_req("node2", pki.lensa_by_gw))
 
-test_shipped_data_binds_the_stealth_door if data.bi.config.caller_binding.stealth == true
+test_flag_on_binds_each_door_independently if {
+	not gw.allow with input as stealth_req("node2", leaf.node3)
+		with data.bi.config as stealth_bound
+		with data.bank.config as fixtures.bank_a
+	gw.allow with input as stealth_req("node2", leaf.node3)
+		with data.bi.config as object.union(bound, {"caller_binding": {"paladin": true, "stealth": false}})
+		with data.bank.config as fixtures.bank_a
+}

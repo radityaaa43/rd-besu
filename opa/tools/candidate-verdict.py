@@ -14,6 +14,12 @@ import io, json, os, re, shutil, subprocess, sys, tarfile, tempfile
 a = sys.argv[1:]
 def opt(n, d=None): return a[a.index(n) + 1] if n in a else d
 cand, repo, sha, ref = a[0], opt("--repo"), opt("--sha") or "7e9dac3", opt("--ref")
+# R32 staging: the repo ships caller_binding OFF; a flip candidate names EXACTLY the doors it turns on: --flags paladin=true[,stealth=true]
+flags = {}
+for kv in filter(None, (opt("--flags") or "").split(",")):
+    k, _, v = kv.partition("=")
+    if v not in ("true", "false"): sys.exit(f"--flags: {kv!r} must be <door>=true|false")
+    flags[k] = v == "true"
 here = os.path.dirname(os.path.abspath(__file__)); opa_dir = os.path.join(here, "..")
 fails = []
 def fail(m): fails.append(m); print("FAIL " + m)
@@ -69,9 +75,12 @@ for n in (1, 2, 3, 4):
         else: ok(f"node{n} {kind}: {len(got)} rego files = the repo set @{sha[:7]}, byte-equal")
         d = json.loads(mem["/data.json"]); rd = json.loads(git(f"opa/bundles/{kind}/{kind}/config/data.json") or b"{}") if kind == "bi" else None
         if kind == "bi":
-            cfg = d["bi"]["config"]; bad = [k for k in sorted(set(rd) | set(cfg)) if k not in ("policy", "platforms") and rd.get(k) != cfg.get(k)]
+            cfg = d["bi"]["config"]; bad = [k for k in sorted(set(rd) | set(cfg)) if k not in ("policy", "platforms", "caller_binding") and rd.get(k) != cfg.get(k)]
+            want_cb = {**rd.get("caller_binding", {}), **flags}
+            if set(flags) - set(rd.get("caller_binding", {})): fail(f"--flags names a door the repo does not know: {sorted(set(flags) - set(rd.get('caller_binding', {})))}")
+            if cfg.get("caller_binding") != want_cb: fail(f"node{n} bi data.json caller_binding differs: candidate {cfg.get('caller_binding')}, expected {want_cb} (repo@{sha[:7]} + --flags)")
             if bad: fail(f"node{n} bi data.json keys differ from the repo: {bad}")
-            else: ok(f"node{n} bi data.json = repo data.json@{sha[:7]} except policy/platforms")
+            else: ok(f"node{n} bi data.json = repo data.json@{sha[:7]} except policy/platforms and the named caller_binding flags {flags or '(none)'}")
 # (2) docs
 if ref:
     names = {("bi", 1): "old-1-bi.tar.gz", ("bank", 1): "old-1-bank.tar.gz", ("bank", 2): "old-2-bank.tar.gz", ("bank", 3): "old-3-bank.tar.gz", ("bank", 4): "old-4-bank.tar.gz"}
