@@ -29,7 +29,27 @@ is_noto if {
 
 default allow := false
 
-allow if rpc.method in data.bi.config.paladin.read_methods
+# Reads pass from the explicit list. The list queries below also need an explicit limit of 1..100 (least door: no unbounded dump of
+# a node's transactions through the gateway). The pending/prepared lists are not in the list at all: they are node-admin reads.
+limited_queries := {"ptx_queryTransactions", "ptx_queryTransactionsFull", "ptx_queryTransactionReceipts"}
+
+allow if {
+	rpc.method in data.bi.config.paladin.read_methods
+	not rpc.method in limited_queries
+}
+
+allow if {
+	rpc.method in data.bi.config.paladin.read_methods
+	rpc.method in limited_queries
+	limit_ok
+}
+
+limit_ok if {
+	is_number(tx.limit)
+	tx.limit == floor(tx.limit)
+	tx.limit >= 1
+	tx.limit <= 100
+}
 
 allow if {
 	rpc.method in {"ptx_sendTransaction", "ptx_prepareTransaction"}
