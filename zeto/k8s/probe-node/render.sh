@@ -76,7 +76,7 @@ try:
     for x in pr['result']:
         h=str((x.get('network') or {}).get('remoteAddress') or x.get('enode','').split('@')[-1]).rsplit(':',1)[0].split('?')[0].strip('[]')
         c='in-cluster' if not ipaddress.ip_address(h).is_global else 'cross-cluster-LB'
-        print('peer %s %s'%(str(x.get('id') or x['enode'][8:])[:8],c))
+        print('peer %s %s'%((x.get('enode') or 'enode://'+str(x.get('id','')).replace('0x',''))[8:16],c))
 except SystemExit: pass
 except Exception: print('ERROR')
 " ;;
