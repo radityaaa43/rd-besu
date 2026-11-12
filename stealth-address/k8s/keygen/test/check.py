@@ -69,6 +69,28 @@ for w, (ns, secret, kinds) in WL.items():
     check(u == [np["metadata"]["name"]], f"{w}: union of Egress policies selecting the Job pod labels is exactly [own policy], got {u}")
     check(run(w, "--image", IMG, *kube_args()).stdout == run(w, "--image", IMG, *kube_args()).stdout, f"{w}: deterministic output")
 
+
+# probe profile (Q-v3-2): exact labels of the Job pod's policy; the kube API endpoint :6443 is the OPEN control, everything else BLOCKED
+def probe(w, *a): return docs("probe", w, "--image", IMG, *a)
+for w, (ns, secret, kinds) in WL.items():
+    pods = probe(w, "--target", "1.1.1.1:443", "--target", "10.0.0.10:53", "--control", f"{IPS[0]}:6443")
+    check(len(pods) == 1 and pods[0]["kind"] == "Pod" and pods[0]["metadata"]["name"] == "egress-negative-probe" and pods[0]["metadata"]["namespace"] == ns, f"{w}: probe is one Pod egress-negative-probe in {ns}")
+    if len(pods) != 1: continue
+    pp = pods[0]; pl = pp["metadata"]["labels"]; psp = pp["spec"]
+    job = [d for d in docs(w, "--image", IMG, *kube_args()) if d["kind"] == "Job"][0]; np_ = [d for d in docs(w, "--image", IMG, *kube_args()) if d["kind"] == "NetworkPolicy"][0]
+    check(pl.get("rd/egress-locked") == "true" and pl.get("rd/egress") == f"stealth-keygen-{w}", f"{w}: probe carries the Job pod's policy labels rd/egress-locked + rd/egress, got {pl}")
+    check(pl.get("app") != "stealth-keygen" and "role" not in pl, f"{w}: probe does not carry the Job's app/role labels (never adopted by anything)")
+    baseline = {"podSelector": {"matchExpressions": [{"key": "rd/egress-locked", "operator": "DoesNotExist"}]}}
+    pols = [("allow-dns-egress", baseline), (np_["metadata"]["name"], np_["spec"])]
+    jl = job["spec"]["template"]["metadata"]["labels"]
+    check([n for n, s in pols if sel(s["podSelector"], pl)] == [n for n, s in pols if sel(s["podSelector"], jl)] == [np_["metadata"]["name"]], f"{w}: union equality: probe labels and Job pod labels are both selected by exactly [own policy]")
+    check(psp.get("automountServiceAccountToken") is False and "serviceAccountName" not in psp, f"{w}: probe has no ServiceAccount token")
+    check(not psp.get("volumes"), f"{w}: probe mounts nothing")
+    cmd = psp["containers"][0]["command"][-1]
+    check("echo T1 OPEN; else echo T1 BLOCKED" in cmd and "echo T2 BLOCKED" in cmd and f"nc -w 3 {IPS[0]} 6443" in cmd and "echo CONTROL BLOCKED" in cmd and "1.1.1.1 443" in cmd and "10.0.0.10 53" in cmd, f"{w}: probe command tests T1,T2 then the :6443 CONTROL")
+    check(psp["containers"][0]["image"] == IMG and psp["restartPolicy"] == "Never" and psp["activeDeadlineSeconds"] <= 60, f"{w}: probe image pinned, Never, deadline <= 60 s")
+    check(psp["containers"][0]["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, f"{w}: probe container hardened")
+
 # refusals (rc != 0)
 def refuse(why, *a):
     r = run(*a); check(r.returncode != 0 and r.stdout == "", f"must refuse ({why}): {a} rc={r.returncode}")
@@ -81,6 +103,13 @@ refuse("octet out of range", "cert", "--image", IMG, "--kube-api-ip", "300.1.1.1
 refuse("unknown workload (issuerKey is COPIED, never generated)", "issuer", "--image", IMG, *kube_args())
 refuse("unknown option", "cert", "--image", IMG, *kube_args(), "--extra")
 refuse("no args", )
+refuse("probe without a target", "probe", "cert", "--image", IMG, "--control", f"{IPS[0]}:6443")
+refuse("probe control must be an IPv4:6443 (the allowed path), not DNS", "probe", "cert", "--image", IMG, "--target", "1.1.1.1:443", "--control", "kube-dns.kube-system.svc.cluster.local:53")
+refuse("probe control on another port", "probe", "cert", "--image", IMG, "--target", "1.1.1.1:443", "--control", f"{IPS[0]}:443")
+refuse("probe tag image", "probe", "cert", "--image", "ghcr.io/x/y:1", "--target", "1.1.1.1:443", "--control", f"{IPS[0]}:6443")
+refuse("probe hostname target", "probe", "cert", "--image", IMG, "--target", "example.com:443", "--control", f"{IPS[0]}:6443")
+refuse("probe unknown workload", "probe", "issuer", "--image", IMG, "--target", "1.1.1.1:443", "--control", f"{IPS[0]}:6443")
+refuse("probe too many targets", "probe", "cert", "--image", IMG, *sum((["--target", f"1.1.1.{i}:443"] for i in range(5)), []), "--control", f"{IPS[0]}:6443")
 refuse("bad pull secret name", "cert", "--image", IMG, *kube_args(), "--pull-secret", "Bad_Name")
 for w in WL:
     ok = docs(w, "--image", IMG, *kube_args(), "--pull-secret", "ghcr-pull")
