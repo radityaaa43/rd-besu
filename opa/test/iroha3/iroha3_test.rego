@@ -447,7 +447,8 @@ test_shipped_role_cas_are_the_handed_over_public_certs if {
 		count(crypto.x509.parse_certificates(pem)) == 1
 		not contains(pem, "PRIVATE")
 	}
-	count(data.bi.config.iroha3_ca.lensa) == 0
+	# W2 option 2: one public Lensa client CA per node (tests: iroha3_lensa_ca_test, lensa_ca_data_test.rego)
+	count(data.bi.config.iroha3_ca.lensa) == 4
 }
 
 test_unknown_node_denied if {
