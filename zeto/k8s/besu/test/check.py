@@ -48,6 +48,27 @@ check(got and got[0].startswith("enode://aaaa") and got[1].startswith("enode://b
 miss = run(static, "--old-peers", os.path.join(fx, "old-peers.json"), "--pod-ips", os.path.join(fx, "old-pod-ips-missing.txt"))
 check(miss.returncode != 0, "static-nodes.sh must fail when a pod IP is missing")
 
+# ---- static-nodes.sh --new-validators/--party: the 3 OTHER new validators only, never an old pod IP (repoint BI/A/B off the old ns besu) ----
+nv = os.path.join(fx, "new-validators.json")
+ORDER = ["bi", "bank-a", "bank-b", "bank-c"]
+allnew = json.load(open(nv))
+old_ips = {l.split()[1] for l in open(os.path.join(fx, "old-pod-ips.txt")) if l.strip()}
+for me in ORDER:
+    r = run(static, "--new-validators", nv, "--party", me)
+    want = [allnew[p] for p in ORDER if p != me]
+    got = json.loads(r.stdout or "null") if r.returncode == 0 else None
+    check(got == want, f"static-nodes.sh --party {me} must list exactly the other 3 new validators in order bi,bank-a,bank-b,bank-c: {got} {r.stderr.strip()[:100]}")
+    check(got is not None and not any(ip in e for e in got for ip in old_ips) and allnew[me] not in got, f"static-nodes.sh --party {me}: no old pod IP, no self")
+check(run(static, "--new-validators", nv, "--party", "nobody").returncode != 0, "static-nodes.sh --party must refuse an unknown party")
+check(run(static, "--new-validators", nv).returncode != 0, "static-nodes.sh --new-validators needs --party")
+check(run(static, "--party", "bi").returncode != 0, "static-nodes.sh --party needs --new-validators")
+dns = os.path.join(tmp, "dns-validators.json")
+json.dump({**allnew, "bank-a": "enode://" + "2" * 128 + "@besu-node-validator-1-0.besu.svc:30303"}, open(dns, "w"))
+check(run(static, "--new-validators", dns, "--party", "bi").returncode != 0, "static-nodes.sh --new-validators must refuse a DNS enode")
+short = os.path.join(tmp, "short-validators.json")
+json.dump({k: v for k, v in allnew.items() if k != "bank-c"}, open(short, "w"))
+check(run(static, "--new-validators", short, "--party", "bi").returncode != 0, "static-nodes.sh --new-validators must refuse a file missing one of the 4 parties")
+
 # ---- config template: exactly two lines differ from the live snapshot ----
 live = open(os.path.join(fx, "live-config.toml")).read().splitlines()
 tpl = open(os.path.join(base, "templates", "config.toml")).read().splitlines() if os.path.exists(os.path.join(base, "templates", "config.toml")) else []
