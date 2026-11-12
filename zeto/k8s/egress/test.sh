@@ -3,4 +3,5 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 python3 -I "$here/test/gate.py"
+python3 -I "$here/test/rbac_exec.py"
 exec python3 -I "$here/test/check.py" "$here/render.sh"

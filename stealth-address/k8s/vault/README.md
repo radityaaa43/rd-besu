@@ -11,12 +11,12 @@ Stacked on #14 (stealth L0 namespaces); retarget to `main` after #14 merges.
 | `templates/auth-delegator.yaml` | the only cluster-scoped object: ClusterRoleBinding `vault-auth-delegator-<ns>` (`system:auth-delegator` for SA `vault`), applied by the cluster operator |
 | `templates/storage.yaml`, `templates/snapshot.yaml` | cluster-scoped StorageClass `rd-retain-essd` (cloud_essd, **Retain**, WaitForFirstConsumer) + VolumeSnapshotClass `rd-retain-snapshot` (Retain); `render.sh snapshot <party> <tag>` = VolumeSnapshot of `data-vault-0` |
 | `policies/stealth-signer.hcl` | the signer reads exactly `secret/data/stealth-keys` |
-| `render.sh` | `<bi\|bank-a\|bank-b\|bank-c\|all>`, `values <party>`, `cluster <party\|all>`, `storage`, `snapshot <party> <tag>`, `probe <own> <other>`; `bank-c` (cluster 2) renders the same objects with label `cluster: "2"`, is not part of `all`/`cluster all`, and `probe` refuses it; `storage` is applied once per cluster (the same file on cluster 2) |
+| `render.sh` | `<bi\|bank-a\|bank-b\|bank-c\|all>`, `values <party>`, `cluster <party\|all>`, `storage`, `snapshot <party> <tag>`, `operator-exec <party> --subject-kind <User|Group> --subject-name <NAME>`, `probe <own> <other>`; `bank-c` (cluster 2) renders the same objects with label `cluster: "2"`, is not part of `all`/`cluster all`, and `probe` refuses it; `storage` is applied once per cluster (the same file on cluster 2) |
 | `test.sh`, `test/check.py` | offline assertions; `VAULT_CHART_DIR=<unpacked chart 0.34.1>` also renders the real chart with helm (else SKIP is printed) |
 
 Changes to stealth L0 (#14) in this PR, both on LIVE objects once L0 is applied:
 - `allow-same-namespace` selects `app.kubernetes.io/name NotIn [vault]` (policies are additive; without it `st-gw` and every other pod of the namespace reach the key store).
-- the `party-admin` Role gets `pods/exec` + `get`/`create` with `resourceNames: [vault-0]` (init/unseal/configure by the party operator, on the Vault pod only).
+- the `party-admin` Role has NO `pods/exec`, `pods/attach` or `pods/portforward` (its 1 h tokens are minted by automation sessions: no session ever execs into the key holder). Init/unseal/configure goes through `./render.sh operator-exec <party> --subject-kind <User|Group> --subject-name <NAME>`: Role + RoleBinding `vault-operator-exec` (`get` + `pods/exec` on `vault-0` only) bound ONLY to the party operator's own human User/Group, time-boxed (`rd/time-boxed`), deleted after the S7 window.
 
 ## S7 GO sub-steps (cluster-1 window, in this order)
 User-only, cluster-scoped, applied by the cluster operator (qa's harness expects exactly these):
@@ -32,7 +32,7 @@ Per namespace (operator):
 ./render.sh values bank-a > /tmp/v-bank-a.yaml
 helm install vault vault --repo https://helm.releases.hashicorp.com --version 0.34.1 -n rd-stealth-bank-a -f /tmp/v-bank-a.yaml
 ```
-Initialise once per party, by that party's operator (`party-admin` has `pods/exec` on `vault-0` only; run from the operator host). The unseal shares and root token go to
+Initialise once per party, by that party's operator under their own identity (`vault-operator-exec`, applied for the window and deleted after; `party-admin` cannot exec; run from the operator host). The unseal shares and root token go to
 `<operator host>:~/.rd-vault/rd-stealth-bank-a.init`, directory mode 700, file mode 600, holder = that party's operator; never in chat, git, logs or on the Lensa host:
 ```
 umask 077; mkdir -p ~/.rd-vault
@@ -50,6 +50,22 @@ vault write auth/kubernetes/role/stealth-signer bound_service_account_names=stea
 vault kv put secret/stealth-keys placeholder=not-a-key     # so vprobe-signer READ-OK has an entry before S9/S10; S9/S10 overwrite it with the real fields
 ```
 Real keys (field names: bank `spendKey viewKey identityKey`; BI `issuerKey custodianKey registryKey biMeta`) enter `secret/stealth-keys` at S9/S10 through a channel the operator chooses.
+
+## Egress (R17-zeto-other)
+The Vault pod holds the keys at rest and uses a ServiceAccount token (kubernetes auth: Vault calls the kube API TokenReview), so an allow-all egress policy must not select it. Its own policy
+`vault-egress` (`../egress/render.sh vault <party> --kube-api-ip IP [--kube-api-ip ...]`) selects `app.kubernetes.io/name=vault` and allows exactly: the kube API ENDPOINT IPs `/32` TCP 6443 (1 to 8, from
+`kubectl get endpoints kubernetes` at apply time; the Service ClusterIP is CLOSED on this CNI) and kube-dns 53. File storage, no outbound, no peers. The stealth baseline `allow-dns-egress` selects
+`app.kubernetes.io/name NotIn [besu-rpc, vault]`. Offline test: `../egress/test.sh` (policy, probe, union) and `../../../zeto/k8s/egress/test.sh` (gate: the Vault StatefulSet pod template must not be selected by an
+allow-all; it uses `helm template` of the real chart when `VAULT_CHART_DIR` is set, else the fixture `test/chart-0.34.1-statefulset.fixture.yaml`).
+Apply order per party (a probe cannot run against the real pod: it does not exist before the install, so the probe carries the exact labels the policy selects, BEFORE the install):
+1. Apply `vault-egress`. While the baseline still selects the pod it is inert (union = `allow-dns-egress` + `vault-egress`).
+2. Run `../egress/render.sh probe vault <party> --image REF@sha256:... --target <outside IPv4:PORT> --control <kube API IP>:6443`; expect `T1 BLOCKED` and `CONTROL OPEN`. The probe is labelled `rd/egress-locked=true` and
+   `app.kubernetes.io/name=vault` only (not instance/component), never Ready, so the chart StatefulSet and Services never adopt or select it. Delete it.
+3. `helm install` (Apply section). The pod exists with no key in it yet.
+4. Edit the baseline at once: `../egress/render.sh baseline <party> | kubectl apply -f -`; read back `kubectl -n <ns> get netpol allow-dns-egress -o jsonpath='{.spec.podSelector}'` (lists `vault`). From now on `vault-egress` is
+   the pod's ONLY egress policy. Do this BEFORE init: until then the pod is selected by both policies (= open egress).
+No key on the host at any step. Init, unseal and configure stay USER-ONLY (the init output and root token live with the party operator, see Apply). Vault's `kubernetes_host` must be a kube API endpoint IP:6443, not
+`https://kubernetes.default.svc` (the ClusterIP is closed for this pod) [unverified: the API server certificate may not list the IP, check `kubernetes_ca_cert` / the login probe before relying on it].
 
 ## Backup (before S9, and after every key change)
 The volume is Retain: deleting the PVC or the namespace leaves the disk. In addition, a snapshot: `./render.sh snapshot bank-a pre-s9 | kubectl apply -f -`, then

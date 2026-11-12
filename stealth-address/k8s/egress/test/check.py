@@ -81,6 +81,13 @@ LB_C, LB_1 = ["203.0.113.30"], ["203.0.113.31", "203.0.113.32", "203.0.113.33"] 
 VAL = {"app.kubernetes.io/name": "besu-validator"}
 ZETO = lambda k: {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-zeto-{k}"}}, "podSelector": {"matchLabels": VAL}}
 RPC_SEL = {"matchLabels": {"app.kubernetes.io/name": "besu-rpc"}}
+VAULT_SEL = {"matchLabels": {"app.kubernetes.io/name": "vault"}}  # matchLabels ONLY: the chart pod keeps its labels (no restart); instance/component are not in the policy
+KIPV = ["203.0.113.20", "203.0.113.21"]  # kube API endpoint IPs for the vault policy (documentation addresses; the real ones are quoted at apply time)
+VAULT_FIX = os.path.join(K8S, "vault", "test", "chart-0.34.1-statefulset.fixture.yaml")  # mirrors chart 0.34.1; the real render is used by zeto/k8s/egress/test/gate.py when VAULT_CHART_DIR is set
+
+
+def vault_docs(party):
+    return [d for d in yaml.safe_load_all(open(VAULT_FIX).read().replace("${NS}", f"rd-stealth-{party}").replace("${PARTY}", party)) if d]
 
 
 def rpc_rules(party, multi):
@@ -95,6 +102,8 @@ def expected(workload, party):
     """(policy name, profile label, rules) written out by hand, independent of the renderer. besu-rpc has no profile label: its pod keeps its labels (no restart), the policy selects app.kubernetes.io/name=besu-rpc."""
     if workload == "besu-rpc":
         return "besu-rpc-egress", None, rpc_rules(party, False)
+    if workload == "vault":  # R17-zeto-other: holds the keys at rest and a ServiceAccount token (kube auth -> TokenReview): kube API endpoint IPs :6443 + DNS, nothing else
+        return "vault-egress", None, [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}} for ip in KIPV], "ports": TCP(6443)}, DNS]
     if workload in ("signer", "viewpush"):
         if party == "bi":
             cert = {"to": [{"podSelector": {"matchLabels": {"app": "st-gw", "node": "node1"}}}], "ports": TCP(8550)}
@@ -120,12 +129,15 @@ def expected(workload, party):
 CASES = [("besu-rpc", "bi", []), ("besu-rpc", "bank-a", []), ("besu-rpc", "bank-b", []), ("besu-rpc", "bank-c", []), ("signer", "bi", []), ("signer", "bank-a", []), ("signer", "bank-b", []), ("signer", "bank-c", ["--cert-lb-ip", LB]), ("custodian", "bi", []), ("compare", "bi", []),
          ("gateway", "bi", []), ("gateway", "bank-a", []), ("gateway", "bank-b", []), ("gateway", "bank-c", []),
          ("viewpush", "bank-a", []), ("viewpush", "bank-b", []), ("viewpush", "bank-c", ["--cert-lb-ip", LB])]
+CASES += [("vault", p, [a for ip in KIPV for a in ("--kube-api-ip", ip)]) for p in ("bi", "bank-a", "bank-b", "bank-c")]
 
 
 def workload_pods(workload, party):
     """The pod label sets the real workload renders produce (the policy must select exactly these)."""
     if workload == "besu-rpc":
         return pod_labels(docs(f"{K8S}/rpc/render.sh", *(["--cluster", "2"] if party == "bank-c" else []), "node", party, "--static-nodes", SN))
+    if workload == "vault":
+        return pod_labels(vault_docs(party))
     if workload == "gateway":
         return pod_labels(docs(GATEWAY, party))
     if workload == "compare":
@@ -150,7 +162,7 @@ for workload, party, extra in CASES:
     lab = pol["metadata"].get("labels", {})
     check(lab.get("part-of") == "rd-stealth" and lab.get("party") == party and (lab.get("cluster") == "2") == (party == "bank-c"), f"{tag}: labels part-of=rd-stealth, party={party}, cluster=2 only for bank-c: {lab}")
     sp = pol["spec"]
-    want_sel = RPC_SEL if workload == "besu-rpc" else {"matchLabels": {"rd/egress": profile}}
+    want_sel = {"besu-rpc": RPC_SEL, "vault": VAULT_SEL}.get(workload, {"matchLabels": {"rd/egress": profile}})
     check(sp["podSelector"] == want_sel and sp["policyTypes"] == ["Egress"] and "ingress" not in sp, f"{tag}: selects {want_sel} only, Egress only: {sp['podSelector']}")
     check(sp["egress"] == rules, f"{tag}: egress rules are exactly the expected list\n   got  {sp['egress']}\n   want {rules}")
     # the form rule, asserted on every destination of every rule
@@ -159,7 +171,7 @@ for workload, party, extra in CASES:
         for t in r["to"]:
             if "ipBlock" in t:
                 check(set(t) == {"ipBlock"} and re.fullmatch(r"[0-9.]+/32", t["ipBlock"]["cidr"]) is not None and "except" not in t["ipBlock"], f"{tag}: ipBlock only as a bare /32: {t}")
-                check(workload in ("signer", "viewpush") and party == "bank-c", f"{tag}: ipBlock ONLY for the other cluster (bank-c signer/viewpush -> BI cert door LB), never same-cluster: {t}")
+                check((workload in ("signer", "viewpush") and party == "bank-c") or (workload == "vault" and r["ports"] == TCP(6443)), f"{tag}: ipBlock ONLY for the other cluster (bank-c signer/viewpush -> BI cert door LB) or the vault kube API endpoint :6443, never same-cluster: {t}")
             else:
                 ps, nss = t.get("podSelector"), t.get("namespaceSelector")
                 check(ps is not None and ps != {} and bool(ps.get("matchLabels")), f"{tag}: no podSelector {{}} / unnamed pods: {t}")
@@ -171,14 +183,15 @@ for workload, party, extra in CASES:
     check(len(pods) == 1, f"{tag}: the workload render has exactly one pod template")
     for pl in pods:
         check(union(base + [pol], pl) == [name], f"{tag}: union of ALL Egress policies selecting the pod = {[name]} (got {union(base + [pol], pl)})")
-        if workload == "besu-rpc":  # R17-zeto-other: no label change, no restart; the edited baseline stops selecting it, so besu-rpc-egress is its ONLY egress policy
+        if workload in ("besu-rpc", "vault"):  # R17-zeto-other: no label change, no restart; the edited baseline stops selecting it, so its own policy (besu-rpc-egress | vault-egress) is its ONLY egress policy
             check(union(old_base + [pol], pl) == ["allow-dns-egress", name], f"{tag}: inert stage (OLD baseline + {name}) selects the pod with both: {union(old_base + [pol], pl)}")
             check("rd/egress-locked" not in pl and "rd/egress" not in pl, f"{tag}: the live pod labels are unchanged (no restart): {pl}")
         else:
             check(pl.get("rd/egress-locked") == "true" and pl.get("rd/egress") == profile, f"{tag}: pod template carries rd/egress-locked=true, rd/egress={profile}: {pl}")
     if workload != "besu-rpc":
         check(union(base + [pol], {"app.kubernetes.io/name": "besu-rpc"}) == [], f"{tag}: the besu-rpc pod is NOT touched by this policy, and the edited baseline no longer selects it (its own policy besu-rpc-egress does)")
-    check(union(base + [pol], {"app.kubernetes.io/name": "vault"}) == ["allow-dns-egress"], f"{tag}: the vault pod is NOT touched")
+    if workload != "vault":
+        check(union(base + [pol], {"app.kubernetes.io/name": "vault"}) == [], f"{tag}: the vault pod is NOT touched by this policy, and the edited baseline no longer selects it (its own policy vault-egress does)")
 
 # ---- the negative probe: a pod labelled like the workload (selected by the same policy), never Ready, never a Service endpoint
 services = []
@@ -196,9 +209,9 @@ for workload, party, extra in CASES:
     p = ds[0]; sp = p["spec"]; c = sp["containers"][0]; lab = p["metadata"]["labels"]
     check(p["metadata"]["name"] == "egress-negative-probe" and p["metadata"]["namespace"] == f"rd-stealth-{party}", f"{tag}: name/namespace")
     want_lab = {"rd/egress-locked": "true", "rd/egress": profile, "app": "egress-negative-probe", "probe": "egress-negative", "part-of": "rd-stealth", "party": party}
-    if workload == "besu-rpc":  # selected by app.kubernetes.io/name (the live pod has no rd/egress label); rd/egress-locked keeps allow-dns-egress (old and new) off the probe
+    if workload in ("besu-rpc", "vault"):  # selected by app.kubernetes.io/name (the live pod has no rd/egress label); rd/egress-locked keeps allow-dns-egress (old and new) off the probe
         del want_lab["rd/egress"]
-        want_lab["app.kubernetes.io/name"] = "besu-rpc"
+        want_lab["app.kubernetes.io/name"] = workload
     if party == "bank-c":
         want_lab["cluster"] = "2"
     check(lab == want_lab, f"{tag}: labels exactly {want_lab} (selected by the policy; NOT app=stealth-signer/st-gw): {lab}")
@@ -206,6 +219,12 @@ for workload, party, extra in CASES:
     # besu-rpc: the policy selects the pod's identity label, which its Services select too; harmless while the probe is never Ready (below). A StatefulSet claims only pods named besu-rpc-<ordinal>.
     check(hit == (["besu-rpc", "besu-rpc-hs"] if workload == "besu-rpc" else []), f"{tag}: Services selecting the probe's labels = {['besu-rpc', 'besu-rpc-hs'] if workload == 'besu-rpc' else []}: {hit}")
     check(not (workload == "besu-rpc" and re.fullmatch(r"besu-rpc-[0-9]+", p["metadata"]["name"])), f"{tag}: the probe is not named like a besu-rpc StatefulSet pod")
+    if workload == "vault":  # the probe carries ONLY the identity label the policy selects: the chart StatefulSet (name+instance+component) must not adopt it, nor the chart Services select it
+        vd = vault_docs(party)
+        vsts = [d for d in vd if d["kind"] == "StatefulSet"]
+        check(len(vsts) == 1 and not sel(vsts[0]["spec"]["selector"], lab), f"{tag}: the chart StatefulSet selector must NOT match the probe labels (else it adopts the probe): {lab}")
+        check(not any(all(lab.get(k) == v for k, v in d["spec"]["selector"].items()) for d in vd if d["kind"] == "Service"), f"{tag}: no chart Service selects the probe labels")
+        check(not re.fullmatch(r"vault-[0-9]+", p["metadata"]["name"]), f"{tag}: the probe is not named like the vault StatefulSet pod")
     if workload == "besu-rpc":
         sts = [d for d in docs(f"{K8S}/rpc/render.sh", *(["--cluster", "2"] if party == "bank-c" else []), "node", party, "--static-nodes", SN) if d["kind"] == "StatefulSet"]
         check(len(sts) == 1 and sts[0]["metadata"]["name"] == "besu-rpc", f"{tag}: the besu-rpc StatefulSet is listed from the render")
@@ -232,7 +251,15 @@ BAD = MULTI_BAD + [[], ["signer"], ["signer", "bank-c"], ["signer", "bank-c", "-
        ["probe", "signer", "bank-a", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", "busybox:1.36", "--target", "1.1.1.1:443", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1", "--control", "besu-rpc:8545"],
        ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443;id", "--control", "besu-rpc:8545"], ["probe", "signer", "bank-a", "--image", BUSY, "--target", "host:443", "--control", "besu-rpc:8545"],
-       ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "besu-rpc:8545;id"]]
+       ["probe", "signer", "bank-a", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "besu-rpc:8545;id"],
+       # vault: the kube API endpoint IPs are required (1 to 8, bare IPv4, no duplicate) and exist for 'vault' and 'signer bi' only
+       ["vault", "bank-d", "--kube-api-ip", KIPV[0]], ["vault", "bi", "--kube-api-ip"], ["vault", "bi", "--kube-api-ip", "300.1.1.1"], ["vault", "bi", "--kube-api-ip", "10.0.0.0/24"], ["vault", "bi", "--kube-api-ip", "api.example"],
+       ["vault", "bi", "--kube-api-ip", ""], ["vault", "bi", "--kube-api-ip", "1.2.3"], ["vault", "bi", "--kube-api-ip", KIPV[0], "--kube-api-ip", KIPV[0]],
+       ["vault", "bi", *[a for i in range(9) for a in ("--kube-api-ip", f"203.0.113.{40 + i}")]],
+       ["vault", "bi", "--kube-api-ip", KIPV[0], "--cert-lb-ip", LB], ["vault", "bank-c", "--kube-api-ip", KIPV[0], "--cert-lb-ip", LB], ["vault", "bi", "--kube-api-ip", KIPV[0], "--multi-peer"],
+       ["vault", "bi", "--kube-api-ip", KIPV[0], "--other-cluster-lb", LB], ["vault", "bi", "--kube-api-ip", KIPV[0], "--extra"],
+       ["probe", "vault", "bank-d", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "dns:53"], ["probe", "vault", "bi", "--image", BUSY, "--target", "1.1.1.1:443", "--control", "dns:53", "--kube-api-ip", KIPV[0]],
+       ["probe", "vault", "bi", "--image", "vault:1", "--target", "1.1.1.1:443", "--control", "dns:53"], ["probe", "vault", "bi", "--image", BUSY, "--control", "dns:53"]]
 # ---- besu-rpc --multi-peer (the catch-up phase: README "Initial sync"): every zeto validator, same cluster by selector, the other cluster by LB /32
 for party in ("bi", "bank-a", "bank-b", "bank-c"):
     lbs = LB_1 if party == "bank-c" else LB_C
@@ -273,6 +300,20 @@ for bad in ("300.1.1.1", "10.0.0.0/24", "api.example", "", "1.2.3"):
     check(run(render, "signer", "bi", "--kube-api-ip", bad).returncode == 2, f"render.sh signer bi --kube-api-ip {bad!r} must be refused with exit 2")
 check(run(render, "signer", "bi", "--kube-api-ip").returncode == 2, "render.sh signer bi --kube-api-ip (no value) must be refused with exit 2")
 check(run(render, "signer", "bi", "--kube-api-ip", KIP[0], "--cert-lb-ip", LB).returncode == 2, "render.sh signer bi --kube-api-ip + --cert-lb-ip must be refused (cert-lb-ip is bank-c only)")
+
+# ---- vault-egress: one kube API rule (ipBlock <ip>/32 TCP 6443, in the order given, 1 to 8 IPs) + kube-dns, nothing else; --kube-api-ip is refused for every workload except vault and 'signer bi'
+for n in (1, 8):
+    ips = [f"203.0.113.{50 + i}" for i in range(n)]
+    ds = docs(render, "vault", "bank-a", *[a for ip in ips for a in ("--kube-api-ip", ip)])
+    check(len(ds) == 1 and ds[0]["spec"]["egress"] == [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}} for ip in ips], "ports": TCP(6443)}, DNS], f"vault bank-a with {n} --kube-api-ip: kube rule in the order given, then DNS: {ds[0]['spec']['egress'] if ds else ds}")
+for a in (["besu-rpc", "bi"], ["gateway", "bi"], ["signer", "bank-a"], ["custodian", "bi"], ["compare", "bi"], ["viewpush", "bank-a"], ["besu-rpc", "bi", "--multi-peer"]):
+    check(run(render, *a, "--kube-api-ip", KIPV[0]).returncode == 2, f"render.sh {' '.join(a)} --kube-api-ip must be refused with exit 2")
+for party in ("bi", "bank-a", "bank-b", "bank-c"):  # vault pod = key holder with a ServiceAccount token: the OLD baseline plus vault-egress selects it twice; the edited baseline must not
+    pol = docs(render, "vault", party, "--kube-api-ip", KIPV[0])
+    base = [d for d in docs(PARTY, *(["--cluster", "2"] if party == "bank-c" else []), party) if d["kind"] == "NetworkPolicy"]
+    pl = pod_labels(vault_docs(party))[0]
+    check(pol and union(base + pol, pl) == ["vault-egress"], f"vault/{party}: edited baseline + vault-egress select the chart pod {pl} by vault-egress ONLY: {union(base + pol, pl) if pol else pol}")
+    check(pol and union(base + pol, {"app.kubernetes.io/name": "vault", "app.kubernetes.io/instance": "vault", "component": "server"}) == ["vault-egress"], f"vault/{party}: the bare chart labels are covered the same way")
 
 if fails:
     print("\n".join("FAIL " + f for f in fails), file=sys.stderr)

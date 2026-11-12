@@ -1,0 +1,31 @@
+# S7 init/unseal/configure of the Vault key store: exec on vault-0 for the party operator's OWN human identity (User or Group), time-boxed.
+# Never a ServiceAccount (render.sh refuses it): party-admin tokens are minted by automation sessions and have no exec at all.
+# The operator applies it for the S7 window and deletes it after (annotation below). `get` on the pod: kubectl resolves the pod before exec.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-operator-exec
+  namespace: ${NS}
+  labels: {rd/time-boxed: "true", part-of: rd-stealth, party: ${PARTY}}
+  annotations: {rd/time-box: delete after the S7 window}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    resourceNames: [vault-0]
+    verbs: [get]
+  # get as well as create: kubectl's websocket exec starts with a GET
+  - apiGroups: [""]
+    resources: [pods/exec]
+    resourceNames: [vault-0]
+    verbs: [create, get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-operator-exec
+  namespace: ${NS}
+  labels: {rd/time-boxed: "true", part-of: rd-stealth, party: ${PARTY}}
+  annotations: {rd/time-box: delete after the S7 window}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: vault-operator-exec}
+subjects:
+  - {apiGroup: rbac.authorization.k8s.io, kind: ${SUBJECT_KIND}, name: "${SUBJECT_NAME}"}

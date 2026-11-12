@@ -5,10 +5,11 @@
 #   render.sh cluster <party|all>               ClusterRoleBinding vault-auth-delegator-<ns> (cluster operator applies it; user-only)
 #   render.sh storage                           StorageClass rd-retain-essd + VolumeSnapshotClass rd-retain-snapshot (cluster-scoped, user-only)
 #   render.sh snapshot <party> <tag>            VolumeSnapshot vault-data-<tag> of the party's Vault volume
+#   render.sh operator-exec <party> --subject-kind <User|Group> --subject-name <NAME>   Role + RoleBinding vault-operator-exec: exec on vault-0 for the operator's own human identity, time-boxed (never a ServiceAccount)
 #   render.sh probe <own> <other>               throwaway proof pods (signer reads OK; other pods blocked or login denied), prints no secret value
 # Needs bash + sed only. Never talks to a cluster.
 # bank-c (cluster 2): rendered one party at a time (access, values, cluster, snapshot) with the label cluster: "2" like ../render.sh --cluster 2; it is NOT part of `all` / `cluster all` (cluster 1) and
-# `probe` refuses it. `storage` (cluster-scoped StorageClass + VolumeSnapshotClass) is the same file: the operator applies it once per cluster, so cluster 2 gets it from this same `storage` render.
+# `probe` refuses it; `operator-exec` takes bank-c too. `storage` (cluster-scoped StorageClass + VolumeSnapshotClass) is the same file: the operator applies it once per cluster, so cluster 2 gets it from this same `storage` render.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 parties="bi bank-a bank-b"
@@ -97,6 +98,13 @@ case "${1:-}" in
   snapshot) shift; [[ $# == 2 ]] || die "usage: render.sh snapshot <party> <tag>"
             [[ "$2" =~ ^[a-z0-9]([-a-z0-9]{0,40}[a-z0-9])?$ ]] || die "tag '$2' is not a DNS label fragment"
             subst "$1" "$here/templates/snapshot.yaml" | sed "s/\${TAG}/$2/g" ;;
+  operator-exec) shift; usage="usage: render.sh operator-exec <party> --subject-kind <User|Group> --subject-name <NAME>"
+           [[ $# == 5 && "$2" == --subject-kind && "$4" == --subject-name ]] || die "$usage"
+           kind="$3"; name="$5"
+           [[ "$kind" == User || "$kind" == Group ]] || die "subject kind '$kind' refused (User or Group only: never a ServiceAccount)"
+           [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._@:-]*$ ]] || die "subject name must be non-empty, [A-Za-z0-9._@:-]"
+           [[ "$name" != *party-admin* && "$name" != system:* ]] || die "subject name '$name' refused (party-admin / system:*)"
+           subst "$1" "$here/templates/operator-exec.yaml" | sed -e "s/\${SUBJECT_KIND}/$kind/" -e "s/\${SUBJECT_NAME}/$name/" ;;
   probe)   shift; [[ $# == 2 ]] || die "usage: render.sh probe <own-party> <other-party>"; probe "$@" ;;
   all)
     if [[ -n "$out" ]]; then mkdir -p "$out"; for p in $parties; do subst "$p" "$here/templates/access.yaml" > "$out/rd-stealth-$p-vault.yaml"; done

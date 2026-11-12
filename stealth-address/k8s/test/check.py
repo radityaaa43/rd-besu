@@ -54,7 +54,7 @@ for party, ns in PARTIES.items():
         check(np["allow-same-namespace"]["spec"]["ingress"] == [{"from": [{"podSelector": {}}]}], f"{party}: allow-same-namespace shape")
         check({"key": "app", "operator": "NotIn", "values": ["stealth-signer"]} in np["allow-same-namespace"]["spec"]["podSelector"]["matchExpressions"], f"{party}: allow-same-namespace excludes pods labelled app=stealth-signer (S17)")
         e = np["allow-dns-egress"]["spec"]
-        check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {"matchExpressions": [{"key": "app.kubernetes.io/name", "operator": "NotIn", "values": ["besu-rpc"]}, {"key": "rd/egress-locked", "operator": "DoesNotExist"}]} and e["egress"] == [{}], f"{party}: egress stays open for every pod EXCEPT besu-rpc (own narrow policy, stealth egress/render.sh besu-rpc, R17-zeto-other) and those labelled rd/egress-locked (R17-stealth gate: a signer/scanner/Job with its own narrow policy): {e}")
+        check(e["policyTypes"] == ["Egress"] and e["podSelector"] == {"matchExpressions": [{"key": "app.kubernetes.io/name", "operator": "NotIn", "values": ["besu-rpc", "vault"]}, {"key": "rd/egress-locked", "operator": "DoesNotExist"}]} and e["egress"] == [{}], f"{party}: egress stays open for every pod EXCEPT besu-rpc and vault (own narrow policies, stealth egress/render.sh besu-rpc|vault, R17-zeto-other) and those labelled rd/egress-locked (R17-stealth gate: a signer/scanner/Job with its own narrow policy): {e}")
     rules = (of(ds, "Role") or [{"rules": []}])[0]["rules"]
     sec = [r for r in rules if "secrets" in r["resources"]]
     check(len(sec) == 1 and sorted(sec[0]["verbs"]) == ["create", "patch", "update"], f"{party}: secrets verbs exactly create,update,patch")
@@ -64,9 +64,8 @@ for party, ns in PARTIES.items():
         check(need in res, f"{party}: party-admin lacks resource {need}")
     for forbidden in ["roles", "rolebindings", "serviceaccounts", "namespaces", "pods/portforward"]:
         check(forbidden not in res, f"{party}: party-admin must not grant {forbidden}")
-    # S7: init/unseal by the party operator, exec on the Vault pod only
-    ex = [r for r in rules if "pods/exec" in r["resources"]]
-    check(len(ex) == 1 and ex[0]["resources"] == ["pods/exec"] and ex[0].get("resourceNames") == ["vault-0"] and sorted(ex[0]["verbs"]) == ["create", "get"] and ex[0]["apiGroups"] == [""], f"{party}: pods/exec only as one rule on resourceNames [vault-0], verbs create,get: {ex}")
+    # S7: no session ever execs into a key holder: party-admin (SA, 1 h automation tokens) has no exec/attach/portforward at all; exec belongs to the operator's own User/Group (vault/render.sh operator-exec)
+    check(not res & {"pods/exec", "pods/attach", "pods/portforward", "pods/*", "*"}, f"{party}: party-admin must have NO pods/exec, pods/attach, pods/portforward (or wildcard): {sorted(res)}")
 
 check([d["metadata"]["name"] for d in of(docs("all"), "Namespace")] == list(PARTIES.values()), "all: 3 namespaces in order bi, bank-a, bank-b")
 for args in (["bank-c"], ["probe", "bank-a", "bank-b"], []):

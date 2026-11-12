@@ -18,11 +18,11 @@ Never `kubectl get ns` without a name on cluster 2.
 
 ## Policy semantics
 Stealth has no Paladin node, so there is no rehearsal egress policy and no probe. Egress stays open (Besu p2p to the validators, JWT RPC reads, DNS):
-`allow-dns-egress` selects all pods with an allow-all rule, except those labelled `rd/egress-locked` and the RPC node `besu-rpc` (R17-zeto-other: `egress/render.sh besu-rpc <party>`). Ingress is denied except from the same namespace; later steps add the gateway and p2p rules.
+`allow-dns-egress` selects all pods with an allow-all rule, except those labelled `rd/egress-locked`, the RPC node `besu-rpc` and the Vault key store `vault` (R17-zeto-other: `egress/render.sh besu-rpc <party>`, `egress/render.sh vault <party> --kube-api-ip ...`). Ingress is denied except from the same namespace; later steps add the gateway and p2p rules.
 
 ## `party-admin`
 `secrets`: `create`, `update`, `patch` only (never get/list/watch). Workloads, services, configmaps, PVCs, networkpolicies, pods, `pods/log` as in zeto S1, plus
-`batch` jobs and cronjobs (the S11 view-key compare CronJob in `rd-stealth-bi`). Not granted: `pods/portforward`, `pods/exec`, anything cluster-scoped.
+`batch` jobs and cronjobs (the S11 view-key compare CronJob in `rd-stealth-bi`). Not granted: `pods/portforward`, `pods/exec`, `pods/attach`, anything cluster-scoped (no session token can exec into the Vault key holder; the operator's own User/Group gets `vault/render.sh operator-exec`, time-boxed).
 
 ## Narrow egress per workload (R17-stealth, `egress/`)
 `egress/render.sh <signer|custodian|compare|gateway> <party>` = ONE NetworkPolicy (`stealth-signer-egress`, `stealth-custodian-egress`, `stealth-viewkey-egress`, `st-gw-egress`) selecting `rd/egress=<profile>`;

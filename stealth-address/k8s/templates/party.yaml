@@ -46,10 +46,11 @@ metadata:
 spec:
   # every pod EXCEPT those labelled rd/egress-locked (a signer/scanner/one-off Job with its OWN narrow egress policy; policies are additive, so an
   # allow-all that selects them would cancel it). R17-stealth gate. R17-zeto-other: also the RPC node besu-rpc (key holder; its own narrow policy besu-rpc-egress,
-  # egress/render.sh besu-rpc <party>: apply it first, prove the probe, THEN apply this edit).
+  # egress/render.sh besu-rpc <party>: apply it first, prove the probe, THEN apply this edit) and the Vault key store (key holder with a ServiceAccount token; its own
+  # narrow policy vault-egress, egress/render.sh vault <party> --kube-api-ip ...: apply it and prove its probe BEFORE helm install, THEN apply this edit).
   podSelector:
     matchExpressions:
-      - {key: app.kubernetes.io/name, operator: NotIn, values: [besu-rpc]}
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [besu-rpc, vault]}
       - {key: rd/egress-locked, operator: DoesNotExist}
   policyTypes: [Egress]
   egress:
@@ -63,7 +64,7 @@ metadata:
   labels: {part-of: rd-stealth, party: ${PARTY}}
 ---
 # secrets: create/update/patch only, never get/list/watch (README decision 25). Not granted here (later steps extend the Role):
-# pods/portforward, pods/exec (except vault-0, S7), anything cluster-scoped.
+# pods/portforward, pods/exec, pods/attach, anything cluster-scoped. Exec into the Vault pod (S7) belongs to the operator's own User/Group only: vault/render.sh operator-exec.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -89,11 +90,6 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create, update, patch]
-  # S7: init/unseal/configure of the Vault key store by the party operator, on the Vault pod only (get: kubectl's websocket exec starts with a GET)
-  - apiGroups: [""]
-    resources: [pods/exec]
-    resourceNames: [vault-0]
-    verbs: [create, get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
