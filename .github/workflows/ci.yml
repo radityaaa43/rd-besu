@@ -41,6 +41,7 @@ jobs:
           version: v1.7.1
       - run: npm ci
       - run: forge test
+      - run: npm test   # tsc --noEmit && vitest run (signer + stealth TS); added with the S11 push code, first run of these in CI
 
   opa:
     runs-on: ubuntu-latest
@@ -68,6 +69,8 @@ jobs:
       - run: stealth-address/k8s/gateway/test.sh
       - run: stealth-address/k8s/signer/test.sh
       - run: stealth-address/k8s/egress/test.sh
+      - run: stealth-address/k8s/rbac/test.sh
+      - run: stealth-address/k8s/vault/test.sh
       - run: stealth-address/k8s/test-rpc.sh
       - name: envoy --mode validate on every party config (throwaway certs stand in for Secret st-gw-<N>-mtls)
         run: |

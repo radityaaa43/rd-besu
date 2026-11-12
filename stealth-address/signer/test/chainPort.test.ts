@@ -37,3 +37,31 @@ describe('createChainPort (mocked provider)', () => {
     expect(await port.now()).toBe(1_800_000_000n);
   });
 });
+
+// S11 rework: the ERC-6538 registry read (same call as compareMain.ts) behind ChainPort.registryMetaAddress.
+describe('registryMetaAddress (mocked provider)', () => {
+  const regAbi = new Interface(['function stealthMetaAddressOf(address registrant, uint256 schemeId) view returns (bytes)']);
+  const registry = '0x' + 'a4'.repeat(20);
+  const identity = '0x' + '5b'.repeat(20);
+  const meta = '0x' + '03'.repeat(33) + '02'.repeat(33);
+  const portFor = (value: string, seen: Array<{ to: string; data: string }>, withRegistry = true) => createChainPort({
+    provider: { call: async (tx: { to: string; data: string }) => { seen.push(tx); return regAbi.encodeFunctionResult('stealthMetaAddressOf', [value]); } } as unknown as Provider,
+    announcer: '0x' + 'a1'.repeat(20), validator: '0x' + 'a2'.repeat(20), dvpFactory: '0x' + 'a3'.repeat(20), rd: RD, bond: BOND, fromBlock: 0,
+    registry: withRegistry ? registry : undefined,
+  });
+  it('calls stealthMetaAddressOf(identity, 1) on the registry and returns the registered bytes', async () => {
+    const seen: Array<{ to: string; data: string }> = [];
+    expect(await portFor(meta, seen).registryMetaAddress(identity)).toBe(meta);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].to.toLowerCase()).toBe(registry);
+    expect(seen[0].data).toBe(regAbi.encodeFunctionData('stealthMetaAddressOf', [identity, 1n]));
+  });
+  it('an empty registry value (0x) is null', async () => {
+    expect(await portFor('0x', []).registryMetaAddress(identity)).toBeNull();
+  });
+  it('without a configured registry address it rejects and makes no call', async () => {
+    const seen: Array<{ to: string; data: string }> = [];
+    await expect(portFor(meta, seen, false).registryMetaAddress(identity)).rejects.toThrow(/registry/);
+    expect(seen).toEqual([]);
+  });
+});

@@ -4,6 +4,8 @@
 #   render.sh bi --image REF --chain-env FILE --cert-url URL [--pull-secret NAME]
 #   render.sh custodian --image REF --chain-env FILE --bank-signers "CN=a,CN=b" [--pull-secret NAME]
 #   render.sh compare --image REF --chain-env FILE --registry 0xADDR [--pull-secret NAME]
+#   render.sh viewpush <bank-a|bank-b|bank-c> --image REF --door-url URL [--pull-secret NAME]
+#   render.sh bi ... [--viewcopy-store]
 # bank-<x> -> ns rd-stealth-bank-<x> (PARTY=A|B|C): Deployment + Service stealth-signer (ClusterIP 8080), role bank.
 # custodian -> ns rd-stealth-bi (PARTY=BI): Deployment stealth-custodian (mTLS 9443), role custodian, NO Service.
 # bi -> ns rd-stealth-bi (PARTY=BI): Deployment + Service stealth-signer (ClusterIP 8080), role bi. Reaches the custodian /cert door through the BI gateway like the banks.
@@ -15,6 +17,11 @@
 # compare -> ns rd-stealth-bi: CronJob stealth-viewkey-compare (every 5 min, same image, command signer/src/compareMain.ts once), S11 detective compare of the registered viewing keys.
 #   Pod labels app=stealth-viewkey role=compare (NOT app=stealth-signer: it serves no port and is not admitted by the signer NetworkPolicy). Only CHAIN_ID is read from --chain-env
 #   (the same exactly-7-keys file serves every stage). --registry (required, compare only): the ERC-6538 registry, 0x + 40 hex.
+# viewpush -> ns rd-stealth-bank-x: Job stealth-viewpush (S11 rework: the bank pushes ITS OWN view key + meta-address to BI's gateway, SNI viewcopy-1, signer/src/pushViewCopy.ts, same image). backoffLimit 0,
+#   ttlSecondsAfterFinished 600, no SA token. Pod labels app=stealth-viewpush role=viewpush (NOT app=stealth-signer) + rd/egress-locked=true + rd/egress=stealth-viewpush (egress/render.sh viewpush).
+#   Mounts stealth-keys with items [viewKey] ONLY (spendKey and identityKey never enter the pod) and stealth-signer-mtls (client cert). --door-url (required): https://host[:port] of the BI door st-gw-1:8550.
+# bi --viewcopy-store: ServiceAccount stealth-bi-signer with the token mounted (the signer patches Secret stealth-bi-viewcopies through the kube API; the Role is rbac/render.sh viewcopies, the egress is
+#   egress/render.sh signer bi --kube-api-ip). Without the flag the bi render is unchanged (no SA token).
 # Secrets are created by the party operator and NEVER rendered (names + exact key names the pods mount, all 0440):
 #   bank      stealth-keys (spendKey, viewKey, identityKey) -> /keys | stealth-signer-mtls (client.key, client.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
 #   bi        stealth-bi-keys (issuerKey, spendKey, viewKey) -> /keys | stealth-bi-viewcopies (OPTIONAL; every key of it, <id>.viewKey + <id>.metaAddress, S11 fills it) -> /viewcopies
@@ -27,10 +34,16 @@
 # gateway/render.sh expects: Service stealth-signer:8080 (pod labels app=stealth-signer role=bank) and Service stealth-custodian:9443 (role=custodian, rendered there); its stealth-signer-ingress selects role In [bank, bi].
 set -euo pipefail
 die() { echo "render.sh: $*" >&2; exit 2; }
-usage="usage: render.sh <bank-a|bank-b|bank-c|bi> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME] | render.sh compare --image REF --chain-env FILE --registry 0xADDR [--pull-secret NAME]"
+usage="usage: render.sh <bank-a|bank-b|bank-c|bi> --image REF --chain-env FILE --cert-url URL [--pull-secret NAME] | render.sh custodian --image REF --chain-env FILE --bank-signers \"CN=a,CN=b\" [--pull-secret NAME] | render.sh compare --image REF --chain-env FILE --registry 0xADDR [--pull-secret NAME] | render.sh viewpush <bank-a|bank-b|bank-c> --image REF --door-url URL [--pull-secret NAME]"
 
 [[ $# -ge 1 ]] || die "$usage"
 sel="$1"; shift
+VP=0
+if [[ "$sel" == viewpush ]]; then
+  [[ $# -ge 1 ]] || die "$usage"
+  sel="$1"; shift; VP=1
+  case "$sel" in bank-a|bank-b|bank-c) ;; *) die "viewpush is for bank-a bank-b bank-c only" ;; esac
+fi
 case "$sel" in
   bank-a) party=A; ns=rd-stealth-bank-a; lp=bank-a ;;
   bank-b) party=B; ns=rd-stealth-bank-b; lp=bank-b ;;
@@ -41,8 +54,9 @@ case "$sel" in
   *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c bi custodian compare)" ;;
 esac
 
-IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; REGISTRY=""; HAVE_CERT=0; HAVE_SIGNERS=0; HAVE_REGISTRY=0
+IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; REGISTRY=""; HAVE_CERT=0; HAVE_SIGNERS=0; HAVE_REGISTRY=0; HAVE_DOOR=0; DOOR=""; STORE=0
 while [[ $# -gt 0 ]]; do
+  if [[ "$1" == --viewcopy-store ]]; then STORE=1; shift; continue; fi
   [[ $# -ge 2 ]] || die "option $1 needs a value"
   case "$1" in
     --image) IMAGE="$2" ;;
@@ -51,12 +65,78 @@ while [[ $# -gt 0 ]]; do
     --bank-signers) SIGNERS="$2"; HAVE_SIGNERS=1 ;;
     --pull-secret) PULL="$2"; HAVE_PULL=1 ;;
     --registry) REGISTRY="$2"; HAVE_REGISTRY=1 ;;
+    --door-url) DOOR="$2"; HAVE_DOOR=1 ;;
     *) die "unknown option $1" ;;
   esac
   shift 2
 done
 
 [[ "$IMAGE" =~ ^[A-Za-z0-9._/:@-]+$ && "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || die "--image must be digest pinned (REF@sha256:<64 hex>, chars A-Za-z0-9._/:@-)"
+if [[ $VP -eq 1 ]]; then
+  [[ -z "$CHAINENV" && $HAVE_CERT -eq 0 && $HAVE_SIGNERS -eq 0 && $HAVE_REGISTRY -eq 0 && $STORE -eq 0 ]] || die "viewpush takes only --image, --door-url, --pull-secret"
+  [[ $HAVE_DOOR -eq 1 ]] || die "--door-url is required for viewpush"
+  [[ "$DOOR" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --door-url (https://host[:port], no path)"
+  [[ -z "${HAVE_PULL:-}" ]] || [[ "$PULL" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] || die "bad --pull-secret (DNS-1123 name)"
+  vp_pull=""; [[ -z "${HAVE_PULL:-}" ]] || vp_pull=$'      imagePullSecrets:\n      - {name: '"$PULL"$'}'
+  cat <<YAML
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stealth-viewpush
+  namespace: $ns
+  labels: {app: stealth-viewpush, role: viewpush, part-of: rd-stealth, party: $lp}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels: {app: stealth-viewpush, role: viewpush, rd/egress-locked: "true", rd/egress: stealth-viewpush} # own narrow egress (egress/render.sh viewpush): the own signer, the BI door, DNS
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+$vp_pull
+      containers:
+      - name: viewpush
+        image: "$IMAGE"
+        command: ["node","--experimental-transform-types","signer/src/pushViewCopy.ts"]
+        env:
+        - {name: PARTY, value: "$party"}
+        - {name: KEYS_DIR, value: /keys}
+        - {name: TLS_DIR, value: /tls}
+        - {name: SIGNER_URL, value: "http://stealth-signer:8080"}
+        - {name: DOOR_URL, value: "$DOOR"}
+        - {name: DOOR_SERVERNAME, value: viewcopy-1}
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {memory: 256Mi}
+        securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+        volumeMounts:
+        - {name: keys, mountPath: /keys, readOnly: true}
+        - {name: tls, mountPath: /tls, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - name: keys
+        secret:
+          secretName: stealth-keys
+          defaultMode: 288 # 0440
+          items:
+          - {key: viewKey, path: viewKey} # ONLY the view key: spendKey and identityKey are not projected
+      - name: tls
+        secret:
+          secretName: stealth-signer-mtls
+          defaultMode: 288 # 0440
+          items:
+          - {key: client.key, path: client.key}
+          - {key: client.crt, path: client.crt}
+          - {key: ca.crt, path: ca.crt}
+      - {name: tmp, emptyDir: {}}
+YAML
+  exit 0
+fi
+[[ $HAVE_DOOR -eq 0 ]] || die "--door-url is for viewpush only"
+[[ $STORE -eq 0 || "$sel" == bi ]] || die "--viewcopy-store is for bi only"
 [[ -n "$CHAINENV" ]] || die "--chain-env FILE is required"
 [[ -f "$CHAINENV" ]] || die "--chain-env: not a file"
 if [[ "$sel" == compare ]]; then
@@ -163,7 +243,8 @@ YAML
   exit 0
 fi
 
-mounts=""
+mounts=""; sa=""; automount=false
+if [[ $STORE -eq 1 ]]; then automount=true; sa=$'\n      serviceAccountName: stealth-bi-signer'; fi
 if [[ "$sel" == custodian ]]; then
   name=stealth-custodian; role=custodian; port=9443; pname=mtls; egress=stealth-custodian
   probe='tcpSocket: {port: 9443}' # the https listener demands a client cert, so no httpGet
@@ -201,7 +282,7 @@ spec:
     metadata:
       labels: {app: stealth-signer, role: $role, rd/egress-locked: "true", rd/egress: $egress} # own narrow egress (egress/render.sh signer|custodian): not selected by allow-dns-egress
     spec:
-      automountServiceAccountToken: false
+      automountServiceAccountToken: $automount$sa
       securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
 $(pull)
       containers:

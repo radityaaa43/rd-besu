@@ -6,7 +6,7 @@ import { buildBondMetadata } from '../../ts/bond.ts';
 import { generateMetaAddress, deriveStealth, scan } from '../../ts/stealth.ts';
 import { buildTokenMetadata } from '../../ts/token.ts';
 import { createSigner } from '../src/server.ts';
-import type { BankKeys, ChainPort, CertClient, Keys, PeerIdentity, SignerConfig } from '../src/types.ts';
+import type { BankKeys, ChainPort, CertClient, Keys, PeerIdentity, SignerConfig, ViewCopyStore } from '../src/types.ts';
 
 export const CHAIN_ID = 1337n;
 export const RD = '0x00000000000000000000000000000000000000d1';
@@ -43,6 +43,9 @@ export class FakeChain implements ChainPort {
   async bondDomainSeparator() { return this.domain; }
   async usedCertificateNonce(token: string, sender: string) { return this.certNonces.get((token + sender).toLowerCase()) ?? 0n; }
   async isEscrow(a: string) { return this.escrows.has(a.toLowerCase()); }
+  registry = new Map<string, string>(); // identity address (lowercase) -> registered meta-address (S11)
+  registryError = false;
+  async registryMetaAddress(identity: string) { if (this.registryError) throw new Error('rpc down'); return this.registry.get(identity.toLowerCase()) ?? null; }
   async now() { return NOW; }
   async sendRawTransaction(raw: string) { this.sent.push(raw); return keccak256(raw); }
 }
@@ -74,13 +77,13 @@ export const scanA = (chain: FakeChain) => scan(chain.anns, A.viewKey, A.spendKe
 export type Rec = { logs: string[]; bodies: string[] };
 
 // Start the signer on 127.0.0.1:0 (loopback only, no outside network). Every response body and log/console line is recorded.
-export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig>; peer?: PeerIdentity; keys?: Keys } = {}) {
+export async function start(chain: FakeChain, opts: { cert?: CertClient; cfg?: Partial<SignerConfig>; peer?: PeerIdentity; keys?: Keys; store?: ViewCopyStore } = {}) {
   const rec: Rec = { logs: [], bodies: [] };
   for (const m of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     vi.spyOn(console, m).mockImplementation((...a: unknown[]) => { rec.logs.push(a.map(String).join(' ')); });
   }
   const { metaAddress: _m, ...keys } = A;
-  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys: opts.keys ?? keys, chain, log: (l) => rec.logs.push(l), cert: opts.cert, peer: opts.peer });
+  const server = createSigner({ ...CONFIG, ...opts.cfg }, { keys: opts.keys ?? keys, chain, log: (l) => rec.logs.push(l), cert: opts.cert, peer: opts.peer, viewCopyStore: opts.store });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const call = async (method: string, path: string, body?: unknown) => {

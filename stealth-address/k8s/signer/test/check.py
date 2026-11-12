@@ -298,6 +298,86 @@ rejects("bank with --bank-signers", *bank_args(), "--bank-signers", SIGNERS)
 for bad in ("Reg_Cred", "-x", "x.", ""):
     rejects(f"--pull-secret {bad!r}", *bank_args(), "--pull-secret", bad)
 
+# S11 rework D3: bi --viewcopy-store = ServiceAccount stealth-bi-signer with a mounted token (the Role on ONE Secret is rbac/render.sh); without the flag nothing changes
+base_bi = docs(*bi_args())
+vs = docs(*bi_args(), "--viewcopy-store")
+if len(vs) == 2 and len(base_bi) == 2:
+    vpod = vs[0]["spec"]["template"]["spec"]
+    check(vpod.get("serviceAccountName") == "stealth-bi-signer" and vpod["automountServiceAccountToken"] is True, f"bi --viewcopy-store: serviceAccountName stealth-bi-signer + automountServiceAccountToken true (got {vpod.get('serviceAccountName')}, {vpod.get('automountServiceAccountToken')})")
+    vs_norm = yaml.safe_load(yaml.dump(vs))
+    vs_norm[0]["spec"]["template"]["spec"].pop("serviceAccountName", None)
+    vs_norm[0]["spec"]["template"]["spec"]["automountServiceAccountToken"] = False
+    check(vs_norm == base_bi, "bi --viewcopy-store: ONLY serviceAccountName + automountServiceAccountToken differ from the plain bi render")
+else:
+    check(False, "bi --viewcopy-store renders Deployment + Service")
+check("serviceAccountName" not in base_bi[0]["spec"]["template"]["spec"] and base_bi[0]["spec"]["template"]["spec"]["automountServiceAccountToken"] is False, "bi without the flag: no ServiceAccount, no token")
+for a in (bank_args(), cust_args(), compare_args()):
+    rejects(f"{a[0]} with --viewcopy-store", *a, "--viewcopy-store")
+rejects("bi --viewcopy-store with a value", *bi_args(), "--viewcopy-store", "yes")
+
+# S11 rework D2: viewpush = the one-off Job that pushes THIS bank's view key to BI's door
+DOOR = "https://st-gw-1.rd-stealth-bi.svc.cluster.local:8550"
+
+
+def vp_args(p="bank-a", image=IMG, door=DOOR):
+    return ["viewpush", p, "--image", image, "--door-url", door]
+
+
+for p, party in BANKS.items():
+    ns = f"rd-stealth-{p}"
+    ds = docs(*vp_args(p))
+    check([(d["kind"], d["metadata"]["name"]) for d in ds] == [("Job", "stealth-viewpush")], f"viewpush {p}: exactly one Job stealth-viewpush, no Service/Secret (got {[(d['kind'], d['metadata']['name']) for d in ds]})")
+    if len(ds) != 1:
+        continue
+    job = ds[0]
+    check(job["apiVersion"] == "batch/v1" and job["metadata"]["namespace"] == ns, f"viewpush {p}: batch/v1 in {ns}")
+    check(job["metadata"]["labels"] == {"app": "stealth-viewpush", "role": "viewpush", "part-of": "rd-stealth", "party": p}, f"viewpush {p}: Job labels")
+    js = job["spec"]
+    check(js["backoffLimit"] == 0 and js["ttlSecondsAfterFinished"] == 600 and js["activeDeadlineSeconds"] == 120, f"viewpush {p}: backoffLimit 0, ttlSecondsAfterFinished 600, activeDeadlineSeconds 120")
+    check(js["template"]["metadata"]["labels"] == {"app": "stealth-viewpush", "role": "viewpush", "rd/egress-locked": "true", "rd/egress": "stealth-viewpush"}, f"viewpush {p}: pod labels incl. rd/egress-locked=true + rd/egress=stealth-viewpush, and NOT app=stealth-signer (no Service selects it)")
+    pod = js["template"]["spec"]
+    check(pod["restartPolicy"] == "Never" and pod["automountServiceAccountToken"] is False and "serviceAccountName" not in pod, f"viewpush {p}: restartPolicy Never, no SA token")
+    check(pod["securityContext"] == {"runAsNonRoot": True, "runAsUser": 10001, "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}}, f"viewpush {p}: pod securityContext")
+    for bad in ("hostNetwork", "hostPID", "hostIPC"):
+        check(not pod.get(bad), f"viewpush {p}: no {bad}")
+    check(len(pod["containers"]) == 1 and pod["containers"][0]["name"] == "viewpush", f"viewpush {p}: one container named viewpush")
+    c = pod["containers"][0]
+    check(c["image"] == IMG and c["command"] == ["node", "--experimental-transform-types", "signer/src/pushViewCopy.ts"], f"viewpush {p}: digest image, command pushViewCopy.ts (got {c.get('command')})")
+    check(c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, f"viewpush {p}: container securityContext")
+    check(c["resources"] == {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "256Mi"}}, f"viewpush {p}: resources")
+    check("ports" not in c and "readinessProbe" not in c and "livenessProbe" not in c and "envFrom" not in c, f"viewpush {p}: no ports, probes or envFrom")
+    check(all("valueFrom" not in e and "value" in e for e in c["env"]), f"viewpush {p}: env are plain values")
+    env = {e["name"]: e["value"] for e in c["env"]}
+    check(env == {"PARTY": party, "KEYS_DIR": "/keys", "TLS_DIR": "/tls", "SIGNER_URL": "http://stealth-signer:8080", "DOOR_URL": DOOR, "DOOR_SERVERNAME": "viewcopy-1"}, f"viewpush {p}: env exactly PARTY KEYS_DIR TLS_DIR SIGNER_URL DOOR_URL DOOR_SERVERNAME (got {env})")
+    vols = {v["name"]: v for v in pod["volumes"]}
+    check(set(vols) == {"keys", "tls", "tmp"}, f"viewpush {p}: volumes exactly keys, tls, tmp (got {sorted(vols)})")
+    check(vols["keys"] == {"name": "keys", "secret": {"secretName": "stealth-keys", "defaultMode": 0o440, "items": [{"key": "viewKey", "path": "viewKey"}]}}, f"viewpush {p}: keys = Secret stealth-keys projecting items [viewKey] ONLY (got {vols.get('keys')})")
+    check(secret_items(vols["tls"]) == ("stealth-signer-mtls", ["client.key", "client.crt", "ca.crt"], {0o440}) and "emptyDir" in vols["tmp"], f"viewpush {p}: tls = Secret stealth-signer-mtls (3 items, 0440), tmp emptyDir")
+    check({m["name"]: (m["mountPath"], m.get("readOnly", False)) for m in c["volumeMounts"]} == {"keys": ("/keys", True), "tls": ("/tls", True), "tmp": ("/tmp", False)}, f"viewpush {p}: mounts keys, tls readOnly, tmp")
+    dump = yaml.dump(job)
+    for bad in ("spendKey", "identityKey", "stealth-cert-key", "stealth-bi-keys", "stealth-rpc-jwt", "private.pem", "stealth-bi-viewcopies"):
+        check(bad not in dump, f"viewpush {p}: never references {bad} (no spend/identity key path anywhere)")
+    check("imagePullSecrets" not in pod, f"viewpush {p}: no imagePullSecrets without --pull-secret")
+ds = docs(*vp_args("bank-b"), "--pull-secret", "regcred")
+check(ds and ds[0]["spec"]["template"]["spec"].get("imagePullSecrets") == [{"name": "regcred"}], "viewpush: --pull-secret sets imagePullSecrets")
+rejects("viewpush for bi", *vp_args("bi"))
+rejects("viewpush for custodian", *vp_args("custodian"))
+rejects("viewpush unknown bank", *vp_args("bank-d"))
+rejects("viewpush with no bank", "viewpush")
+rejects("viewpush missing --door-url", "viewpush", "bank-a", "--image", IMG)
+rejects("viewpush missing --image", "viewpush", "bank-a", "--door-url", DOOR)
+rejects("viewpush non-digest image", *vp_args(image="registry.example/rd-stealth-signer:latest"))
+rejects("viewpush short digest", *vp_args(image="registry.example/x@sha256:" + "0" * 63))
+for bad in ("http://st-gw-1.rd-stealth-bi:8550", "https://host:8550/viewcopy", "https://host :8550", "https://", "st-gw-1:8550", "https://host:abc"):
+    rejects(f"viewpush --door-url {bad!r}", *vp_args(door=bad))
+rejects("viewpush with --chain-env", *vp_args(), "--chain-env", GOOD)
+rejects("viewpush with --cert-url", *vp_args(), "--cert-url", CERT_URL)
+rejects("viewpush with --registry", *vp_args(), "--registry", REGISTRY)
+rejects("viewpush with --bank-signers", *vp_args(), "--bank-signers", SIGNERS)
+rejects("viewpush bad --pull-secret", *vp_args(), "--pull-secret", "Reg_Cred")
+for a in (bi_args(), bank_args(), cust_args(), compare_args()):
+    rejects(f"{a[0]} with --door-url", *a, "--door-url", DOOR)
+
 if fails:
     print(f"FAIL: {len(fails)} assertion(s)", file=sys.stderr)
     for f in fails:

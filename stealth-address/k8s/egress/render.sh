@@ -2,6 +2,10 @@
 # Narrow egress per stealth workload (R17-stealth gate), SELECTOR FORM. Prints one NetworkPolicy (or one probe Pod) to stdout. Never talks to a cluster.
 #   render.sh signer <bi|bank-a|bank-b|bank-c> [--cert-lb-ip IPv4]   stealth-signer-egress: besu-rpc 8545 (own ns), the BI cert door st-gw-1:8550, kube-dns 53
 #                                                                    bank-c (cluster 2) reaches the door only through the st-gw-1-ext LB: --cert-lb-ip is REQUIRED there and refused elsewhere
+#   render.sh signer bi --kube-api-ip IPv4 [--kube-api-ip ...]      (S11 rework) adds ONE rule: ipBlock <IP>/32 TCP 6443 per kube API ENDPOINT IP (kubectl get endpoints kubernetes at apply time; the Service
+#                                                                    ClusterIP and pod IPs are CLOSED on this CNI) so the BI signer can patch its one Secret. The BI signer only; the form without the option is unchanged.
+#   render.sh viewpush <bank-a|bank-b|bank-c> [--cert-lb-ip IPv4]    stealth-viewpush-egress (S11 rework, the one-off view-key push Job): ONLY the own-ns bank signer :8080, the BI door st-gw-1:8550 (like the signer: bank-c
+#                                                                    through the LB, --cert-lb-ip REQUIRED there and refused elsewhere), kube-dns 53. No besu-rpc, no kube API. bi has no push Job.
 #   render.sh custodian bi                                           stealth-custodian-egress: besu-rpc 8545, kube-dns 53
 #   render.sh compare bi                                             stealth-viewkey-egress (the S11 CronJob): besu-rpc 8545, kube-dns 53
 #   render.sh gateway <bi|bank-a|bank-b|bank-c>                      st-gw-egress: the signer :8080 (bi also the custodian :9443), bundle-server of the party's zeto ns :8080, kube-dns 53
@@ -15,7 +19,7 @@
 #                                                                    Pod egress-negative-probe: labelled rd/egress-locked=true + rd/egress=<profile> so the policy above selects it; never Ready, so never an
 #                                                                    endpoint; prints T<n> BLOCKED|OPEN per target and CONTROL OPEN|BLOCKED (the control is a destination the policy ALLOWS)
 # Form rule (orchestrator 2026-11-12; probe proof: ipBlock <same-cluster address>/32 is CLOSED on this CNI): same-cluster peers by exact namespaceSelector + podSelector, ipBlock /32 ONLY for the other
-# cluster, DNS by the kube-dns selector, no wildcard namespaceSelector, no podSelector {}. The kube API is in NONE of these (no workload mounts a ServiceAccount token).
+# cluster, DNS by the kube-dns selector, no wildcard namespaceSelector, no podSelector {}. The kube API is in NONE of these (no workload mounts a ServiceAccount token), except signer bi --kube-api-ip.
 # Workload pods carry rd/egress-locked=true (so allow-dns-egress, templates/party.yaml, does not select them: policies are additive) and rd/egress=<profile> (the label these policies select).
 # A pod with the first label and no policy is NOT locked down (no Egress policy selecting it = open): apply the policy, prove the union, THEN start the pod.
 # Needs bash only.
@@ -65,11 +69,11 @@ pol_sel() { # pol_sel <profile> : the flow map the policy selects (besu-rpc keep
 }
 ipv4() { local o; [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1; for o in ${1//./ }; do (( 10#$o <= 255 )) || return 1; done; }
 
-profile_of() { case "$1" in besu-rpc) echo besu-rpc ;; signer) echo stealth-signer ;; custodian) echo stealth-custodian ;; compare) echo stealth-viewkey ;; gateway) echo st-gw ;; *) die "unknown workload '$1' (allowed: besu-rpc signer custodian compare gateway)" ;; esac; }
+profile_of() { case "$1" in besu-rpc) echo besu-rpc ;; signer) echo stealth-signer ;; custodian) echo stealth-custodian ;; compare) echo stealth-viewkey ;; gateway) echo st-gw ;; viewpush) echo stealth-viewpush ;; *) die "unknown workload '$1' (allowed: besu-rpc signer custodian compare gateway viewpush)" ;; esac; }
 
 workload_ok() { # workload_ok <workload> <party> : custodian and compare exist in rd-stealth-bi only
   party_ok "$2"
-  case "$1" in custodian|compare) [[ "$2" == bi ]] || die "$1 exists in rd-stealth-bi only" ;; esac
+  case "$1" in custodian|compare) [[ "$2" == bi ]] || die "$1 exists in rd-stealth-bi only" ;; viewpush) [[ "$2" != bi ]] || die "viewpush exists in the bank namespaces only" ;; esac
 }
 
 zeto_peer() { # zeto_peer <party> : the new validator of that party (same cluster: namespace + pod)
@@ -81,22 +85,27 @@ zeto_peer() { # zeto_peer <party> : the new validator of that party (same cluste
 YAML
 }
 
-policy() { # policy <workload> <party> [--cert-lb-ip IP] [--multi-peer] [--other-cluster-lb IP]...
-  local w="$1" p="$2" lb="" multi=0 lbs=() ip; shift 2
+policy() { # policy <workload> <party> [--cert-lb-ip IP] [--kube-api-ip IP]... [--multi-peer] [--other-cluster-lb IP]...
+  local w="$1" p="$2" lb="" kips=() k multi=0 lbs=() ip; shift 2
   workload_ok "$w" "$p"
   while [[ $# -gt 0 ]]; do case "$1" in
     --cert-lb-ip) lb="${2:-}"; shift 2 ;;
+    --kube-api-ip) [[ $# -ge 2 ]] || die "--kube-api-ip needs an IPv4"; kips+=("$2"); shift 2 ;;
     --multi-peer) multi=1; shift ;;
     --other-cluster-lb) lbs+=("${2:-}"); shift 2 ;;
     *) die "unknown option '$1'" ;; esac; done
+  if [[ ${#kips[@]} -gt 0 ]]; then
+    [[ "$w" == signer && "$p" == bi ]] || die "--kube-api-ip is for 'signer bi' only (no other workload mounts a ServiceAccount token)"
+    for k in "${kips[@]}"; do ipv4 "$k" || die "bad --kube-api-ip '$k' (an endpoint IPv4)"; done
+  fi
   if [[ "$w" == besu-rpc && $multi == 1 ]]; then
     local want=1; [[ "$p" == bank-c ]] && want=3
     [[ ${#lbs[@]} == $want ]] || die "besu-rpc $p --multi-peer needs exactly $want --other-cluster-lb (the besu-p2p LB of each zeto validator on the other cluster)"
     for ip in "${lbs[@]}"; do ipv4 "$ip" || die "'$ip' is not an IPv4 address"; done
     [[ "$(printf '%s\n' "${lbs[@]}" | sort | uniq -d)" == "" ]] || die "duplicate --other-cluster-lb"
   else [[ $multi == 0 && ${#lbs[@]} == 0 ]] || die "--multi-peer / --other-cluster-lb are for 'besu-rpc <party> --multi-peer' only"; fi
-  if [[ "$w" == signer && "$p" == bank-c ]]; then ipv4 "$lb" || die "signer bank-c needs --cert-lb-ip <IPv4> (the st-gw-1-ext LB: bank-c is on cluster 2)"
-  else [[ -z "$lb" ]] || die "--cert-lb-ip is for 'signer bank-c' only (same-cluster peers go by selector)"; fi
+  if [[ ( "$w" == signer || "$w" == viewpush ) && "$p" == bank-c ]]; then ipv4 "$lb" || die "$w bank-c needs --cert-lb-ip <IPv4> (the st-gw-1-ext LB: bank-c is on cluster 2)"
+  else [[ -z "$lb" ]] || die "--cert-lb-ip is for 'signer bank-c' and 'viewpush bank-c' only (same-cluster peers go by selector)"; fi
   case "$w" in
     besu-rpc)
       header besu-rpc-egress besu-rpc "$p"
@@ -108,8 +117,16 @@ policy() { # policy <workload> <party> [--cert-lb-ip IP] [--multi-peer] [--other
       else zeto_peer "$p"; fi
       echo "      ports:"; echo "        - {protocol: TCP, port: 30303}"
       dns ;;
-    signer)
-      header stealth-signer-egress stealth-signer "$p"; rpc
+    signer|viewpush)
+      if [[ "$w" == signer ]]; then header stealth-signer-egress stealth-signer "$p"; rpc
+      else header stealth-viewpush-egress stealth-viewpush "$p"; cat <<'YAML'
+    - to:
+        - podSelector:
+            matchLabels: {app: stealth-signer, role: bank}
+      ports:
+        - {protocol: TCP, port: 8080}
+YAML
+      fi
       if [[ "$p" == bi ]]; then cat <<'YAML'
     - to:
         - podSelector:
@@ -132,6 +149,11 @@ YAML
       ports:
         - {protocol: TCP, port: 8550}
 YAML
+      fi
+      if [[ ${#kips[@]} -gt 0 ]]; then
+        echo "    - to:"
+        for k in "${kips[@]}"; do echo "        - ipBlock: {cidr: $k/32}"; done
+        printf '      ports:\n        - {protocol: TCP, port: 6443}\n'
       fi
       dns ;;
     custodian) header stealth-custodian-egress stealth-custodian "$p"; rpc; dns ;;
@@ -212,7 +234,7 @@ spec:
 YAML
 }
 
-[[ $# -ge 2 ]] || die "usage: render.sh <signer|custodian|compare|gateway> <party> [--cert-lb-ip IPv4] | render.sh probe <workload> <party> --image REF@sha256:.. --target IPv4:PORT... --control HOST:PORT"
+[[ $# -ge 2 ]] || die "usage: render.sh <besu-rpc|signer|custodian|compare|gateway|viewpush> <party> [--cert-lb-ip IPv4] | render.sh probe <workload> <party> --image REF@sha256:.. --target IPv4:PORT... --control HOST:PORT"
 if [[ "$1" == baseline ]]; then
   [[ $# == 2 ]] || die "usage: render.sh baseline <party>"; party_ok "$2"
   c2=(); [[ "$2" == bank-c ]] && c2=(--cluster 2)

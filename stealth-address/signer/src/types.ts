@@ -32,6 +32,8 @@ export interface ChainPort {
   usedCertificateNonce(token: string, sender: string): Promise<bigint>; // validator.usedCertificateNonce
   isEscrow(address: string): Promise<boolean>; // created by OUR DvPFactory
   sendRawTransaction(raw: string): Promise<string>; // returns the tx hash
+  // S11: the ERC-6538 registry value stealthMetaAddressOf(identity, 1), the same read as the compare job; null = nothing registered
+  registryMetaAddress(identity: string): Promise<string | null>;
 }
 
 export type CertRequest = { sender: string; token: string; payload: string; expiry: bigint };
@@ -42,4 +44,9 @@ export interface CertClient {
 import type { IncomingMessage } from 'node:http';
 // mTLS identity of the caller as seen by the TLS terminator (undefined = no client certificate)
 export type PeerIdentity = (req: IncomingMessage) => { subject: string } | undefined;
-export type SignerDeps = { keys: Keys; chain: ChainPort; log: (line: string) => void; cert?: CertClient; peer?: PeerIdentity };
+// S11 rework: the three public-or-view files of one bank's copy, as BI's Secret stealth-bi-viewcopies holds them (keys <id>.viewKey, <id>.metaAddress, <id>.identityAddress).
+export type ViewCopyFiles = { viewKey: string; metaAddress: string; identityAddress: string };
+export interface ViewCopyStore {
+  put(id: string, files: ViewCopyFiles): Promise<void>; // rejects when the write failed; the caller keeps its in-memory copies unchanged then
+}
+export type SignerDeps = { keys: Keys; chain: ChainPort; log: (line: string) => void; cert?: CertClient; peer?: PeerIdentity; viewCopyStore?: ViewCopyStore };
