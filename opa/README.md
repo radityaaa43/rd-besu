@@ -226,7 +226,7 @@ Rollback: remove `LENSA_BESU_RPC` from `lensa.env`, restart `lensa.service` (bac
 
 **The CNI enforces it.** The cluster runs Terway v1.15.0 (`terway-eniip` DaemonSet, containers `terway` + `policy` on all 21 nodes;
 `kube-system/eni-config`: `network_policy_provider: ebpf`, `disable_network_policy: "false"`), not Flannel. Namespaces
-`fabricx-*`, `iroha3` and `kaleido` already carry policies, including `default-deny-all` (Ingress+Egress) next to Ready pods with
+`fabricx-*`, `iroha3` and another team's namespaces already carry policies, including `default-deny-all` (Ingress+Egress) next to Ready pods with
 kubelet probes, so node-to-pod probe traffic is not cut by policy here. Namespaces `paladin` and `besu` had **no** policy before.
 
 Ingress only, no egress rule, selects the Paladin and Besu pods only. Every allowed flow and where it comes from:
@@ -245,7 +245,7 @@ Ingress only, no egress rule, selects the Paladin and Besu pods only. Every allo
 | same | 9545 | anyone | Besu metrics, unchanged |
 
 Nothing else was found: no workload, Job, CronJob, ConfigMap, Secret or Ingress in any other namespace names these hosts
-(searched all namespaces; `kaleido` runs its own nodes). 8547 (GraphQL) is off in `config.toml`. No NodePort or LoadBalancer
+(searched all namespaces; another team runs its own nodes). 8547 (GraphQL) is off in `config.toml`. No NodePort or LoadBalancer
 exposes Paladin or Besu. Kubelet probes (`tcpSocket 8548` on Paladin, `httpGet /liveness :8545` on Besu) come from the node itself.
 Things the policy **cannot** see: `kubectl port-forward` (the kubelet dials the pod from its node, so it bypasses
 NetworkPolicy; that is how Lensa and the foreign 8545 forward still reach pods) and anything running as `hostNetwork`.
