@@ -69,11 +69,18 @@ short = os.path.join(tmp, "short-validators.json")
 json.dump({k: v for k, v in allnew.items() if k != "bank-c"}, open(short, "w"))
 check(run(static, "--new-validators", short, "--party", "bi").returncode != 0, "static-nodes.sh --new-validators must refuse a file missing one of the 4 parties")
 
-# ---- config template: exactly two lines differ from the live snapshot ----
+# ---- config template: exactly four lines differ from the old validators' live snapshot ----
+# discovery off, own p2p-host, and the RPC APIs narrowed (user + analyst 2026-11-12): HTTP keeps QBFT (votes) and ADMIN (peer proofs),
+# WS (Paladin) keeps ETH/NET/WEB3; DEBUG/TRACE/TXPOOL/PERM are gone (16 h of besu_rpc_request_time on all 4 validators: never called).
 live = open(os.path.join(fx, "live-config.toml")).read().splitlines()
 tpl = open(os.path.join(base, "templates", "config.toml")).read().splitlines() if os.path.exists(os.path.join(base, "templates", "config.toml")) else []
 diff = [(a, b) for a, b in zip(live, tpl) if a != b]
-check(len(live) == len(tpl) and diff == [("discovery-enabled=true", "discovery-enabled=false"), ('p2p-host="0.0.0.0"', 'p2p-host="${P2P_HOST}"')], f"config template must equal the live config except discovery-enabled=false and p2p-host: {diff}")
+check(len(live) == len(tpl) and diff == [("discovery-enabled=true", "discovery-enabled=false"), ('p2p-host="0.0.0.0"', 'p2p-host="${P2P_HOST}"'),
+                                         ('rpc-http-api=["ETH","NET","WEB3","QBFT","ADMIN","TXPOOL","DEBUG","TRACE","PERM"]', 'rpc-http-api=["ETH","NET","WEB3","QBFT","ADMIN"]'),
+                                         ('rpc-ws-api=["ETH","NET","WEB3","QBFT","ADMIN","TXPOOL","DEBUG","TRACE"]', 'rpc-ws-api=["ETH","NET","WEB3"]')],
+      f"config template must equal the live config except discovery-enabled=false, p2p-host and the narrowed rpc-http-api / rpc-ws-api: {diff}")
+for bad in ("DEBUG", "TRACE", "TXPOOL", "PERM"):
+    check(not any(l.startswith(("rpc-http-api", "rpc-ws-api")) and f'"{bad}"' in l for l in tpl), f"config template must not enable {bad} on HTTP or WS")
 
 PARTIES = {"bi": "rd-zeto-bi", "bank-a": "rd-zeto-bank-a", "bank-b": "rd-zeto-bank-b", "bank-c": "rd-zeto-bank-c"}
 for party, ns in PARTIES.items():
