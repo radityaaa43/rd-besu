@@ -294,6 +294,24 @@ for party in ("bi", "bank-a", "bank-b", "bank-c"):
 for bad in (["egress", "bi"], ["egress", "bi", "--lb-ips", "bi=1.2.3.4"], ["egress", "bi", "--lb-ips", LBARG.replace("8.215.7.78", "8.215.7.0/24")], ["egress", "bi", "--lb-ips", LBARG + ",bank-d=1.1.1.1"], ["egress", "bank-d", "--lb-ips", LBARG], ["egress", "bi", "--lb-ips", LBARG.replace("8.215.7.78", "300.1.1.1")]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
+# ---- sts-placement (R22): the operator (v1.0.0, paladin_controller.go:295-300) copies only containers/volumes/annotations/labels into an EXISTING StatefulSet, so the anti-affinity of
+# the operator config never reaches it. This renders ONE merge patch for the StatefulSet paladin-node<N> template: label rd/role + the required anti-affinity (+ optional nodeAffinity NotIn <node>).
+ANTI = {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {"rd/role": "paladin-node"}}, "namespaceSelector": {"matchLabels": {"part-of": "rd-zeto"}}, "topologyKey": "kubernetes.io/hostname"}]}
+for party in PARTIES:
+    r = run("sts-placement", party)
+    check(r.returncode == 0 and r.stdout.count("\n") == 1, f"{party}: sts-placement prints exactly one line: rc={r.returncode} {r.stderr.strip()[:100]}")
+    try: patch = json.loads(r.stdout)
+    except Exception: patch = None
+    check(patch == {"spec": {"template": {"metadata": {"labels": {"rd/role": "paladin-node"}}, "spec": {"affinity": {"podAntiAffinity": ANTI}}}}}, f"{party}: sts-placement patch {r.stdout!r}")
+    r = run("sts-placement", party, "--avoid-node", "member-16031-node")
+    try: patch = json.loads(r.stdout)
+    except Exception: patch = None
+    want = {"podAntiAffinity": ANTI, "nodeAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "NotIn", "values": ["member-16031-node"]}]}]}}}
+    check(r.returncode == 0 and patch is not None and patch["spec"]["template"]["spec"]["affinity"] == want, f"{party}: sts-placement --avoid-node patch {r.stdout!r}")
+    check("podAffinity" not in r.stdout.replace("podAntiAffinity", "") and "preferred" not in r.stdout and "name" not in json.dumps(patch.get("metadata", {}) if patch else {}), f"{party}: no soft rules, no object name in the patch")
+for bad in (["sts-placement"], ["sts-placement", "nobody"], ["sts-placement", "bi", "--avoid-node"], ["sts-placement", "bi", "--avoid-node", "Bad Node"], ["sts-placement", "bi", "--avoid-node", "a", "b"], ["sts-placement", "bi", "--other", "x"]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 if fails:
     print("\n".join(f"FAIL {f}" for f in fails), file=sys.stderr)
     sys.exit(1)

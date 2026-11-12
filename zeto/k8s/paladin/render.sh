@@ -10,6 +10,8 @@
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
 #   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' Paladin transport (same-cluster peers: namespaceSelector + that peer's node pods; the other cluster's peer: its LB IP /32), besu-validator 8545+8546 in the own ns,
 #                                                  paladin-pg 5432 in the own ns, kube-dns 53 UDP/TCP. NOTHING else. Apply per node, ONE at a time, with the proof (docs/R17 in the S21 text).
+#   render.sh sts-placement <party> [--avoid-node NODE]   R22: ONE JSON merge patch line for the StatefulSet paladin-node<N> template (label rd/role=paladin-node + required anti-affinity, optional nodeAffinity NotIn NODE):
+#                                                  render.sh sts-placement <p> | kubectl -n rd-zeto-<p> patch statefulset paladin-node<N> --type merge --patch-file /dev/stdin
 #   render.sh pull-secret <party>                  ONE JSON patch line: add `ghcr-pull` to the party ns's default ServiceAccount imagePullSecrets, appended (`/imagePullSecrets/-`), so the two ACK acr-credential-* entries stay:
 #                                                  render.sh pull-secret <p> | kubectl -n rd-zeto-<p> patch serviceaccount default --type json --patch-file /dev/stdin
 #   render.sh pull-test <party> --image REF        throwaway Deployment pull-test-paladin (1 replica, container pull-test, REF digest-pinned, NO imagePullSecrets, NO serviceAccountName) = proof of the pull before the window.
@@ -170,6 +172,14 @@ YAML
 
 pull_secret() { printf '%s\n' '[{"op":"add","path":"/imagePullSecrets/-","value":{"name":"ghcr-pull"}}]'; }
 
+# R22: ONE merge patch for the StatefulSet paladin-node<N> pod template (operator v1.0.0 syncs only containers/volumes/annotations/labels into an existing sts, paladin_controller.go:295-300):
+# label rd/role + the required anti-affinity; --avoid-node adds nodeAffinity NotIn <node> (the first mover, while no other pod carries the label yet).
+sts_placement() {
+  local node="${1:-}" na=""
+  if [[ -n "$node" ]]; then [[ "$node" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "sts-placement: --avoid-node must be a node name"; na=",\"nodeAffinity\":{\"requiredDuringSchedulingIgnoredDuringExecution\":{\"nodeSelectorTerms\":[{\"matchExpressions\":[{\"key\":\"kubernetes.io/hostname\",\"operator\":\"NotIn\",\"values\":[\"$node\"]}]}]}}"; fi
+  printf '%s\n' '{"spec":{"template":{"metadata":{"labels":{"rd/role":"paladin-node"}},"spec":{"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"rd/role":"paladin-node"}},"namespaceSelector":{"matchLabels":{"part-of":"rd-zeto"}},"topologyKey":"kubernetes.io/hostname"}]}'"$na"'}}}}}'
+}
+
 pull_test() {
   local p="$1" img="$2"
   [[ "$img" =~ ^[A-Za-z0-9._/:@-]+$ && "$img" =~ @sha256:[0-9a-f]{64}$ ]] || die "pull-test: --image must be digest-pinned (REF@sha256:<64 lowercase hex>, chars A-Za-z0-9._/:@-)"
@@ -266,6 +276,7 @@ case "${1:-}" in
   probe-placement) [[ $# == 2 ]] || die "usage: render.sh probe-placement <party>"; num "$2" >/dev/null; probe_placement "$2"; exit 0 ;;
   probe-listener) [[ $# == 2 ]] || die "usage: render.sh probe-listener <party>"; num "$2" >/dev/null; probe_listener "$2"; exit 0 ;;
   egress) [[ $# == 4 && "$3" == --lb-ips ]] || die "usage: render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP"; egress "$2" "$4"; exit 0 ;;
+  sts-placement) [[ $# == 2 || ( $# == 4 && "$3" == --avoid-node ) ]] || die "usage: render.sh sts-placement <party> [--avoid-node NODE]"; num "$2" >/dev/null; sts_placement "${4:-}"; exit 0 ;;
   pull-secret) [[ $# == 2 ]] || die "usage: render.sh pull-secret <party>"; num "$2" >/dev/null; pull_secret; exit 0 ;;
   pull-test) [[ $# == 4 && "$3" == --image ]] || die "usage: render.sh pull-test <party> --image REF"; num "$2" >/dev/null; pull_test "$2" "$4"; exit 0 ;;
   probe-client) [[ $# == 4 ]] || die "usage: render.sh probe-client <party> <name> <IPv4>"; num "$2" >/dev/null; probe_client "$2" "$3" "$4"; exit 0 ;;
