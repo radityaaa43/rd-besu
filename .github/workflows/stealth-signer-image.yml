@@ -35,6 +35,14 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: ghcr.io/${{ github.repository_owner }}/rd-stealth-signer:${{ github.sha }}
+      - name: Assert the package is private
+        # The repository is public; a package linked to it must NOT become public. Fail closed: an unreadable visibility fails the job too.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=$(gh api "/users/${{ github.repository_owner }}/packages/container/rd-stealth-signer" --jq .visibility) || { echo "cannot read the package visibility"; exit 1; }
+          echo "package rd-stealth-signer visibility: $v" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$v" = private ] || { echo "package rd-stealth-signer is $v, expected private"; exit 1; }
       - name: Digest in the job summary
         run: |
           echo "image ghcr.io/${{ github.repository_owner }}/rd-stealth-signer@${{ steps.build.outputs.digest }}" | tee -a "$GITHUB_STEP_SUMMARY"
