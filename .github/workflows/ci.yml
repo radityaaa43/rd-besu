@@ -57,6 +57,7 @@ jobs:
       - run: python3 -I tools/test_policy_docs.py
       - run: python3 -I tools/test_candidate_verdict.py
       - run: python3 -I tools/test_source_tar.py
+      - run: python3 -I tools/test_w3_render.py
 
   stealth-gateway:
     runs-on: ubuntu-latest

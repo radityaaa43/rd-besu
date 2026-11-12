@@ -1,0 +1,49 @@
+keys:
+  bi:
+    algorithm: RS256
+    key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtOUVJjtCO03OIbV1R3sP
+      GNsi656WJgyUJAU+wv/+0eYM8jMBr1M9IQMGkbpBsAoW8RUXgdt85afQOeAxri+r
+      ZHXidfo3gFSbCo4kwA+aJZBxSGDo7krzYYogekvzVAF/Pbjeki2ZCEDyYSyqsbiP
+      XhSU2XFTASlQ2okaqpy84p9RQF956WWGDx5gMZUgoxYTiWwOOwcBL+yo6Jpzrm5n
+      nNN9ZKZ6+I4h3R5TWBnTN/t67t3uLbG8MMi8fgx5HhHtFewR60NJe90URT9sc3Ps
+      2S7qjPKZN+ioPtzUKuiOHqOItZtDuaqeR2BxnhOfJvKktltEhQ7qE3xi2gxOPJ0j
+      fQIDAQAB
+      -----END PUBLIC KEY-----
+  bank-a:
+    algorithm: RS256
+    key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8QUjDiaT5pJUWZtZnk5z
+      ds3uBra6H65WQXtHejtPIGU3M92LKgBSG4/Rs3Qf96C0zwAELYcXy0Ua7sLGdByj
+      arNiWguRJUI+SlQ9YMcucLm0nTWs0q6wWTyBamLMdbtzwEu+DdSSBOUDgDlC410Q
+      GMkUlOkqdIPglE/RfQzQjBoyDd+fMoA/fKRivuFtWlV4mZJb+D1mKFffNEpzPOvP
+      RyIAkk3rQv3mB4euSfTXDgy4Q7N6U1xGJ64t2gs72DAUHRYWCdol/iQJa2GQtuV1
+      loYaI36YsfKoRTkEfBtX5ddGo/msAZqHzFakrHNbZi6kGuYlW/X/QpSWloRokwBe
+      CwIDAQAB
+      -----END PUBLIC KEY-----
+  bank-b:
+    algorithm: RS256
+    key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwDgD8U+82gQAQRsaTwU6
+      gD+C8zw6mxYgSYdXV73gMhB0tztGGuMHMjsfNFyzbS7fFCaFff2SSBqULFznztjq
+      A3a7tymGse77oBS+dZXggOHC0SwlvmEgEu9zHB0yBSRe2h/GLTab9KOuozWU0cZX
+      XWn34+JtoKyZmlgA5TGSqTm22RZt1VKPZWHNVWalW4YcNyNeQWfjLJVJ+3UhXV8q
+      g3z3gqtGUZBCJ91C+mpMw+0YX/+oAU4J3sKhbxkr7iYmq6b5Q8ooDo0qrxCK1JBr
+      pntk++VTpFFbMHCEG5G6BrA1F9OciJMTkMt5WwYfikbQ9BhpqVf5fobwRF6BMdvR
+      swIDAQAB
+      -----END PUBLIC KEY-----
+  bank-c:
+    algorithm: RS256
+    key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu3wrbJuxeg4NfvckwX6g
+      aJ+QcrSjMHEpU9cTQhQGcFFnBE2cN029yUbC66HGp6LjBMf77QYCCAmweJ90agOE
+      ecsZ//U0kyBH93yo3pBXjgMQbUoAeS10sfR7sbHAnUfnBaQ9QqnpnUH4C792llUb
+      ltf1+SXg+DwzVeOKdBrWrS81YQ+SCFRlaHWo7g8HxzSKyqbUZ0lRhRr5sw8vL1Qp
+      3gLjHsPxVr7pq63QEl/LgErwjk/NJzMsd9Q+6eOTtuAG9735eQeF65Nqg7Yu4qVb
+      bPHOATo2HH02naEk6C5+QI+xwbwmqabeNOn/ucvInhkmj21xc1XGPQy0Ed+y7d0W
+      bwIDAQAB
+      -----END PUBLIC KEY-----
