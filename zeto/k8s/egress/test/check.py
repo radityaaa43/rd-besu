@@ -94,8 +94,9 @@ def peer(ns, labels):
     return {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": ns}}, "podSelector": {"matchLabels": labels}}
 
 
-OLD_VALIDATORS = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "besu"}},
-                  "podSelector": {"matchExpressions": [{"key": "statefulset.kubernetes.io/pod-name", "operator": "In", "values": [f"besu-node-validator-{i}-0" for i in (1, 2, 3, 4)]}]}}
+# per-pod matchLabels rules: the matchExpressions `In` form did NOT match on this CNI (live positive leg to besu-node-validator-1-0 BLOCKED, 2026-11-12)
+OLD_VALIDATORS = [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "besu"}},
+                   "podSelector": {"matchLabels": {"statefulset.kubernetes.io/pod-name": f"besu-node-validator-{i}-0"}}} for i in (1, 2, 3, 4)]
 
 
 def p2p_rules(p, lbs):
@@ -118,7 +119,7 @@ def expected(w, p, kube, lbs):
     if w == "paladin-operator":
         return [{"to": [{"ipBlock": {"cidr": f"{ip}/32"}} for ip in kube], "ports": TCP(6443)}, DNS]
     same, other = p2p_rules(p, lbs)
-    return same + ([{"to": [OLD_VALIDATORS], "ports": TCP(30303)}] if p in C1 else []) + other + [DNS]
+    return same + ([{"to": OLD_VALIDATORS, "ports": TCP(30303)}] if p in C1 else []) + other + [DNS]
 
 
 def extra(w, p):
