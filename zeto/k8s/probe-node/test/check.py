@@ -213,6 +213,26 @@ for n in (1, 2, 3, 4):
         check(ds[2]["metadata"]["name"] == f"s5b-vote-ingress-{n}" and ing["podSelector"] == {"matchLabels": sel} and ing["policyTypes"] == ["Ingress"] and ing["ingress"] == [{"from": [{"podSelector": {"matchLabels": {"rd/egress-locked": "true", "app": "besu-probe"}}}], "ports": [{"protocol": "TCP", "port": 8545}]}], f"legacy-{n}: ingress to that old validator from the probe pod only: {ing}")
 for bad in (["legacy-1", "besu", "--image", IMG, "--op", "read"], ["legacy-5", "besu", "--image", IMG, "--op", "read"], ["legacy-1", "--image", IMG], ["legacy-1", "negative", "--image", IMG, "--target", "1.1.1.1:443"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+# ---- besu --op peers (S5b condition 3, orchestrator 2026-11-12): `own <8-char enode pubkey prefix>` (admin_nodeInfo) and one line per admin_peers entry `peer <8-char prefix> <class>`, class = in-cluster
+# (private/CGNAT remote address) or cross-cluster-LB (public remote address). Never a full enode, IP, port or name. The driver maps a peer list to the BI/A/B validators by matching their `own` prefixes.
+PK = lambda c: c * 128
+def enode(c, ip, port=30303): return f"enode://{PK(c)}@{ip}:{port}?discport=0"
+PEERS = {"admin_nodeInfo": {"jsonrpc": "2.0", "id": 1, "result": {"enode": enode("a", "10.0.0.5"), "ip": "10.0.0.5", "id": PK("a")}},
+         "admin_peers": {"jsonrpc": "2.0", "id": 1, "result": [
+             {"id": PK("b"), "enode": enode("b", "8.215.38.252"), "network": {"remoteAddress": "8.215.38.252:30303", "localAddress": "172.28.1.2:55555"}},
+             {"id": PK("c"), "enode": enode("c", "172.24.18.10"), "network": {"remoteAddress": "172.24.18.10:30303"}},
+             {"id": PK("d"), "enode": enode("d", "100.97.1.1"), "network": {"remoteAddress": "100.97.1.1:41000"}}]}}
+for party in NUM:
+    o, ds = besu_run(party, ["--op", "peers"], PEERS)
+    check(o is not None and o.splitlines() == ["own aaaaaaaa", "peers 3", "peer bbbbbbbb cross-cluster-LB", "peer cccccccc in-cluster", "peer dddddddd in-cluster"], f"{party}: peers op prints own prefix + count + per-peer prefix and class: {o!r}")
+    check(o is not None and not any(x in o for x in ("8.215", "172.", "100.97", "30303", "enode://", "a" * 9)), f"{party}: peers op prints no IP, port or full enode: {o!r}")
+    o, _ = besu_run(party, ["--op", "peers"], {"admin_nodeInfo": PEERS["admin_nodeInfo"], "admin_peers": {"jsonrpc": "2.0", "id": 1, "result": []}})
+    check(o == "own aaaaaaaa\npeers 0", f"{party}: peers op, empty list: {o!r}")
+    o, _ = besu_run(party, ["--op", "peers"], {"admin_nodeInfo": PEERS["admin_nodeInfo"], "admin_peers": {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "x"}}})
+    check(o == "ERROR", f"{party}: peers op, admin_peers error -> ERROR: {o!r}")
+for n in (1, 2, 3, 4):
+    check(run(f"legacy-{n}", "besu", "--image", IMG, "--op", "peers").returncode == 2, f"legacy-{n}: peers op refused (legacy supports only propose/discard)")
+check(run("bi", "besu", "--image", IMG, "--op", "peers", "--address", "0x" + "a" * 40).returncode == 2, "peers op takes no --address")
 for bad in (["bi", "besu", "--image", IMG], ["bi", "besu", "--image", IMG, "--op", "x"], ["bi", "besu", "--image", IMG, "--op", "propose"], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x12", "--drop"],
             ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "propose", "--address", "0x" + "a" * 40, "--drop", "--add"],
             ["bi", "besu", "--image", IMG, "--op", "read", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "discard", "--address", "0x" + "a" * 40 + ";id"]):
