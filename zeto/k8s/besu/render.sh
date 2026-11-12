@@ -9,7 +9,7 @@
 #      render.sh node <party> --p2p-host <LB IP> --static-nodes static-nodes.json [--storage-class C]
 #                                                         ConfigMaps besu-config + besu-static-nodes, StatefulSet besu-validator (non-validator at start)
 #   4. ./old-netpol-patch.sh                               the one added rule in the old ns besu (prints; APPLY=1 runs)
-# Parties: bi, bank-a, bank-b (cluster 1, S3), bank-c (cluster 2, S4: smaller requests, no node exclusion). Needs bash + sed only.
+# Parties: bi, bank-a, bank-b (cluster 1, S3), bank-c (cluster 2, S4: no node exclusion; same size as the others since 2026-11-13). Needs bash + sed only.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 die() { echo "render.sh: $*" >&2; exit 2; }
@@ -18,8 +18,8 @@ stage="${1:-}"; party="${2:-}"
 [[ -n "$stage" && -n "$party" ]] || die "usage: render.sh net|nodeinfo|node <bi|bank-a|bank-b|bank-c> [options]"
 shift 2
 case "$party" in
-  bi|bank-a|bank-b) ns="rd-zeto-$party"; lbl="part-of: rd-zeto, party: $party"; cpu_req=500m; mem_req=2500M; cpu_lim='"3"'; mem_lim=5G ;;
-  bank-c) ns="rd-zeto-bank-c"; lbl="part-of: rd-zeto, party: bank-c, cluster: \"2\""; cpu_req=250m; mem_req=1500M; cpu_lim='"2"'; mem_lim=3G ;;
+  bi|bank-a|bank-b) ns="rd-zeto-$party"; lbl="part-of: rd-zeto, party: $party"; cpu_req=500m; mem_req=3Gi; cpu_lim='"3"'; mem_lim=6Gi ;;
+  bank-c) ns="rd-zeto-bank-c"; lbl="part-of: rd-zeto, party: bank-c, cluster: \"2\""; cpu_req=500m; mem_req=3Gi; cpu_lim='"3"'; mem_lim=6Gi ;;
   *) die "unknown party '$party' (allowed: bi bank-a bank-b bank-c)" ;;
 esac
 image="hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042"

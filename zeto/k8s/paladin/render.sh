@@ -5,7 +5,7 @@
 #        externalHostname = HOST (the node's own LB IP: the endpoint other nodes dial) and transports[0].tls {certName, secretName} paladin-node<N>-mtls (the CRD requires certName; no issuer).
 #   render.sh transport <party> [--external-cidr CIDR]... [--acl-id acl-X [--clb-health-cidr 100.64.0.0/10]]
 #        Service paladin-transport (LoadBalancer TCP 9000) + NetworkPolicy paladin-transport-ingress. --acl-id needs a CIDR (loadBalancerSourceRanges).
-#   render.sh probe-placement <party>              throwaway pod with the LimitRange defaultRequest (250m / 1Gi): proves a Paladin pod can be scheduled in that ns
+#   render.sh probe-placement <party>              throwaway pod with the LimitRange defaultRequest (1 CPU / 3Gi): proves a Paladin pod can be scheduled in that ns
 #   render.sh probe-listener <party>               throwaway pod carrying the node's selector labels, `nc -l 9000` only (no Paladin process)
 #   render.sh probe-client <party> <name> <IPv4>   throwaway pod in the party's ns that connects to <IPv4>:9000 and prints OPEN|BLOCKED(timeout)|REFUSED (REFUSED = reached, nothing listening)
 #   render.sh egress <party> --lb-ips bi=IP,bank-a=IP,bank-b=IP,bank-c=IP   R17: ONE NetworkPolicy paladin-egress (own ns, selects app=paladin ONLY, Egress): TCP 9000 to the OTHER 3 parties' Paladin transport (same-cluster peers: namespaceSelector + that peer's node pods; the other cluster's peer: its LB IP /32), besu-validator 8545+8546 in the own ns,
@@ -110,7 +110,7 @@ spec:
     - name: hold
       image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
-      resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {cpu: 250m, memory: 1Gi}}
+      resources: {requests: {cpu: "1", memory: 3Gi}, limits: {cpu: "1", memory: 3Gi}}
       command: [sh, -c, "sleep 300"]
 YAML
 }
