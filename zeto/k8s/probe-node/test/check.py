@@ -218,6 +218,28 @@ for bad in (["bi", "besu", "--image", IMG], ["bi", "besu", "--image", IMG, "--op
             ["bi", "besu", "--image", IMG, "--op", "read", "--address", "0x" + "a" * 40], ["bi", "besu", "--image", IMG, "--op", "discard", "--address", "0x" + "a" * 40 + ";id"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
+# ---- msgs mode (R2 live test, lead 2026-11-12): did THIS node receive/record the privacy-group report message? pgroup_queryMessages on the own node (BI = node1), COUNTS and one yes/no only:
+#   render.sh <party> --image REF --mode msgs --topic zeto-report-v1 --since 2026-11-12T00:00:00Z [--contains 0x<tx hash>]
+# prints `messages N (topic T, since S)`, `newest sent <ts|none>`, and with --contains `contains <hash10>: yes|no`; never a data value, id or group.
+TOPIC = "zeto-report-v1"; H2 = "0x" + "9d39af1c" + "0" * 52 + "b479"
+def msgs(party, extra, rows):
+    ans = {"pgroup_queryMessages": {"jsonrpc": "2.0", "id": 1, "result": rows}}
+    return py_out(party, ["--mode", "msgs", "--topic", TOPIC, "--since", "2026-11-12T00:00:00Z"] + extra, ans)[0]
+ROWS = [{"id": U1, "sent": "2026-11-12T00:10:00Z", "topic": TOPIC, "data": {"txHash": H2, "amount": "SECRET-AMOUNT"}}, {"id": U2, "sent": "2026-11-12T00:20:00Z", "topic": TOPIC, "data": {"txHash": "0x" + "ab" * 32}}]
+for party in NUM:
+    o = msgs(party, [], ROWS)
+    check(o == f"messages 2 (topic {TOPIC}, since 2026-11-12T00:00:00Z)\nnewest sent 2026-11-12T00:20:00Z", f"{party}: msgs, count + newest sent only: {o!r}")
+    o = msgs(party, ["--contains", H2], ROWS)
+    check(o is not None and o.splitlines()[-1] == f"contains {H2[:10]}: yes" and "SECRET" not in o, f"{party}: msgs --contains present -> yes, never the data: {o!r}")
+    o = msgs(party, ["--contains", "0x" + "cd" * 32], ROWS)
+    check(o is not None and o.splitlines()[-1] == "contains 0xcdcdcdcd: no", f"{party}: msgs --contains absent -> no: {o!r}")
+    check(msgs(party, [], []) == f"messages 0 (topic {TOPIC}, since 2026-11-12T00:00:00Z)\nnewest sent none", f"{party}: msgs, empty -> 0 / none")
+    o = py_out(party, ["--mode", "msgs", "--topic", TOPIC, "--since", "2026-11-12T00:00:00Z"], {"pgroup_queryMessages": {"jsonrpc": "2.0", "id": 1, "error": {"code": 1, "message": "x"}}})[0]
+    check(o == "ERROR", f"{party}: msgs, error body -> ERROR: {o!r}")
+for bad in (["bi", "--image", IMG, "--mode", "msgs"], ["bi", "--image", IMG, "--mode", "msgs", "--topic", "x;id", "--since", "2026-11-12T00:00:00Z"], ["bi", "--image", IMG, "--mode", "msgs", "--topic", TOPIC, "--since", "yesterday"],
+            ["bi", "--image", IMG, "--mode", "msgs", "--topic", TOPIC, "--since", "2026-11-12T00:00:00Z", "--contains", "0x12"], ["bi", "--image", IMG, "--mode", "ids", "--topic", TOPIC]):
+    check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
+
 for bad in (["bi", "--image", IMG, "--mode", "shape"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x12"], ["bi", "--image", IMG, "--mode", "shape", "--tx-hash", "0x" + "g" * 64], ["bi", "--image", IMG, "--mode", "ids", "--tx-hash", H], ["bi", "--image", IMG, "--mode", "schemas", "--tx-hash", H, "--zeto-token", "0x12"]):
     check(run(*bad).returncode == 2, f"render.sh {' '.join(bad)} must be refused with 2")
 
