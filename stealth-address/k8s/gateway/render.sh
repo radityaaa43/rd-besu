@@ -111,6 +111,9 @@ YAML
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: signer
+          # c7 / R32: bi.caller (OPA) verifies the Lensa client leaf itself: Envoy replaces any client-sent x-forwarded-client-cert by the leaf it verified
+          forward_client_cert_details: SANITIZE_SET
+          set_current_client_cert_details: {cert: true}
           route_config:
             virtual_hosts:
             - name: signer

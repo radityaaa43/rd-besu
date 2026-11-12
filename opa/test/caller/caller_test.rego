@@ -113,17 +113,22 @@ test_stealth_own_leaf_allowed if every n in {"node1", "node2", "node3", "node4"}
 	stealth_allowed(stealth_req(n, leaf[n]))
 }
 
-test_stealth_other_party_leaf_denied if {
-	every n in {"node1", "node2", "node3", "node4"} {
-		every m in {"node1", "node2", "node3", "node4"} {
-			m != n
-			not stealth_allowed(stealth_req(n, leaf[m]))
-		}
-	}
+cross_pairs := {[n, m] |
+	some n in {"node1", "node2", "node3", "node4"}
+	some m in {"node1", "node2", "node3", "node4"}
+	n != m
+}
+
+test_stealth_other_party_leaf_denied if every p in cross_pairs {
+	not stealth_allowed(stealth_req(p[0], leaf[p[1]]))
 }
 
 test_stealth_no_leaf_denied if {
-	i := object.union(stealth_req("node2", leaf.node2), {"attributes": {"request": {"http": {"headers": {}}}}})
+	i := {"attributes": {
+		"contextExtensions": {"target": "stealth", "node": "node2"},
+		"source": {"principal": "CN=lensa"},
+		"request": {"http": {"method": "POST", "path": "/intent", "headers": {}}},
+	}}
 	not stealth_allowed(i)
 }
 

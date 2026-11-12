@@ -15,7 +15,8 @@ req(node, who, method, path) := {"attributes": {
 	"request": {"http": {"method": method, "path": path}},
 }}
 
-allowed(i) if gw.allow with input as i
+# the caller-leaf check (opa/test/caller) is out of scope here: these inputs carry the Envoy principal only
+allowed(i) if gw.allow with input as i with data.bi.config.caller_binding as {}
 
 bi_allows(i) if bi.allow with input as i
 
