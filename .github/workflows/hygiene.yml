@@ -1,0 +1,16 @@
+name: hygiene
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  foreign-namespace-names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: no foreign namespace names in the tracked tree
+        run: python3 scripts/hygiene-foreign-ns.py
+      - name: self-test of the check
+        run: python3 scripts/hygiene-foreign-ns.py --selftest
