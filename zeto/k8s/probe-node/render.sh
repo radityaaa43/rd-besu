@@ -47,7 +47,7 @@ else [[ -z "$topic$since$contains" ]] || die "--topic/--since/--contains only wi
 if [[ "$mode" == shape || "$mode" == schemas ]]; then [[ "$txhash" =~ ^0x[0-9a-f]{64}$ ]] || die "--mode shape/schemas needs --tx-hash 0x<64 hex>"; else [[ -z "$txhash" ]] || die "--tx-hash only with --mode shape or schemas"; fi
 if [[ $besu == 1 ]]; then
   # S5b / R9: the party's OWN validator RPC (Service besu-rpc:8545 in its ns), QBFT reads and votes. Output: addresses, counts, booleans only.
-  [[ $legacy == 0 || "$op" == propose || "$op" == discard ]] || die "legacy-<N> supports only --op propose and --op discard"
+  [[ $legacy == 0 || "$op" == propose || "$op" == discard || "$op" == pending ]] || die "legacy-<N> supports only --op propose, --op discard and --op pending"
   case "$op" in read|pending|peers) [[ -z "$vaddr" && -z "$vdir" ]] || die "--op $op takes no --address/--drop/--add" ;;
     propose) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && ( "$vdir" == drop || "$vdir" == add ) ]] || die "--op propose needs --address 0x<40 hex> and --drop or --add" ;;
     discard) [[ "$vaddr" =~ ^0x[0-9a-fA-F]{40}$ && -z "$vdir" ]] || die "--op discard needs --address 0x<40 hex> (no --drop/--add)" ;;
@@ -99,12 +99,17 @@ except Exception: print('ERROR')
   esac
   if [[ $legacy != 0 ]]; then
     # bash /dev/tcp (the besu image has bash + base64; no python, and ns besu has no ghcr-pull): ONE JSON-RPC POST, prints only VOTE/DISCARD <addr10> true|false or ERROR
-    if [[ "$op" == propose ]]; then lm=qbft_proposeValidatorVote; lp="[\"$vaddr\",$([[ $vdir == add ]] && echo true || echo false)]"; lbl="VOTE $vdir ${vaddr:0:10}"; else lm=qbft_discardValidatorVote; lp="[\"$vaddr\"]"; lbl="DISCARD ${vaddr:0:10}"; fi
+    if [[ "$op" == propose ]]; then lm=qbft_proposeValidatorVote; lp="[\"$vaddr\",$([[ $vdir == add ]] && echo true || echo false)]"; lbl="VOTE $vdir ${vaddr:0:10}"; elif [[ "$op" == pending ]]; then lm=qbft_getPendingVotes; lp="[]"; lbl=""; else lm=qbft_discardValidatorVote; lp="[\"$vaddr\"]"; lbl="DISCARD ${vaddr:0:10}"; fi
+    if [[ "$op" == pending ]]; then
+      lcase="case \"\$R\" in *'\"error\"'*) echo ERROR ;; *'\"result\"'*) R=\${R#*'\"result\"'}; N=0; L=''; re='\"(0x[0-9a-fA-F]{40})\":[[:space:]]*(true|false)'; while [[ \$R =~ \$re ]]; do N=\$((N+1)); [[ \${BASH_REMATCH[2]} == true ]] && V=add || V=drop; L=\"\$L \${BASH_REMATCH[1]:0:10}=\$V\"; R=\${R#*\"\${BASH_REMATCH[0]}\"}; done; echo \"pending \$N:\$L\" ;; *) echo ERROR ;; esac"
+    else
+      lcase="case \"\$R\" in *'\"error\"'*) echo ERROR ;; *'\"result\":true'*|*'\"result\": true'*) echo '$lbl true' ;; *'\"result\":false'*|*'\"result\": false'*) echo '$lbl false' ;; *) echo ERROR ;; esac"
+    fi
     lscript="exec 3<>/dev/tcp/besu-node-validator-$legacy/8545 || { echo ERROR; exit 1; }
 B='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$lm\",\"params\":$lp}'
 printf 'POST / HTTP/1.1\\r\\nHost: x\\r\\nContent-Type: application/json\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n%s' \${#B} \"\$B\" >&3
 R=\$(cat <&3)
-case \"\$R\" in *'\"error\"'*) echo ERROR ;; *'\"result\":true'*|*'\"result\": true'*) echo '$lbl true' ;; *'\"result\":false'*|*'\"result\": false'*) echo '$lbl false' ;; *) echo ERROR ;; esac
+$lcase
 "
     cmdline="echo $(printf '%s' "$lscript" | base64 -w0) | base64 -d | bash"
   else cmdline="echo $(printf '%s' "$head$body" | base64 -w0) | base64 -d | python3 -"; fi
