@@ -17,6 +17,15 @@ export type SignerConfig = {
   fromBlock: number; // announcements are read from here on
   certTtlSeconds?: number; // default 600 (ts/chain.ts:82)
   bankSigners?: string[]; // custodian only: subjects of the mTLS client certs registered as bank signers
+  biSigner?: string; // custodian only: subject of the BI signer's mTLS client cert, the only caller of /escrow-certs
+  dvpFactory?: string; // bi only: DvPFactory address (its immutable custodian is the issuer account)
+};
+
+// S17 DvP: one trade, as DvPFactory.predict/create take it (src/DvPEscrow.sol Terms); amounts and times as decimal strings on the wire.
+export type Leg = { receiver: string; ephemeralPubKey: string; viewTag: string; memo: string };
+export type Terms = {
+  tradeId: string; bond: string; partition: string; bondAmount: string; rd: string; rdAmount: string;
+  seller: string; buyer: string; expiry: string; refundWindow: string; bondLeg: Leg; rdLeg: Leg;
 };
 
 // Everything the service needs from its own RPC node. Production adapts ethers' JsonRpcProvider; tests use a fake.
@@ -34,11 +43,13 @@ export interface ChainPort {
   sendRawTransaction(raw: string): Promise<string>; // returns the tx hash
   // S11: the ERC-6538 registry value stealthMetaAddressOf(identity, 1), the same read as the compare job; null = nothing registered
   registryMetaAddress(identity: string): Promise<string | null>;
+  predictEscrow(t: Terms): Promise<string>; // DvPFactory.predict(t): the CREATE2 address, computed by the chain, never taken from a request
 }
 
 export type CertRequest = { sender: string; token: string; payload: string; expiry: bigint };
 export interface CertClient {
   request(r: CertRequest): Promise<string>; // 97-byte certificate, hex
+  escrowCerts?(t: Terms): Promise<{ escrow: string; settleCert: string; refundCert: string }>; // BI signer only: POST /escrow-certs
 }
 
 import type { IncomingMessage } from 'node:http';

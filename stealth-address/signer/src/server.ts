@@ -5,7 +5,8 @@ import { TRANCHE_A, biRows, pay, read } from '../../ts/chain.ts';
 import { metaAddressOf, scan } from '../../ts/stealth.ts';
 import { parseTokenMetadata } from '../../ts/token.ts';
 import { PARTIES, compareViewKeys } from './compare.ts';
-import type { BankKeys, BiKeys, CustodianKeys, SignerConfig, SignerDeps } from './types.ts';
+import { TERMS_TUPLE, termsTuple } from './chainPort.ts';
+import type { BankKeys, BiKeys, CustodianKeys, Leg, SignerConfig, SignerDeps, Terms } from './types.ts';
 
 // ABIs inline (analyst verdict 2): the image has no forge output. Signatures: src/RupiahDigital.sol, src/DfabiBond.sol, ERC1400.
 const rdAbi = new Interface([
@@ -18,6 +19,8 @@ const bondAbi = new Interface([
   'function transferByPartition(bytes32 partition, address to, uint256 value, bytes data)',
   'function issueByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)',
 ]);
+const factoryAbi = new Interface([`function create(${TERMS_TUPLE} t, bytes settleCert, bytes refundCert) returns (address)`]); // src/DvPFactory.sol:30
+const escrowAbi = new Interface(['function settle()']); // src/DvPEscrow.sol:108
 const SEL_STEALTH = bondAbi.getFunction('transferByPartitionStealth')!.selector;
 const SEL_PLAIN = bondAbi.getFunction('transferByPartition')!.selector;
 
@@ -48,6 +51,9 @@ async function readBody(req: IncomingMessage, max = MAX_BODY): Promise<unknown> 
     throw new HttpError(400, 'bad_json', 'body is not a JSON object');
   }
 }
+
+const isLeg = (l: any): l is Leg => !!l && isAddress(l.receiver) && isHexString(l.ephemeralPubKey) && isHexString(l.viewTag, 1) && isHexString(l.memo);
+const legOf = (p: ReturnType<typeof pay>): Leg => ({ receiver: p.s.stealthAddress, ephemeralPubKey: p.s.ephemeralPubKey, viewTag: p.s.viewTag, memo: p.memo });
 
 function parseAmount(v: unknown): bigint {
   if (typeof v !== 'string' || !/^[0-9]+$/.test(v)) throw new HttpError(422, 'bad_amount', 'amount must be a decimal string');
@@ -90,6 +96,94 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       out.push({ ...h, amount });
     }
     return out;
+  }
+
+  // One address, one transfer (verdict 5): the first holding that covers the amount, or exactly `source` when given.
+  async function pick(token: string, partition: string | undefined, amount: bigint, source?: string) {
+    for (const h of await holdings()) {
+      if (source !== undefined && !sameAddr(h.found.stealthAddress, source)) continue;
+      if (sameAddr(h.token, token) && (partition === undefined || h.partition === partition) && h.amount >= amount) return h.found;
+    }
+    throw new HttpError(422, 'insufficient_holdings', 'no single holding covers the amount');
+  }
+
+  // S17 DvP, seller or buyer side: the holding this party will fund from, and the leg it pays to the counterparty's meta-address (sender = own identity key).
+  // ponytail: no reservation between offer and dvp-leg; Lensa runs one trade at a time. Reserve per tradeId if trades ever overlap.
+  async function quote(side: 'offer' | 'bid', body: any) {
+    const amount = parseAmount(side === 'offer' ? body.amount : body.price);
+    const token = side === 'offer' ? cfg.bond : cfg.rd;
+    const partition = side === 'offer' ? TRANCHE_A : undefined;
+    let p: ReturnType<typeof pay>;
+    try { p = pay(cfg.chainId, side === 'offer' ? body.buyerMeta : body.sellerMeta, bank.identityKey, token, amount, partition); }
+    catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
+    const src = await pick(token, partition, amount);
+    return side === 'offer'
+      ? { status: 200, body: { tradeId: body.tradeId, seller: src.stealthAddress, bondLeg: legOf(p) } }
+      : { status: 200, body: { tradeId: body.tradeId, buyer: src.stealthAddress, rdLeg: legOf(p) } };
+  }
+
+  function parseTerms(b: any): Omit<Terms, 'bond' | 'rd' | 'partition' | 'expiry' | 'refundWindow'> {
+    if (!(typeof b.tradeId === 'string' && isHexString(b.tradeId, 32)) || !isAddress(b.seller) || !isAddress(b.buyer) || !isLeg(b.bondLeg) || !isLeg(b.rdLeg)) {
+      throw new HttpError(422, 'bad_request', 'tradeId, seller, buyer, bondLeg, rdLeg required');
+    }
+    const leg = (l: Leg): Leg => ({ receiver: l.receiver, ephemeralPubKey: l.ephemeralPubKey, viewTag: l.viewTag, memo: l.memo });
+    return { tradeId: b.tradeId, seller: b.seller, buyer: b.buyer, bondAmount: parseAmount(b.bondAmount).toString(), rdAmount: parseAmount(b.rdAmount).toString(), bondLeg: leg(b.bondLeg), rdLeg: leg(b.rdLeg) };
+  }
+
+  // BI signer: the issuer account is DvPFactory.custodian (immutable). BI fixes token addresses, expiry and refund window; the custodian signs the certs.
+  async function escrow(body: any) {
+    if (cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'escrows are created by the BI signer only');
+    if (!cfg.dvpFactory) throw new HttpError(502, 'rpc_error', 'no DvP factory configured');
+    const t: Terms = { ...parseTerms(body), bond: cfg.bond, rd: cfg.rd, partition: TRANCHE_A, expiry: ((await chain.now()) + ttl).toString(), refundWindow: ttl.toString() };
+    if (!deps.cert?.escrowCerts) throw new HttpError(502, 'cert_unavailable', 'no custodian configured');
+    let c: { settleCert: string; refundCert: string };
+    try { c = await deps.cert.escrowCerts(t); } catch { throw new HttpError(502, 'cert_unavailable', 'custodian refused or unreachable'); }
+    const at = await chain.predictEscrow(t);
+    const data = factoryAbi.encodeFunctionData('create', [termsTuple(t), c.settleCert, c.refundCert]);
+    const issuer = new Wallet(bi.issuerKey);
+    const [nonce, gasPrice, gasLimit] = await Promise.all([chain.nonce(issuer.address), chain.gasPrice(), chain.estimateGas({ from: issuer.address, to: cfg.dvpFactory, data })]);
+    const rawTx = await issuer.signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to: cfg.dvpFactory, data, value: 0n });
+    const txHash = await chain.sendRawTransaction(rawTx);
+    return { status: 200, body: { escrow: at, expiry: t.expiry, txHash, terms: t }, note: `escrow=${at} tx=${txHash}` };
+  }
+
+  // Custodian: settle + refund certificates for the escrow of these terms. The escrow address comes from DvPFactory.predict on chain, never from the caller.
+  async function escrowCerts(req: IncomingMessage) {
+    if (cfg.role !== 'custodian') throw new HttpError(403, 'role_forbidden', '/escrow-certs is served by the custodian only');
+    const peer = deps.peer?.(req);
+    if (!peer || !cfg.biSigner || peer.subject !== cfg.biSigner) {
+      log(`escrow-certs refused requester=${peer?.subject ?? 'none'} reason=not_bi_signer`);
+      throw new HttpError(403, 'not_bi_signer', 'client certificate is not the BI signer');
+    }
+    const b: any = await readBody(req);
+    const base = parseTerms(b);
+    if (!isAddress(b.bond) || !sameAddr(b.bond, cfg.bond) || !isAddress(b.rd) || !sameAddr(b.rd, cfg.rd)) throw new HttpError(422, 'bad_token', 'bond or rd is not ours');
+    if (!(typeof b.partition === 'string' && isHexString(b.partition, 32))) throw new HttpError(422, 'bad_request', 'partition must be 32 bytes hex');
+    if (typeof b.expiry !== 'string' || !/^[0-9]+$/.test(b.expiry) || typeof b.refundWindow !== 'string' || !/^[0-9]+$/.test(b.refundWindow)) throw new HttpError(422, 'bad_request', 'expiry and refundWindow required');
+    const expiry = BigInt(b.expiry);
+    if (expiry > (await chain.now()) + ttl) throw new HttpError(422, 'bad_expiry', 'expiry too far ahead');
+    if (BigInt(b.refundWindow) !== ttl) throw new HttpError(422, 'bad_request', 'refundWindow must equal the certificate ttl');
+    const t: Terms = { ...base, bond: cfg.bond, rd: cfg.rd, partition: b.partition, expiry: b.expiry, refundWindow: b.refundWindow };
+    const escrowAddr = await chain.predictEscrow(t);
+    const zero = hexlify(new Uint8Array(CERTIFICATE_LENGTH));
+    const [domainSeparator, nonce] = await Promise.all([chain.bondDomainSeparator(), chain.usedCertificateNonce(cfg.bond, escrowAddr)]);
+    const sign = (data: string, exp: bigint) => signCertificate(certKey, { domainSeparator, msgSender: escrowAddr, token: cfg.bond, payload: payloadWithoutCertificate(data), expiry: exp, nonce });
+    const bondAmount = BigInt(t.bondAmount);
+    const settleCert = sign(bondAbi.encodeFunctionData('transferByPartitionStealth', [t.partition, t.bondLeg.receiver, bondAmount, t.bondLeg.ephemeralPubKey, t.bondLeg.viewTag, t.bondLeg.memo, zero]), expiry);
+    const refundCert = sign(bondAbi.encodeFunctionData('transferByPartition', [t.partition, t.seller, bondAmount, zero]), expiry + ttl);
+    log(`escrow-certs requester=${peer.subject} escrow=${escrowAddr}`);
+    return { status: 200, body: { escrow: escrowAddr, settleCert, refundCert }, note: `escrow=${escrowAddr}` };
+  }
+
+  // Anyone may settle (DvPEscrow.settle); a throwaway key signs it so no party key is tied to the trade on chain.
+  async function settle(body: any) {
+    if (!isAddress(body.escrow)) throw new HttpError(422, 'bad_request', 'escrow must be an address');
+    const w = Wallet.createRandom();
+    const data = escrowAbi.encodeFunctionData('settle');
+    const [nonce, gasPrice, gasLimit] = await Promise.all([chain.nonce(w.address), chain.gasPrice(), chain.estimateGas({ from: w.address, to: body.escrow, data })]);
+    const rawTx = await w.signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to: body.escrow, data, value: 0n });
+    const txHash = await chain.sendRawTransaction(rawTx);
+    return { status: 200, body: { escrow: body.escrow, txHash }, note: `settle tx=${txHash}` };
   }
 
   async function intent(body: any) {
@@ -144,12 +238,9 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
             bondAbi.encodeFunctionData('transferByPartitionStealth', [partition, p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo, cert]);
     }
 
-    // One address, one transfer (verdict 5): the first holding that covers the amount.
-    let spender: { stealthAddress: string; privateKey: string } | undefined;
-    for (const h of await holdings()) {
-      if (sameAddr(h.token, token) && (partition === undefined || h.partition === partition) && h.amount >= amount) { spender = h.found; break; }
-    }
-    if (!spender) throw new HttpError(422, 'insufficient_holdings', 'no single holding covers the amount');
+    // dvp-leg names the holding it offered (/dvp/offer, /dvp/bid): the escrow refunds to that address, so the funds must come from it.
+    if (kind === 'dvp-leg' && body.source !== undefined && !isAddress(body.source)) throw new HttpError(422, 'bad_request', 'source must be an address');
+    const spender = await pick(token, partition, amount, kind === 'dvp-leg' ? body.source : undefined);
 
     let data = build();
     if (token === cfg.bond) {
@@ -246,7 +337,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
-    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent', 'POST /dvp/offer', 'POST /dvp/bid', 'POST /dvp/escrow', 'POST /dvp/settle'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
@@ -277,6 +368,12 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       return { ...out, note: `kind=${(body as any).kind} ${out.note}` };
     }
     if (r === 'POST /cert') return cert(req);
+    if (r === 'POST /escrow-certs') return escrowCerts(req);
+    const serial = (f: (b: any) => Promise<any>) => async () => { const body = await readBody(req); const run = queue.then(() => f(body)); queue = run.catch(() => undefined); return run; };
+    if (r === 'POST /dvp/offer') return serial((b) => quote('offer', b))();
+    if (r === 'POST /dvp/bid') return serial((b) => quote('bid', b))();
+    if (r === 'POST /dvp/escrow') return serial(escrow)();
+    if (r === 'POST /dvp/settle') return serial(settle)();
     throw new HttpError(404, 'not_found');
   }
 

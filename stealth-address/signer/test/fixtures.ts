@@ -47,6 +47,8 @@ export class FakeChain implements ChainPort {
   registryError = false;
   async registryMetaAddress(identity: string) { if (this.registryError) throw new Error('rpc down'); return this.registry.get(identity.toLowerCase()) ?? null; }
   async now() { return NOW; }
+  predicted = '0x' + '00'.repeat(20);
+  async predictEscrow() { return this.predicted; }
   async sendRawTransaction(raw: string) { this.sent.push(raw); return keccak256(raw); }
 }
 

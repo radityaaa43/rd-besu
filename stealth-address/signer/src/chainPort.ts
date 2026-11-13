@@ -3,7 +3,12 @@ import { Contract, FetchRequest, Interface, JsonRpcProvider, zeroPadValue, type 
 import type { MtlsOptions } from './mtls.ts';
 import { LOG_RANGE, type LoggedAnnouncement } from '../../ts/chain.ts';
 import { SCHEME_ID } from '../../ts/stealth.ts';
-import type { ChainPort } from './types.ts';
+import type { ChainPort, Terms } from './types.ts';
+
+// DvPEscrow Terms (src/DvPEscrow.sol:16-29), shared with server.ts for DvPFactory.create.
+const LEG_TUPLE = '(address receiver, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)';
+export const TERMS_TUPLE = `(bytes32 tradeId, address bond, bytes32 partition, uint256 bondAmount, address rd, uint256 rdAmount, address seller, address buyer, uint256 expiry, uint256 refundWindow, ${LEG_TUPLE} bondLeg, ${LEG_TUPLE} rdLeg)`;
+export const termsTuple = (t: Terms) => ({ ...t, bondAmount: BigInt(t.bondAmount), rdAmount: BigInt(t.rdAmount), expiry: BigInt(t.expiry), refundWindow: BigInt(t.refundWindow) });
 
 // ABIs inline (analyst verdict 2). Event/function signatures: src/ERC5564Announcer.sol, src/DvPFactory.sol, ERC1400 + ERC1400TokensValidator.
 const abi = new Interface([
@@ -14,6 +19,7 @@ const abi = new Interface([
   'function generateDomainSeparator() view returns (bytes32)',
   'function usedCertificateNonce(address token, address sender) view returns (uint256)',
   'function stealthMetaAddressOf(address registrant, uint256 schemeId) view returns (bytes)', // ERC-6538 registry, src/ERC6538Registry.sol:22
+  `function predict(${TERMS_TUPLE} t) view returns (address)`, // src/DvPFactory.sol:25
 ]);
 
 export type ChainPortOptions = {
@@ -70,6 +76,7 @@ export function createChainPort(o: ChainPortOptions): ChainPort {
       const v: string = await at(o.registry).stealthMetaAddressOf(identity, SCHEME_ID);
       return v === '0x' ? null : v;
     },
+    async predictEscrow(t) { return at(o.dvpFactory).predict(termsTuple(t)); },
     async sendRawTransaction(raw) { return (await p.broadcastTransaction(raw)).hash; },
   };
 }
