@@ -84,8 +84,10 @@ for p, n in PARTIES.items():
     check(gw and gw["spec"].get("type", "ClusterIP") == "ClusterIP" and gw["spec"]["selector"] == {"app": "st-gw"} and gw["spec"]["ports"][0]["port"] == 8550, f"{p}: Service st-gw-{n} ClusterIP 8550")
     check(by(ds, "Service", f"st-gw-{n}-ext") is None, f"{p}: no external Service by default (no NodePort, no LoadBalancer)")
     sin = by(ds, "NetworkPolicy", "stealth-signer-ingress")
-    check(bool(sin) and sin["spec"]["ingress"] == [{"from": [{"podSelector": {"matchLabels": {"app": "st-gw"}}}], "ports": [{"protocol": "TCP", "port": 8080}]}]
-          and sin["spec"]["podSelector"] == {"matchLabels": {"app": "stealth-signer"}, "matchExpressions": [{"key": "role", "operator": "In", "values": ["bank", "bi"]}]}, f"{p}: signer ingress only from st-gw on 8080")
+    # S11 live 2026-11-13: a bank's own viewpush Job reads its signer's /meta-address (public) before the push; BI has no viewpush
+    src = [{"podSelector": {"matchLabels": {"app": "st-gw"}}}] + ([] if p == "bi" else [{"podSelector": {"matchLabels": {"app": "stealth-viewpush", "role": "viewpush"}}}])
+    check(bool(sin) and sin["spec"]["ingress"] == [{"from": src, "ports": [{"protocol": "TCP", "port": 8080}]}]
+          and sin["spec"]["podSelector"] == {"matchLabels": {"app": "stealth-signer"}, "matchExpressions": [{"key": "role", "operator": "In", "values": ["bank", "bi"]}]}, f"{p}: signer ingress only from st-gw (+ own viewpush Job for banks) on 8080")
     gin = by(ds, "NetworkPolicy", "st-gw-ingress")
     check(gin and gin["spec"]["podSelector"]["matchLabels"] == {"app": "st-gw"} and gin["spec"]["ingress"] == [{"ports": [{"protocol": "TCP", "port": 8550}]}], f"{p}: st-gw-ingress 8550 from any source (mTLS is the gate)")
     # envoy subcommand = the same config, bare

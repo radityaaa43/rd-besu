@@ -364,7 +364,7 @@ for p, party in BANKS.items():
         check(not pod.get(bad), f"viewpush {p}: no {bad}")
     check(len(pod["containers"]) == 1 and pod["containers"][0]["name"] == "viewpush", f"viewpush {p}: one container named viewpush")
     c = pod["containers"][0]
-    check(c["image"] == IMG and c["command"] == ["node", "--experimental-transform-types", "signer/src/pushViewCopy.ts"], f"viewpush {p}: digest image, command pushViewCopy.ts (got {c.get('command')})")
+    check(c["image"] == IMG and c["command"] == ["node", "--experimental-transform-types", "signer/src/pushViewCopy.ts", p], f"viewpush {p}: digest image, command pushViewCopy.ts <own id> (live 2026-11-13: without the id the Job exits with usage) (got {c.get('command')})")
     check(c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}, f"viewpush {p}: container securityContext")
     check(c["resources"] == {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "256Mi"}}, f"viewpush {p}: resources")
     check("ports" not in c and "readinessProbe" not in c and "livenessProbe" not in c and "envFrom" not in c, f"viewpush {p}: no ports, probes or envFrom")

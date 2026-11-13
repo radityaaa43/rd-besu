@@ -103,7 +103,7 @@ $vp_pull
       containers:
       - name: viewpush
         image: "$IMAGE"
-        command: ["node","--experimental-transform-types","signer/src/pushViewCopy.ts"]
+        command: ["node","--experimental-transform-types","signer/src/pushViewCopy.ts","$sel"]
         env:
         - {name: PARTY, value: "$party"}
         - {name: KEYS_DIR, value: /keys}
