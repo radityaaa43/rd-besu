@@ -290,7 +290,7 @@ if plain and withk:
     check(all(set(t) == {"ipBlock"} and "except" not in t["ipBlock"] for t in kube["to"]) and [r for r in withk[0]["spec"]["egress"] if any("ipBlock" in t for t in r["to"])] == [kube], "signer bi --kube-api-ip: ipBlock appears only in the kube rule, as bare /32s")
     one = docs(render, "signer", "bi", "--kube-api-ip", KIP[0])
     check(one and one[0]["spec"]["egress"][-2] == {"to": [{"ipBlock": {"cidr": f"{KIP[0]}/32"}}], "ports": TCP(6443)}, "signer bi --kube-api-ip: a single IP works")
-    sg = {"bi": docs(SIGNER, "bi", "--image", IMG, "--chain-env", chain, "--cert-url", CERT_URL, "--viewcopy-store")}
+    sg = {"bi": docs(SIGNER, "bi", "--image", IMG, "--chain-env", chain, "--cert-url", CERT_URL, "--viewcopy-store", "--registry", "0x" + "66" * 20)}
     base_bi = [d for d in docs(PARTY, "bi") if d["kind"] == "NetworkPolicy"]
     for pl in pod_labels(sg["bi"]):
         check(union(base_bi + withk, pl) == ["stealth-signer-egress"], f"signer bi --kube-api-ip: the BI signer pod (with --viewcopy-store) is selected by this policy ONLY: {union(base_bi + withk, pl)}")

@@ -154,7 +154,9 @@ elif [[ "$sel" == custodian ]]; then
   [[ "$SIGNERS" =~ ^CN=[A-Za-z0-9._-]+(,CN=[A-Za-z0-9._-]+)*$ ]] || die "bad --bank-signers (comma list of CN=<name>)"
   [[ "$BISIGNER" =~ ^CN=[A-Za-z0-9._-]+$ ]] || die "--bi-signer CN=<name> is required for custodian (the only caller of /escrow-certs)"
 else
-  [[ $HAVE_REGISTRY -eq 0 ]] || die "--registry is for compare only"
+  # bi --viewcopy-store: PUT /viewcopy checks the pushed copy against the ERC-6538 registry (S17 2026-11-13), so the store needs --registry
+  if [[ $STORE -eq 1 ]]; then [[ $HAVE_REGISTRY -eq 1 && "$REGISTRY" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "bi --viewcopy-store needs --registry 0x + 40 hex"
+  else [[ $HAVE_REGISTRY -eq 0 ]] || die "--registry is for compare and bi --viewcopy-store only"; fi
   [[ $HAVE_SIGNERS -eq 0 && -z "$BISIGNER" ]] || die "--bank-signers/--bi-signer are for custodian only"
   [[ $HAVE_CERT -eq 1 ]] || die "--cert-url is required for banks and bi"
   [[ "$CERT" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --cert-url (https://host[:port], no path)"
@@ -279,6 +281,8 @@ else
     role=bi
     roleenv="$roleenv
         - {name: VIEWCOPIES_DIR, value: /viewcopies}"
+    [[ $STORE -eq 0 ]] || roleenv="$roleenv
+        - {name: REGISTRY, value: \"$REGISTRY\"}"
     vols="$(secret keys stealth-bi-keys issuerKey spendKey viewKey; secret_all viewcopies stealth-bi-viewcopies; secret tls stealth-signer-mtls client.key client.crt ca.crt)"
     mounts='        - {name: viewcopies, mountPath: /viewcopies, readOnly: true}
 '

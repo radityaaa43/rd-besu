@@ -40,7 +40,7 @@ if rb:
 # the name must match what the BI signer Deployment uses with --viewcopy-store
 chain = os.path.join(tempfile.mkdtemp(), "chain.env")
 open(chain, "w").write("".join(f"{k}={v}\n" for k, v in {"CHAIN_ID": "1337", "RD": "0x" + "1" * 40, "BOND": "0x" + "2" * 40, "ANNOUNCER": "0x" + "3" * 40, "VALIDATOR": "0x" + "4" * 40, "DVP_FACTORY": "0x" + "5" * 40, "FROM_BLOCK": "1"}.items()))
-sg = run(SIGNER, "bi", "--image", "registry.example/x@sha256:" + "0" * 64, "--chain-env", chain, "--cert-url", "https://st-gw-1.rd-stealth-bi.svc.cluster.local:8550", "--viewcopy-store")
+sg = run(SIGNER, "bi", "--image", "registry.example/x@sha256:" + "0" * 64, "--chain-env", chain, "--cert-url", "https://st-gw-1.rd-stealth-bi.svc.cluster.local:8550", "--viewcopy-store", "--registry", "0x" + "66" * 20)
 dep = next((d for d in yaml.safe_load_all(sg.stdout) if d and d["kind"] == "Deployment"), None) if sg.returncode == 0 else None
 check(dep is not None and dep["spec"]["template"]["spec"].get("serviceAccountName") == "stealth-bi-signer", "the signer render bi --viewcopy-store uses the ServiceAccount this render creates")
 for a in ([], ["viewcopies", "bank-a"], ["viewcopies", "bi"], ["viewcopies", "--ns", "x"], ["nope"], ["Viewcopies"]):
