@@ -26,7 +26,12 @@ lensa := ["CN=lensa", "CN=lensa-bi", "CN=lensa-bank-a", "CN=lensa-bank-b", "CN=l
 
 nodes := ["node1", "node2", "node3", "node4"]
 
-routes := [["POST", "/intent"], ["GET", "/holdings"], ["GET", "/history"], ["GET", "/health"]]
+# S17 2026-11-13: + meta-address, BI ledger (exact query), DvP orchestration (the signer enforces role and party)
+routes := [
+	["POST", "/intent"], ["GET", "/holdings"], ["GET", "/history"], ["GET", "/health"], ["GET", "/meta-address"],
+	["GET", "/ledger?kind=rd"], ["GET", "/ledger?kind=bond"],
+	["POST", "/dvp/offer"], ["POST", "/dvp/bid"], ["POST", "/dvp/escrow"], ["POST", "/dvp/settle"],
+]
 
 test_lensa_routes_allowed_on_every_gateway_by_both_sides if {
 	every who in lensa {
@@ -47,6 +52,10 @@ test_cert_never_allowed if {
 				not allowed(req(n, who, m, "/cert"))
 				not bi_allows(req(n, who, m, "/cert"))
 				not bank_allows(req(n, who, m, "/cert"))
+				not allowed(req(n, who, m, "/escrow-certs"))
+				not bi_allows(req(n, who, m, "/escrow-certs"))
+				not bank_allows(req(n, who, m, "/escrow-certs"))
+				not allowed(req(n, who, m, "/ledger?kind=rd&x=1"))
 			}
 		}
 	}

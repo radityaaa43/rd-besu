@@ -74,6 +74,8 @@ def pod_labels(ds):
 DNS = {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}], "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}
 RPC = {"to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "besu-rpc"}}}], "ports": [{"protocol": "TCP", "port": 8545}]}
 TCP = lambda p: [{"protocol": "TCP", "port": p}]
+# S17 2026-11-12 topology: signer and custodian reach the validator only through their party's own bank-gw door (Besu :8545, mTLS + OPA)
+GWRPC = lambda party: {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": f"rd-zeto-{party}"}}, "podSelector": {"matchLabels": {"app": "bank-gw"}}}], "ports": TCP(8545)}
 
 
 ZP = ["bi", "bank-a", "bank-b"]  # the cluster-1 zeto parties
@@ -114,9 +116,9 @@ def expected(workload, party):
         if workload == "viewpush":  # S11 rework: the push Job reaches ONLY its own bank signer, the BI door and DNS (no besu-rpc, no kube API)
             own = {"to": [{"podSelector": {"matchLabels": {"app": "stealth-signer", "role": "bank"}}}], "ports": TCP(8080)}
             return "stealth-viewpush-egress", "stealth-viewpush", [own, cert, DNS]
-        return "stealth-signer-egress", "stealth-signer", [RPC, cert, DNS]
+        return "stealth-signer-egress", "stealth-signer", [GWRPC(party), cert, DNS]
     if workload == "custodian":
-        return "stealth-custodian-egress", "stealth-custodian", [RPC, DNS]
+        return "stealth-custodian-egress", "stealth-custodian", [GWRPC(party), DNS]
     if workload == "compare":
         return "stealth-viewkey-egress", "stealth-viewkey", [RPC, DNS]
     rules = [{"to": [{"podSelector": {"matchLabels": {"app": "stealth-signer"}, "matchExpressions": [{"key": "role", "operator": "In", "values": ["bank", "bi"]}]}}], "ports": TCP(8080)}]
@@ -143,7 +145,7 @@ def workload_pods(workload, party):
     if workload == "compare":
         return pod_labels(docs(SIGNER, "compare", "--image", IMG, "--chain-env", chain, "--registry", REG))
     if workload == "custodian":
-        return pod_labels(docs(SIGNER, "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a"))
+        return pod_labels(docs(SIGNER, "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a", "--bi-signer", "CN=b"))
     if workload == "viewpush":
         return pod_labels(docs(SIGNER, "viewpush", party, "--image", IMG, "--door-url", CERT_URL))
     return pod_labels(docs(SIGNER, party, "--image", IMG, "--chain-env", chain, "--cert-url", CERT_URL))

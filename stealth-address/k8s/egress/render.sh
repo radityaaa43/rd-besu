@@ -53,6 +53,17 @@ rpc() { cat <<'YAML'
         - {protocol: TCP, port: 8545}
 YAML
 }
+gwrpc() { # gwrpc <party>: S17 2026-11-12 topology, the party's own bank-gw Besu door (mTLS + OPA method allowlist) replaces the besu-rpc JWT node
+  cat <<YAML
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: rd-zeto-$1}
+          podSelector:
+            matchLabels: {app: bank-gw}
+      ports:
+        - {protocol: TCP, port: 8545}
+YAML
+}
 header() { # header <policy name> <profile> <party>
   cat <<YAML
 apiVersion: networking.k8s.io/v1
@@ -126,7 +137,7 @@ policy() { # policy <workload> <party> [--cert-lb-ip IP] [--kube-api-ip IP]... [
       echo "      ports:"; echo "        - {protocol: TCP, port: 30303}"
       dns ;;
     signer|viewpush)
-      if [[ "$w" == signer ]]; then header stealth-signer-egress stealth-signer "$p"; rpc
+      if [[ "$w" == signer ]]; then header stealth-signer-egress stealth-signer "$p"; gwrpc "$p"
       else header stealth-viewpush-egress stealth-viewpush "$p"; cat <<'YAML'
     - to:
         - podSelector:
@@ -170,7 +181,7 @@ YAML
       for k in "${kips[@]}"; do echo "        - ipBlock: {cidr: $k/32}"; done
       printf '      ports:\n        - {protocol: TCP, port: 6443}\n'
       dns ;;
-    custodian) header stealth-custodian-egress stealth-custodian "$p"; rpc; dns ;;
+    custodian) header stealth-custodian-egress stealth-custodian "$p"; gwrpc "$p"; dns ;;
     compare) header stealth-viewkey-egress stealth-viewkey "$p"; rpc; dns ;;
     gateway)
       header st-gw-egress st-gw "$p"

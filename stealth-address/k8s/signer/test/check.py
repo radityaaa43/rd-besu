@@ -55,8 +55,17 @@ def bi_args(image=IMG, chain=GOOD, url=CERT_URL):
     return ["bi", "--image", image, "--chain-env", chain, "--cert-url", url]
 
 
+BI_SIGNER = "CN=stealth-signer-bi"
+
+
 def cust_args(image=IMG, chain=GOOD, signers=SIGNERS):
-    return ["custodian", "--image", image, "--chain-env", chain, "--bank-signers", signers]
+    return ["custodian", "--image", image, "--chain-env", chain, "--bank-signers", signers, "--bi-signer", BI_SIGNER]
+
+
+# S17 2026-11-12 topology: every signer pod reaches its party's validator through that party's own bank-gw-N Besu door (mTLS), never a JWT node.
+GW = {"bi": 1, "bank-a": 2, "bank-b": 3, "bank-c": 4}
+def door(plabel):
+    return f"https://bank-gw-{GW[plabel]}.rd-zeto-{plabel}.svc.cluster.local:8545"
 
 
 def rejects(msg, *a):
@@ -97,23 +106,26 @@ def common(d, role, ns, party, plabel, label, extra=False):
     for e in c["env"]:
         check("valueFrom" not in e and "value" in e, f"{label}: env {e.get('name')} is a plain value (no valueFrom)")
         env[e["name"]] = e.get("value")
-        check(not any(k in (e["name"] + str(e.get("value"))).lower().replace("/rpc-jwt/private.pem", "") for k in KEYWORDS), f"{label}: env {e['name']} has no key-ish word (only the path /rpc-jwt/private.pem is allowed to say private)")
+        check(not any(k in (e["name"] + str(e.get("value"))).lower() for k in KEYWORDS), f"{label}: env {e['name']} has no key-ish word")
     check("envFrom" not in c, f"{label}: no envFrom")
     for k, v in CHAIN.items():
         check(env.get(k) == v, f"{label}: env {k}={v}")
-    for k, v in {"RPC_URL": "http://besu-rpc:8545", "RPC_JWT_KEY_FILE": "/rpc-jwt/private.pem", "KEYS_DIR": "/keys", "TLS_DIR": "/tls", "PARTY": party, "ROLE": role}.items():
+    rpc_tls = "/rpc-tls" if role == "custodian" else "/tls"
+    for k, v in {"RPC_URL": door(plabel), "RPC_TLS_DIR": rpc_tls, "RPC_SERVERNAME": f"bank-gw-{GW[plabel]}", "KEYS_DIR": "/keys", "TLS_DIR": "/tls", "PARTY": party, "ROLE": role}.items():
         check(env.get(k) == v, f"{label}: env {k}={v}")
+    check("RPC_JWT_KEY_FILE" not in env and "rpc-jwt" not in yaml.dump(d) and "stealth-rpc-jwt" not in yaml.dump(d), f"{label}: no JWT key, no rpc-jwt volume (the node door is bank-gw)")
     vols = {v["name"]: v for v in pod["volumes"]}
-    want_vols = {"keys", "tls", "rpc-jwt", "tmp"} | ({"viewcopies"} if extra else set())
+    want_vols = {"keys", "tls", "tmp"} | ({"viewcopies"} if extra else set()) | ({"rpc-tls"} if role == "custodian" else set())
     check(set(vols) == want_vols, f"{label}: volumes exactly {sorted(want_vols)} (got {sorted(vols)})")
     check(all(set(v) == {"name", "secret"} or set(v) == {"name", "emptyDir"} for v in vols.values()), f"{label}: only secret/emptyDir volumes (no hostPath)")
     mounts = {m["name"]: m for m in c["volumeMounts"]}
-    want_mounts = {"keys": ("/keys", True), "tls": ("/tls", True), "rpc-jwt": ("/rpc-jwt", True), "tmp": ("/tmp", False)}
+    want_mounts = {"keys": ("/keys", True), "tls": ("/tls", True), "tmp": ("/tmp", False)}
+    if role == "custodian":
+        want_mounts["rpc-tls"] = ("/rpc-tls", True)
     if extra:
         want_mounts["viewcopies"] = ("/viewcopies", True)
     check({k: (m["mountPath"], m.get("readOnly", False)) for k, m in mounts.items()} == want_mounts, f"{label}: mounts {sorted(want_mounts)}, all readOnly but /tmp")
     check("emptyDir" in vols.get("tmp", {}), f"{label}: tmp is emptyDir")
-    check(secret_items(vols["rpc-jwt"]) == ("stealth-rpc-jwt", ["private.pem"], {0o440}), f"{label}: rpc-jwt = Secret stealth-rpc-jwt, item private.pem only, 0440")
     return pod, c, env, vols
 
 
@@ -151,7 +163,11 @@ check([(d["kind"], d["metadata"]["name"]) for d in ds] == [("Deployment", "steal
 if ds:
     dep = ds[0]
     pod, c, env, vols = common(dep, "custodian", "rd-stealth-bi", "BI", "bi", "custodian")
-    check(env.get("PORT") == "9443" and env.get("BANK_SIGNERS") == SIGNERS, "custodian: PORT 9443, BANK_SIGNERS given")
+    check(env.get("PORT") == "9443" and env.get("BANK_SIGNERS") == SIGNERS and env.get("BI_SIGNER") == BI_SIGNER, "custodian: PORT 9443, BANK_SIGNERS + BI_SIGNER given")
+    # its own RPC client cert = its server cert (BI CA, clientAuth too), projected under the client file names
+    rv = vols.get("rpc-tls", {}).get("secret", {})
+    check(rv.get("secretName") == "stealth-custodian-mtls" and rv.get("items") == [{"key": "server.key", "path": "client.key"}, {"key": "server.crt", "path": "client.crt"}, {"key": "ca.crt", "path": "ca.crt"}] and rv.get("defaultMode") == 0o440,
+          f"custodian: rpc-tls = stealth-custodian-mtls server.key/server.crt as client.key/client.crt + ca.crt, 0440 (got {rv})")
     check("CERT_URL" not in env and "CERT_SERVERNAME" not in env, "custodian: no CERT_URL/CERT_SERVERNAME")
     check(c["ports"] == [{"name": "mtls", "containerPort": 9443}], "custodian: port 9443 named mtls")
     check(all(c[k] == {"tcpSocket": {"port": 9443}} for k in ("readinessProbe", "livenessProbe")), "custodian: probes tcpSocket 9443 only (https demands a client cert)")
