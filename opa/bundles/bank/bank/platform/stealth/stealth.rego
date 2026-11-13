@@ -19,12 +19,12 @@ caller := input.attributes.source.principal
 lensa := {"CN=lensa", "CN=lensa-bi", "CN=lensa-bank-a", "CN=lensa-bank-b", "CN=lensa-bank-c"}
 
 # S17 2026-11-13 (DvP without keys in Lensa): + GET /meta-address (public), GET /ledger with the exact query kind=rd|bond (BI's view-copy lens),
-# POST /dvp/offer, /dvp/bid, /dvp/escrow, /dvp/settle. The signer enforces role (escrow, ledger: BI only) and party. /escrow-certs is the
+# POST /dvp/offer, /dvp/bid, /dvp/escrow, /dvp/settle, /dvp/cancel (refund after expiry). The signer enforces role (escrow, ledger: BI only) and party. /escrow-certs is the
 # custodian's, never reachable from Lensa.
 routes := {
 	["POST", "/intent"], ["GET", "/holdings"], ["GET", "/history"], ["GET", "/health"], ["GET", "/meta-address"],
 	["GET", "/ledger?kind=rd"], ["GET", "/ledger?kind=bond"],
-	["POST", "/dvp/offer"], ["POST", "/dvp/bid"], ["POST", "/dvp/escrow"], ["POST", "/dvp/settle"],
+	["POST", "/dvp/offer"], ["POST", "/dvp/bid"], ["POST", "/dvp/escrow"], ["POST", "/dvp/settle"], ["POST", "/dvp/cancel"],
 }
 
 default allow := false

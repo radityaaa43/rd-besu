@@ -1,7 +1,7 @@
 // GET /meta-address (S9 D2): public data only, derived inside the signer from the loaded keys. RED first.
 import { Wallet } from 'ethers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { A, FakeChain, start } from './fixtures.ts';
+import { A, BOND, FakeChain, RD, start } from './fixtures.ts';
 
 let stop: (() => Promise<void>) | undefined;
 afterEach(async () => { await stop?.(); stop = undefined; vi.restoreAllMocks(); });
@@ -11,7 +11,7 @@ describe('GET /meta-address (role bank)', () => {
     const s = await start(new FakeChain()); stop = s.stop;
     const r = await s.call('GET', '/meta-address');
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ party: 'A', metaAddress: A.metaAddress, identityAddress: new Wallet(A.identityKey).address });
+    expect(r.json).toEqual({ party: 'A', metaAddress: A.metaAddress, identityAddress: new Wallet(A.identityKey).address, contracts: { rd: RD, bond: BOND, announcer: null, dvpFactory: null } });
   });
 
   it('never carries key material and logs no key', async () => {

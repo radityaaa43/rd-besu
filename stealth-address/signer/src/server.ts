@@ -20,7 +20,7 @@ const bondAbi = new Interface([
   'function issueByPartitionStealth(bytes32 partition, address stealthAddress, uint256 value, bytes ephemeralPubKey, bytes1 viewTag, bytes memo)',
 ]);
 const factoryAbi = new Interface([`function create(${TERMS_TUPLE} t, bytes settleCert, bytes refundCert) returns (address)`]); // src/DvPFactory.sol:30
-const escrowAbi = new Interface(['function settle()']); // src/DvPEscrow.sol:108
+const escrowAbi = new Interface(['function settle()', 'function cancel()']); // src/DvPEscrow.sol:108, :129
 const SEL_STEALTH = bondAbi.getFunction('transferByPartitionStealth')!.selector;
 const SEL_PLAIN = bondAbi.getFunction('transferByPartition')!.selector;
 
@@ -175,15 +175,16 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     return { status: 200, body: { escrow: escrowAddr, settleCert, refundCert }, note: `escrow=${escrowAddr}` };
   }
 
-  // Anyone may settle (DvPEscrow.settle); a throwaway key signs it so no party key is tied to the trade on chain.
-  async function settle(body: any) {
+  // Anyone may settle (DvPEscrow.settle) or, from expiry on, cancel (refund: RD to the buyer, bond to the seller with the stored refund cert, valid
+  // expiry + refundWindow); a throwaway key signs it so no party key is tied to the trade on chain.
+  async function settle(body: any, fn: 'settle' | 'cancel' = 'settle') {
     if (!isAddress(body.escrow)) throw new HttpError(422, 'bad_request', 'escrow must be an address');
     const w = Wallet.createRandom();
-    const data = escrowAbi.encodeFunctionData('settle');
+    const data = escrowAbi.encodeFunctionData(fn);
     const [nonce, gasPrice, gasLimit] = await Promise.all([chain.nonce(w.address), chain.gasPrice(), chain.estimateGas({ from: w.address, to: body.escrow, data })]);
     const rawTx = await w.signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to: body.escrow, data, value: 0n });
     const txHash = await chain.sendRawTransaction(rawTx);
-    return { status: 200, body: { escrow: body.escrow, txHash }, note: `settle tx=${txHash}` };
+    return { status: 200, body: { escrow: body.escrow, txHash }, note: `${fn} tx=${txHash}` };
   }
 
   async function intent(body: any) {
@@ -266,7 +267,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const rows = [];
     for (const h of await mine()) {
       const r = read(cfg.chainId, h.ann, bank.viewKey, h.kind);
-      rows.push({ txHash: h.ann.txHash, blockNumber: h.ann.blockNumber, stealthAddress: h.found.stealthAddress, token: h.token, amount: r.amount.toString(), sender: r.sender });
+      rows.push({ txHash: h.ann.txHash, blockNumber: h.ann.blockNumber, stealthAddress: h.found.stealthAddress, token: h.token, amount: r.amount.toString(), sender: r.sender, partition: h.partition });
     }
     return rows;
   }
@@ -279,7 +280,8 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       const m = bond ?? parseTokenMetadata(a.metadata);
       return m && (kind === 'bond') === !!bond && sameAddr(m.token, token);
     });
-    return biRows(cfg.chainId, anns, bi.viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx }));
+    const block = new Map(anns.map((a) => [a.txHash.toLowerCase(), a.blockNumber]));
+    return biRows(cfg.chainId, anns, bi.viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx, blockNumber: block.get(String(r.tx).toLowerCase()) ?? null }));
   }
 
   // S11 rework: a bank pushes ITS OWN view-key copy (never a spend key) through BI's gateway; OPA already limited the caller to its own slot. Validate, check against the
@@ -337,13 +339,16 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
-    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent', 'POST /dvp/offer', 'POST /dvp/bid', 'POST /dvp/escrow', 'POST /dvp/settle'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent', 'POST /dvp/offer', 'POST /dvp/bid', 'POST /dvp/escrow', 'POST /dvp/settle', 'POST /dvp/cancel'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
     }
     // public data only: the meta-address (spend + view PUBLIC keys) and the identity ACCOUNT address, the ERC-6538 registry key (PLAN S9 proof)
-    if (r === 'GET /meta-address') return { status: 200, body: { party: cfg.party, metaAddress: metaAddressOf(bank.spendKey, bank.viewKey), identityAddress: new Wallet(bank.identityKey).address } };
+    if (r === 'GET /meta-address') return { status: 200, body: {
+      party: cfg.party, metaAddress: metaAddressOf(bank.spendKey, bank.viewKey), identityAddress: new Wallet(bank.identityKey).address,
+      contracts: { rd: cfg.rd, bond: cfg.bond, announcer: cfg.announcer ?? null, dvpFactory: cfg.dvpFactory ?? null }, // public addresses (Lensa trace labels)
+    } };
     if (r === 'GET /ledger') {
       if (cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'the ledger view is the BI signer\'s');
       const kind = new URL(req.url ?? '/', 'http://x').searchParams.get('kind');
@@ -373,7 +378,8 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     if (r === 'POST /dvp/offer') return serial((b) => quote('offer', b))();
     if (r === 'POST /dvp/bid') return serial((b) => quote('bid', b))();
     if (r === 'POST /dvp/escrow') return serial(escrow)();
-    if (r === 'POST /dvp/settle') return serial(settle)();
+    if (r === 'POST /dvp/settle') return serial((b) => settle(b))();
+    if (r === 'POST /dvp/cancel') return serial((b) => settle(b, 'cancel'))();
     throw new HttpError(404, 'not_found');
   }
 
