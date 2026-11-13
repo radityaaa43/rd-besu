@@ -1,5 +1,5 @@
 import { Agent } from 'node:https';
-import { Contract, FetchRequest, Interface, JsonRpcProvider, zeroPadValue, type Provider } from 'ethers';
+import { Contract, FetchRequest, Interface, JsonRpcProvider, zeroPadValue, type Log, type Provider } from 'ethers';
 import type { MtlsOptions } from './mtls.ts';
 import { LOG_RANGE, type LoggedAnnouncement } from '../../ts/chain.ts';
 import { SCHEME_ID } from '../../ts/stealth.ts';
@@ -44,11 +44,16 @@ export function createChainPort(o: ChainPortOptions): ChainPort {
   const p = o.provider;
   const at = (addr: string) => new Contract(addr, abi, p);
   const topic = (name: string) => abi.getEvent(name)!.topicHash;
-  // eth_getLogs is capped (Besu: 1000 blocks), so read in LOG_RANGE chunks
+  // eth_getLogs is capped (Besu: 1000 blocks), so read in LOG_RANGE chunks. Per filter, only the blocks after the last read are fetched again:
+  // QBFT blocks are final (no reorg), so the earlier logs stay valid. ponytail: unbounded in-memory list, persist or prune if a party's logs grow large.
+  const seen = new Map<string, { upTo: number; out: Log[] }>();
   async function logs(address: string, topics: (string | string[] | null)[], fromBlock: number) {
+    const key = JSON.stringify([address, topics, fromBlock]);
+    const c = seen.get(key) ?? { upTo: fromBlock - 1, out: [] };
     const end = await p.getBlockNumber();
-    const out = [];
-    for (let from = fromBlock; from <= end; from += LOG_RANGE) out.push(...(await p.getLogs({ address, topics, fromBlock: from, toBlock: Math.min(from + LOG_RANGE - 1, end) })));
+    const out = [...c.out];
+    for (let from = c.upTo + 1; from <= end; from += LOG_RANGE) out.push(...(await p.getLogs({ address, topics, fromBlock: from, toBlock: Math.min(from + LOG_RANGE - 1, end) })));
+    if (end > c.upTo) seen.set(key, { upTo: end, out });
     return out;
   }
   const pad = (a: string) => zeroPadValue(a, 32);
