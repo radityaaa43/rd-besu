@@ -26,5 +26,12 @@
       "bankA@node2",
       "bankC@node4"
     ]
+  },
+  "stealth": {
+    "counterparties": [
+      "bi@node1",
+      "bankA@node2",
+      "bankC@node4"
+    ]
   }
 }

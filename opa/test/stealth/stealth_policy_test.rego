@@ -132,3 +132,6 @@ test_no_stealth_document_denies_writes_not_reads if {
 	}}
 		with data.bi.config as cfg with time.now_ns as now_ns
 }
+
+# A flow to the gateway's own party (DFABI issued to BI itself) is not a transfer to a counterparty: bank-bi's seed lists only the banks.
+test_issue_to_self_needs_no_self_counterparty if allowed_with("node1", "/intent", intent("bond-issue", "BI", "node1", "3"), {}, {"counterparties": ["bankA@node2", "bankB@node3", "bankC@node4"]})
