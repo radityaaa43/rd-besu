@@ -98,10 +98,11 @@ test_flag_off_is_legacy_behaviour if {
 # --- stealth door st-gw (target `stealth`): same leaf rule; the Envoy principal check of bi/bank.platform.stealth stays and must ALSO hold
 stealth_bound := object.union(bound, {"caller_binding": {"paladin": true, "stealth": true}})
 
+# a read route: the caller binding is what these tests pin; writes also need the Stealth document (test/stealth/stealth_policy_test.rego)
 stealth_req(node, pem) := {"attributes": {
 	"contextExtensions": {"target": "stealth", "node": node},
 	"source": {"principal": "CN=lensa"},
-	"request": {"http": {"method": "POST", "path": "/intent", "headers": {"x-forwarded-client-cert": xfcc(pem)}}},
+	"request": {"http": {"method": "GET", "path": "/holdings", "headers": {"x-forwarded-client-cert": xfcc(pem)}}},
 }}
 
 stealth_allowed(i) if {
