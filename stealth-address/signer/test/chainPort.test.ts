@@ -28,6 +28,19 @@ describe('createChainPort (mocked provider)', () => {
     expect(logs).toEqual([[0, 999], [1000, 1999], [2000, 2500]]);
     expect(calls[0].arg.topics[3]).toEqual([zeroPadValue(RD, 32), zeroPadValue(BOND, 32)]);
   });
+  it('announcements: a repeat call reads only the blocks after the last one read (QBFT final: no reorg), and keeps the earlier logs', async () => {
+    let head = 2500;
+    const seen: Array<[number, number]> = [];
+    const p = { ...provider, getBlockNumber: async () => head, getLogs: async (f: any) => { seen.push([f.fromBlock, f.toBlock]); return provider.getLogs(f); } } as unknown as Provider;
+    const c = createChainPort({ provider: p, announcer: '0x' + 'a1'.repeat(20), validator: '0x' + 'a2'.repeat(20), dvpFactory: '0x' + 'a3'.repeat(20), rd: RD, bond: BOND, fromBlock: 0 });
+    expect(await c.announcements(0)).toHaveLength(1);
+    seen.length = 0;
+    expect(await c.announcements(0)).toHaveLength(1);
+    expect(seen).toEqual([]);
+    head = 3100;
+    expect(await c.announcements(0)).toHaveLength(1);
+    expect(seen).toEqual([[2501, 3100]]);
+  });
   it('balanceOf picks balanceOfByPartition when a partition is given; now() is the block timestamp', async () => {
     expect(await port.balanceOf(RD, stealth)).toBe(42n);
     expect(await port.balanceOf(BOND, stealth, '0x' + '01'.repeat(32))).toBe(42n);
