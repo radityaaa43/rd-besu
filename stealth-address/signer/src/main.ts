@@ -26,6 +26,7 @@ const cfg: SignerConfig = {
   party: env('PARTY'), role, chainId: BigInt(env('CHAIN_ID')), rd: env('RD'), bond: env('BOND'), fromBlock: Number(env('FROM_BLOCK')),
   bankSigners: process.env.BANK_SIGNERS?.split(',').map((s) => s.trim()).filter(Boolean),
   biSigner: process.env.BI_SIGNER || undefined, // custodian: "CN=..." of the BI signer's client cert, the only caller of /escrow-certs (S17 DvP)
+  announcer: env('ANNOUNCER'),
   dvpFactory: env('DVP_FACTORY'), // bi: DvPFactory.create is sent by the issuer account (the factory's immutable custodian)
 };
 const dir = env('KEYS_DIR');

@@ -30,7 +30,7 @@ nodes := ["node1", "node2", "node3", "node4"]
 routes := [
 	["POST", "/intent"], ["GET", "/holdings"], ["GET", "/history"], ["GET", "/health"], ["GET", "/meta-address"],
 	["GET", "/ledger?kind=rd"], ["GET", "/ledger?kind=bond"],
-	["POST", "/dvp/offer"], ["POST", "/dvp/bid"], ["POST", "/dvp/escrow"], ["POST", "/dvp/settle"],
+	["POST", "/dvp/offer"], ["POST", "/dvp/bid"], ["POST", "/dvp/escrow"], ["POST", "/dvp/settle"], ["POST", "/dvp/cancel"],
 ]
 
 test_lensa_routes_allowed_on_every_gateway_by_both_sides if {

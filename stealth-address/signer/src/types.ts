@@ -19,6 +19,7 @@ export type SignerConfig = {
   bankSigners?: string[]; // custodian only: subjects of the mTLS client certs registered as bank signers
   biSigner?: string; // custodian only: subject of the BI signer's mTLS client cert, the only caller of /escrow-certs
   dvpFactory?: string; // bi only: DvPFactory address (its immutable custodian is the issuer account)
+  announcer?: string; // ERC-5564 announcer, public, served in /meta-address `contracts` (Lensa trace labels)
 };
 
 // S17 DvP: one trade, as DvPFactory.predict/create take it (src/DvPEscrow.sol Terms); amounts and times as decimal strings on the wire.

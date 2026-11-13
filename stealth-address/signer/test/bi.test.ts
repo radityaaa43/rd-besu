@@ -109,7 +109,7 @@ describe('GET /meta-address (role bi)', () => {
   it('BI own receive meta-address and the issuer account', async () => {
     const s = await startBi();
     const r = await s.call('GET', '/meta-address');
-    expect(r.json).toEqual({ party: 'BI', metaAddress: BI_META, identityAddress: issuerAddr });
+    expect(r.json).toEqual({ party: 'BI', metaAddress: BI_META, identityAddress: issuerAddr, contracts: { rd: RD, bond: BOND, announcer: null, dvpFactory: null } });
   });
 });
 
