@@ -325,7 +325,7 @@ $roleenv
         - {name: RPC_SERVERNAME, value: bank-gw-$gwn}
 $(chainenv)
         readinessProbe: {$probe}
-        livenessProbe: {$probe}
+        livenessProbe: {$probe, timeoutSeconds: 5, periodSeconds: 10, failureThreshold: 6} # live 2026-11-13: a busy signer was killed at the 1 s default
         resources:
           requests: {cpu: 50m, memory: 128Mi}
           limits: {memory: 512Mi}
