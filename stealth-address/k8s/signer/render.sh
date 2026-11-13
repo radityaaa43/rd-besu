@@ -23,12 +23,14 @@
 # bi --viewcopy-store: ServiceAccount stealth-bi-signer with the token mounted (the signer patches Secret stealth-bi-viewcopies through the kube API; the Role is rbac/render.sh viewcopies, the egress is
 #   egress/render.sh signer bi --kube-api-ip). Without the flag the bi render is unchanged (no SA token).
 # Secrets are created by the party operator and NEVER rendered (names + exact key names the pods mount, all 0440):
-#   bank      stealth-keys (spendKey, viewKey, identityKey) -> /keys | stealth-signer-mtls (client.key, client.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
+#   bank      stealth-keys (spendKey, viewKey, identityKey) -> /keys | stealth-signer-mtls (client.key, client.crt, ca.crt) -> /tls (also the RPC client cert: signed by the party's
+#             bank-gw CA, ca.crt = own CA + BI CA; RPC_URL = own bank-gw-N door :8545, S17 2026-11-12 topology, no JWT)
 #   bi        stealth-bi-keys (issuerKey, spendKey, viewKey) -> /keys | stealth-bi-viewcopies (OPTIONAL; every key of it, <id>.viewKey + <id>.metaAddress, S11 fills it) -> /viewcopies
-#             (env VIEWCOPIES_DIR) | stealth-signer-mtls (client.key, client.crt, ca.crt; the client cert CN must be in the custodian's BANK_SIGNERS list) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
+#             (env VIEWCOPIES_DIR) | stealth-signer-mtls (client.key, client.crt, ca.crt; the client cert CN must be in the custodian's BANK_SIGNERS list and be its BI_SIGNER) -> /tls
 #   compare   stealth-compare-jwt (token: a READ-ONLY JWT, eth:call/blockNumber/chainId, minted by signer/src/mintCompareToken.ts; NOT the node key) -> /rpc-jwt (env RPC_TOKEN_FILE=/rpc-jwt/token)
 #             | stealth-bi-viewcopies (OPTIONAL; <id>.viewKey, <id>.metaAddress, <id>.identityAddress for bi bank-a bank-b bank-c) -> /viewcopies (env VIEWCOPIES_DIR). Never the node key, any issuer/spend/cert key or a client cert.
-#   custodian stealth-cert-key (certKey) -> /keys | stealth-custodian-mtls (server.key, server.crt, ca.crt) -> /tls | stealth-rpc-jwt (private.pem) -> /rpc-jwt
+#   custodian stealth-cert-key (certKey) -> /keys | stealth-custodian-mtls (server.key, server.crt, ca.crt = the four party CAs) -> /tls, and server.key/.crt again as
+#             client.key/.crt at /rpc-tls (RPC to bank-gw-1) | --bi-signer CN=...: the only caller of /escrow-certs
 # A bank pod never references stealth-cert-key; the bi pod never references stealth-cert-key or stealth-keys; the custodian pod never references stealth-keys;
 # the compare pod references only stealth-compare-jwt and stealth-bi-viewcopies.
 # gateway/render.sh expects: Service stealth-signer:8080 (pod labels app=stealth-signer role=bank) and Service stealth-custodian:9443 (role=custodian, rendered there); its stealth-signer-ingress selects role In [bank, bi].
@@ -54,7 +56,7 @@ case "$sel" in
   *) die "unknown party '$sel' (allowed: bank-a bank-b bank-c bi custodian compare)" ;;
 esac
 
-IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; PULL=""; REGISTRY=""; HAVE_CERT=0; HAVE_SIGNERS=0; HAVE_REGISTRY=0; HAVE_DOOR=0; DOOR=""; STORE=0
+IMAGE=""; CHAINENV=""; CERT=""; SIGNERS=""; BISIGNER=""; PULL=""; REGISTRY=""; HAVE_CERT=0; HAVE_SIGNERS=0; HAVE_REGISTRY=0; HAVE_DOOR=0; DOOR=""; STORE=0
 while [[ $# -gt 0 ]]; do
   if [[ "$1" == --viewcopy-store ]]; then STORE=1; shift; continue; fi
   [[ $# -ge 2 ]] || die "option $1 needs a value"
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --chain-env) CHAINENV="$2" ;;
     --cert-url) CERT="$2"; HAVE_CERT=1 ;;
     --bank-signers) SIGNERS="$2"; HAVE_SIGNERS=1 ;;
+    --bi-signer) BISIGNER="$2" ;;
     --pull-secret) PULL="$2"; HAVE_PULL=1 ;;
     --registry) REGISTRY="$2"; HAVE_REGISTRY=1 ;;
     --door-url) DOOR="$2"; HAVE_DOOR=1 ;;
@@ -149,9 +152,10 @@ elif [[ "$sel" == custodian ]]; then
   [[ $HAVE_CERT -eq 0 ]] || die "--cert-url is for banks and bi only"
   [[ $HAVE_SIGNERS -eq 1 ]] || die "--bank-signers is required for custodian"
   [[ "$SIGNERS" =~ ^CN=[A-Za-z0-9._-]+(,CN=[A-Za-z0-9._-]+)*$ ]] || die "bad --bank-signers (comma list of CN=<name>)"
+  [[ "$BISIGNER" =~ ^CN=[A-Za-z0-9._-]+$ ]] || die "--bi-signer CN=<name> is required for custodian (the only caller of /escrow-certs)"
 else
   [[ $HAVE_REGISTRY -eq 0 ]] || die "--registry is for compare only"
-  [[ $HAVE_SIGNERS -eq 0 ]] || die "--bank-signers is for custodian only"
+  [[ $HAVE_SIGNERS -eq 0 && -z "$BISIGNER" ]] || die "--bank-signers/--bi-signer are for custodian only"
   [[ $HAVE_CERT -eq 1 ]] || die "--cert-url is required for banks and bi"
   [[ "$CERT" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || die "bad --cert-url (https://host[:port], no path)"
 fi
@@ -244,14 +248,29 @@ YAML
 fi
 
 mounts=""; sa=""; automount=false
+# S17 (2026-11-12 topology): the validator is reached through the party's own bank-gw-N Besu door (mTLS + OPA method allowlist), no JWT node.
+case "$lp" in bi) gwn=1 ;; bank-a) gwn=2 ;; bank-b) gwn=3 ;; bank-c) gwn=4 ;; esac
 if [[ $STORE -eq 1 ]]; then automount=true; sa=$'\n      serviceAccountName: stealth-bi-signer'; fi
 if [[ "$sel" == custodian ]]; then
   name=stealth-custodian; role=custodian; port=9443; pname=mtls; egress=stealth-custodian
   probe='tcpSocket: {port: 9443}' # the https listener demands a client cert, so no httpGet
-  roleenv="        - {name: BANK_SIGNERS, value: \"$SIGNERS\"}"
-  vols="$(secret keys stealth-cert-key certKey; secret tls stealth-custodian-mtls server.key server.crt ca.crt)"
+  roleenv="        - {name: BANK_SIGNERS, value: \"$SIGNERS\"}
+        - {name: BI_SIGNER, value: \"$BISIGNER\"}"
+  rpctls=/rpc-tls
+  # its RPC client cert to bank-gw-1 = its own server cert (BI CA, serverAuth + clientAuth), projected under the client file names
+  vols="$(secret keys stealth-cert-key certKey; secret tls stealth-custodian-mtls server.key server.crt ca.crt)
+      - name: rpc-tls
+        secret:
+          secretName: stealth-custodian-mtls
+          defaultMode: 288 # 0440
+          items:
+          - {key: server.key, path: client.key}
+          - {key: server.crt, path: client.crt}
+          - {key: ca.crt, path: ca.crt}"
+  mounts='        - {name: rpc-tls, mountPath: /rpc-tls, readOnly: true}
+'
 else
-  name=stealth-signer; role=bank; port=8080; pname=http; egress=stealth-signer
+  name=stealth-signer; role=bank; port=8080; pname=http; egress=stealth-signer; rpctls=/tls
   probe='httpGet: {path: /health, port: 8080}'
   roleenv="        - {name: CERT_URL, value: \"$CERT\"}
         - {name: CERT_SERVERNAME, value: custodian-1}"
@@ -297,8 +316,9 @@ $(pull)
         - {name: KEYS_DIR, value: /keys}
         - {name: TLS_DIR, value: /tls}
 $roleenv
-        - {name: RPC_URL, value: "http://besu-rpc:8545"}
-        - {name: RPC_JWT_KEY_FILE, value: /rpc-jwt/private.pem}
+        - {name: RPC_URL, value: "https://bank-gw-$gwn.rd-zeto-$lp.svc.cluster.local:8545"}
+        - {name: RPC_TLS_DIR, value: $rpctls}
+        - {name: RPC_SERVERNAME, value: bank-gw-$gwn}
 $(chainenv)
         readinessProbe: {$probe}
         livenessProbe: {$probe}
@@ -309,11 +329,9 @@ $(chainenv)
         volumeMounts:
         - {name: keys, mountPath: /keys, readOnly: true}
 ${mounts}        - {name: tls, mountPath: /tls, readOnly: true}
-        - {name: rpc-jwt, mountPath: /rpc-jwt, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes:
 $vols
-$(secret rpc-jwt stealth-rpc-jwt private.pem)
       - {name: tmp, emptyDir: {}}
 YAML
 

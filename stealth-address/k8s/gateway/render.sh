@@ -16,6 +16,7 @@
 # st-gw-1-signer-ca (FILE as ca.crt) mounted at /signer-ca. No new Service, LB or port: the door :8550 and st-gw-1-ext are reused. Without the option the render is byte-unchanged.
 # R1 (bank-c's /cert reach): `bi --acl-id ... --external-cidr ...` adds Service st-gw-1-ext, a NEW LoadBalancer with the EXISTING ACL id annotated in the first apply
 # (never loadbalancer-id: no shared CLB). Without the flags no external Service exists.
+# S17 2026-11-13: `bank-c --acl-id ... --external-cidr ...` adds Service st-gw-4-ext the same way: the Lensa pod (cluster 1) reaches bank-c's signer door (cluster 2).
 # NOT rendered: the Secrets (the parties create st-gw-<N>-mtls and the signer secrets).
 # bi=1 bank-a=2 bank-b=3 bank-c=4. Needs bash.
 set -euo pipefail
@@ -327,7 +328,7 @@ YAML
     local c
     cat <<YAML
 ---
-# R1: bank-c's /cert reach. A NEW LoadBalancer (own CLB), the EXISTING ACL id annotated here in the first apply. Traffic is TLS passthrough (SNI custodian-1), mTLS is the gate.
+# R1: bank-c's /cert reach (st-gw-1) / the Lensa pod's reach of bank-c's door (st-gw-4). A NEW LoadBalancer (own CLB), the EXISTING ACL id annotated here in the first apply. mTLS is the gate.
 apiVersion: v1
 kind: Service
 metadata:
@@ -423,7 +424,7 @@ while [[ $# -gt 0 ]]; do case "$1" in
 [[ "$FLOW_ONLY" == 0 || "$sel" != bi ]] || die "--lensa-pod-role is refused on bi: st-gw-1 also admits the bank signers (custodian / viewcopy chains) on 8550; that second source set is not ruled yet"
 [[ -z "$SIGNER_CA" || "$sel" == bi ]] || die "--signer-ca is for bi only (the viewcopy-1 chain lives on st-gw-1)"
 if [[ -n "$ACL" || ${#CIDRS[@]} -gt 0 ]]; then
-  [[ "$sel" == bi ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bi only (R1: st-gw-1)"
+  [[ "$sel" == bi || "$sel" == bank-c ]] || die "--acl-id/--external-cidr (LoadBalancer) are for bi (R1: st-gw-1, bank-c's custodian reach) and bank-c (st-gw-4: the Lensa pod in cluster 1) only"
   [[ -n "$ACL" && ${#CIDRS[@]} -gt 0 ]] || die "--acl-id and --external-cidr only together"
 fi
 party "$sel" "$ACL" "${CIDRS[@]}"

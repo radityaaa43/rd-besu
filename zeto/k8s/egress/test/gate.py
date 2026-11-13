@@ -162,7 +162,7 @@ for p in ("bi", "bank-a", "bank-b", "bank-c"):
     narrow += docs(SE, "vault", p, "--kube-api-ip", "198.51.100.12")
 for w in ("custodian", "compare"):
     narrow += docs(SE, w, "bi")
-add(docs(f"{STEALTH}/signer/render.sh", "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a"))
+add(docs(f"{STEALTH}/signer/render.sh", "custodian", "--image", IMG, "--chain-env", chain, "--bank-signers", "CN=a", "--bi-signer", "CN=b"))
 add(docs(f"{STEALTH}/signer/render.sh", "compare", "--image", IMG, "--chain-env", chain, "--registry", "0x" + "6" * 40))
 
 # collection completeness: the key holders the orchestrator named must have been found (else the gate would pass by looking at nothing)

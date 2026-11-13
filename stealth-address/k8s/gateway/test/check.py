@@ -140,7 +140,13 @@ if ext:
     check(a.get(pre + "acl-status") == "on" and a.get(pre + "acl-type") == "white" and a.get(pre + "acl-id") == ACL, "ext: ACL annotations on the Service itself (first apply)")
     check(not any(k.endswith(("loadbalancer-id", "force-override-listeners")) for k in a), "ext: no loadbalancer-id (new CLB, never a shared one)")
     check(ext["spec"]["loadBalancerSourceRanges"] == [CIDR] and ext["spec"]["selector"] == {"app": "st-gw"} and [p["port"] for p in ext["spec"]["ports"]] == [8550], "ext: source range, selector app=st-gw, port 8550")
-for bad in (["bank-a", "--acl-id", ACL, "--external-cidr", CIDR], ["bi", "--acl-id", ACL], ["bi", "--external-cidr", CIDR], ["bi", "--acl-id", "x", "--external-cidr", CIDR], ["bi", "--acl-id", ACL, "--external-cidr", "nope"], ["nope"], ["envoy", "nope"], ["bundle-access", "nope"], ["bi", "--opa-config", "/nonexistent"]):
+# S17 2026-11-13: bank-c's st-gw-4 is in cluster 2; the Lensa pod (cluster 1) reaches it through its own CLB, cluster-2 ACL id, cluster-1 egress CIDR
+ACL2, CIDR1 = "acl-gs5m5o9vb3olr19484tyg", "8.215.62.92/32"
+ext4 = by(docs("bank-c", "--acl-id", ACL2, "--external-cidr", CIDR1), "Service", "st-gw-4-ext")
+check(ext4 is not None and ext4["metadata"]["namespace"] == "rd-stealth-bank-c" and ext4["spec"]["type"] == "LoadBalancer"
+      and ext4["metadata"]["annotations"].get("service.beta.kubernetes.io/alibaba-cloud-loadbalancer-acl-id") == ACL2
+      and ext4["spec"]["loadBalancerSourceRanges"] == [CIDR1] and [p["port"] for p in ext4["spec"]["ports"]] == [8550], "bank-c + flags: Service st-gw-4-ext (own CLB, ACL, source range, 8550)")
+for bad in (["bank-a", "--acl-id", ACL, "--external-cidr", CIDR], ["bank-b", "--acl-id", ACL, "--external-cidr", CIDR], ["bi", "--acl-id", ACL], ["bi", "--external-cidr", CIDR], ["bi", "--acl-id", "x", "--external-cidr", CIDR], ["bi", "--acl-id", ACL, "--external-cidr", "nope"], ["nope"], ["envoy", "nope"], ["bundle-access", "nope"], ["bi", "--opa-config", "/nonexistent"]):
     check(run(*bad).returncode != 0, f"refused: {' '.join(bad)}")
 
 # S11 rework (B1/B2): bi only, --signer-ca adds the viewcopy-1 chain (bank-signer CA, OPA target stealth_viewcopy, body never sent to OPA); nothing else changes
