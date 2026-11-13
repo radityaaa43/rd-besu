@@ -1,5 +1,5 @@
 // Process entrypoint (S9 wires it into the Deployment). Not unit-tested: needs a real RPC node and key files.
-// Env: PARTY, ROLE (bank|custodian|bi), PORT, CHAIN_ID, RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY, FROM_BLOCK, RPC_URL,
+// Env: PARTY, ROLE (bank|custodian|bi), PORT, CHAIN_ID, RD, BOND, ANNOUNCER, VALIDATOR, DVP_FACTORY, FROM_BLOCK, RPC_URL, RPC_TLS_DIR + RPC_SERVERNAME (optional: mTLS to the own bank-gw door),
 // RPC_JWT_KEY_FILE (optional: the node's RS256 private key; the signer mints <= 900 s tokens from it), KEYS_DIR (bank: files spendKey, viewKey, identityKey; bi: issuerKey, spendKey, viewKey + the view copies <id>.viewKey and <id>.metaAddress from VIEWCOPIES_DIR (default ${KEYS_DIR}/viewcopies; a missing directory means no copies); custodian: file certKey ONLY),
 // VIEWCOPIES_DIR (bi only, optional): directory of the per-bank view copies, e.g. the mount of the optional Secret stealth-bi-viewcopies.
 // REGISTRY (bi only, optional): public ERC-6538 registry address; with it `PUT /viewcopy/<id>` checks the pushed copy against the registry. The write of a pushed copy
@@ -25,13 +25,17 @@ if (role !== 'bank' && role !== 'custodian' && role !== 'bi') throw new Error('R
 const cfg: SignerConfig = {
   party: env('PARTY'), role, chainId: BigInt(env('CHAIN_ID')), rd: env('RD'), bond: env('BOND'), fromBlock: Number(env('FROM_BLOCK')),
   bankSigners: process.env.BANK_SIGNERS?.split(',').map((s) => s.trim()).filter(Boolean),
+  biSigner: process.env.BI_SIGNER || undefined, // custodian: "CN=..." of the BI signer's client cert, the only caller of /escrow-certs (S17 DvP)
+  dvpFactory: env('DVP_FACTORY'), // bi: DvPFactory.create is sent by the issuer account (the factory's immutable custodian)
 };
 const dir = env('KEYS_DIR');
 const keys = loadKeys(role, dir, undefined, undefined, process.env.VIEWCOPIES_DIR || undefined); // role custodian: certKey ONLY; role bank: spend/view/identity, never certKey
 
 const jwt = process.env.RPC_JWT_KEY_FILE ? createRpcTokenSource(readFileSync(process.env.RPC_JWT_KEY_FILE, 'utf8')) : undefined;
+// RPC_TLS_DIR (client.key, client.crt, ca.crt) + RPC_SERVERNAME (bank-gw-N): RPC_URL is the party's own bank-gw Besu door (S17, 2026-11-12 topology).
+const rpcTls = process.env.RPC_TLS_DIR;
 const chain = createChainPort({
-  provider: createProvider(env('RPC_URL'), cfg.chainId, jwt),
+  provider: createProvider(env('RPC_URL'), cfg.chainId, jwt, rpcTls ? { key: file(rpcTls, 'client.key'), cert: file(rpcTls, 'client.crt'), ca: file(rpcTls, 'ca.crt'), servername: process.env.RPC_SERVERNAME } : undefined),
   announcer: env('ANNOUNCER'), validator: env('VALIDATOR'), dvpFactory: env('DVP_FACTORY'), rd: cfg.rd, bond: cfg.bond, fromBlock: cfg.fromBlock, registry: process.env.REGISTRY || undefined,
 });
 const log = (line: string) => process.stdout.write(line + '\n');
