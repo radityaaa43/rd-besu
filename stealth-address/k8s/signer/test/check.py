@@ -143,6 +143,8 @@ for p, party in BANKS.items():
     check(c["ports"] == [{"name": "http", "containerPort": 8080}], f"{p}: port 8080 named http")
     probe = {"httpGet": {"path": "/health", "port": 8080}}
     check(all(c[k].get("httpGet") == probe["httpGet"] for k in ("readinessProbe", "livenessProbe")), f"{p}: readiness+liveness httpGet /health 8080")
+    # live 2026-11-13: a busy signer (EC scan) missed the 1 s default and was killed (exit 137); liveness now tolerates ~60 s of a busy loop
+    check({k: c["livenessProbe"].get(k) for k in ("timeoutSeconds", "periodSeconds", "failureThreshold")} == {"timeoutSeconds": 5, "periodSeconds": 10, "failureThreshold": 6}, f"{p}: liveness timeout 5 s, period 10 s, failureThreshold 6")
     check(secret_items(vols["keys"]) == ("stealth-keys", ["spendKey", "viewKey", "identityKey"], {0o440}), f"{p}: keys = Secret stealth-keys, items spendKey/viewKey/identityKey only, 0440")
     check(secret_items(vols["tls"]) == ("stealth-signer-mtls", ["client.key", "client.crt", "ca.crt"], {0o440}), f"{p}: tls = Secret stealth-signer-mtls, items client.key/client.crt/ca.crt, 0440")
     check("stealth-cert-key" not in yaml.dump(dep), f"{p}: bank pod never references Secret stealth-cert-key")
@@ -170,7 +172,7 @@ if ds:
           f"custodian: rpc-tls = stealth-custodian-mtls server.key/server.crt as client.key/client.crt + ca.crt, 0440 (got {rv})")
     check("CERT_URL" not in env and "CERT_SERVERNAME" not in env, "custodian: no CERT_URL/CERT_SERVERNAME")
     check(c["ports"] == [{"name": "mtls", "containerPort": 9443}], "custodian: port 9443 named mtls")
-    check(all(c[k] == {"tcpSocket": {"port": 9443}} for k in ("readinessProbe", "livenessProbe")), "custodian: probes tcpSocket 9443 only (https demands a client cert)")
+    check(c["readinessProbe"] == {"tcpSocket": {"port": 9443}} and c["livenessProbe"] == {"tcpSocket": {"port": 9443}, "timeoutSeconds": 5, "periodSeconds": 10, "failureThreshold": 6}, "custodian: probes tcpSocket 9443 only (https demands a client cert), tolerant liveness")
     check(secret_items(vols["keys"]) == ("stealth-cert-key", ["certKey"], {0o440}), "custodian: keys = Secret stealth-cert-key, item certKey only, 0440")
     check(secret_items(vols["tls"]) == ("stealth-custodian-mtls", ["server.key", "server.crt", "ca.crt"], {0o440}), "custodian: tls = Secret stealth-custodian-mtls, items server.key/server.crt/ca.crt, 0440")
     check("stealth-keys" not in yaml.dump(dep), "custodian pod never references Secret stealth-keys")
@@ -189,7 +191,7 @@ if len(ds) == 2:
     check(env.get("VIEWCOPIES_DIR") == "/viewcopies", "bi: env VIEWCOPIES_DIR=/viewcopies")
     check("BANK_SIGNERS" not in env, "bi: no BANK_SIGNERS")
     check(c["ports"] == [{"name": "http", "containerPort": 8080}], "bi: port 8080 named http")
-    check(all(c[k] == {"httpGet": {"path": "/health", "port": 8080}} for k in ("readinessProbe", "livenessProbe")), "bi: readiness+liveness httpGet /health 8080")
+    check(c["readinessProbe"] == {"httpGet": {"path": "/health", "port": 8080}} and c["livenessProbe"] == {"httpGet": {"path": "/health", "port": 8080}, "timeoutSeconds": 5, "periodSeconds": 10, "failureThreshold": 6}, "bi: readiness httpGet /health 8080, tolerant liveness")
     check(secret_items(vols["keys"]) == ("stealth-bi-keys", ["issuerKey", "spendKey", "viewKey"], {0o440}), "bi: keys = Secret stealth-bi-keys, items issuerKey/spendKey/viewKey only, 0440")
     check(secret_items(vols["tls"]) == ("stealth-signer-mtls", ["client.key", "client.crt", "ca.crt"], {0o440}), "bi: tls = Secret stealth-signer-mtls, items client.key/client.crt/ca.crt, 0440")
     check(vols["viewcopies"] == {"name": "viewcopies", "secret": {"secretName": "stealth-bi-viewcopies", "optional": True, "defaultMode": 0o440}}, f"bi: viewcopies = optional Secret stealth-bi-viewcopies, defaultMode 0440, no items (got {vols['viewcopies']})")

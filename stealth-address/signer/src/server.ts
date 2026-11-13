@@ -75,25 +75,44 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   const bank = (cfg.role === 'bi' ? { spendKey: bi.spendKey, viewKey: bi.viewKey, identityKey: bi.issuerKey } : keys) as BankKeys;
   const certKey = (keys as CustodianKeys).certKey;
 
+  // Live 2026-11-13: a full EC scan per request blocked the event loop (BI signer killed by its liveness probe). Announcements are append-only
+  // (QBFT final, chainPort caches the logs), so each is scanned once; the scan yields every SCAN_CHUNK announcements so /health still answers.
+  const SCAN_CHUNK = 25;
+  const yieldLoop = () => new Promise<void>((r) => setImmediate(r));
+  async function chunked<T, R>(items: T[], f: (part: T[]) => R[]): Promise<R[]> {
+    const out: R[] = [];
+    for (let i = 0; i < items.length; i += SCAN_CHUNK) { out.push(...f(items.slice(i, i + SCAN_CHUNK))); await yieldLoop(); }
+    return out;
+  }
+  type Mine = { found: ReturnType<typeof scan>[number]; ann: Awaited<ReturnType<typeof chain.announcements>>[number]; token: string; kind: 'bond' | 'rd'; partition: string | null };
+  const mineCache = { n: 0, out: [] as Mine[] };
   // Everything this party owns, from its own RPC: scan() result joined with its announcement.
   async function mine() {
     const anns = await chain.announcements(cfg.fromBlock);
-    return scan(anns, bank.viewKey, bank.spendKey).flatMap((f) => {
-      const ann = anns.find((a) => sameAddr(a.stealthAddress, f.stealthAddress))!;
+    if (anns.length < mineCache.n) { mineCache.n = 0; mineCache.out = []; } // the log source was reset: start over
+    const fresh = anns.slice(mineCache.n);
+    const found = await chunked(fresh, (part) => scan(part, bank.viewKey, bank.spendKey));
+    mineCache.out = [...mineCache.out, ...found.flatMap((f): Mine[] => {
+      const ann = fresh.find((a) => sameAddr(a.stealthAddress, f.stealthAddress))!;
       const bond = parseBondMetadata(ann.metadata);
       const rd = bond ? null : parseTokenMetadata(ann.metadata);
       const m = bond ?? rd;
       const token = m && (sameAddr(m.token, cfg.rd) ? cfg.rd : sameAddr(m.token, cfg.bond) ? cfg.bond : null);
       if (!m || !token) return []; // not a payment in RD or the bond: ignore
       return [{ found: f, ann, token, kind: (bond ? 'bond' : 'rd') as 'bond' | 'rd', partition: bond ? bond.partition : null }];
-    });
+    })];
+    mineCache.n = anns.length;
+    return mineCache.out;
   }
 
+  // Balances move, so they are read every time; in parallel batches (one eth_call per holding through the own bank-gw door).
   async function holdings() {
-    const out = [];
-    for (const h of await mine()) {
-      const amount = await chain.balanceOf(h.token, h.found.stealthAddress, h.partition ?? undefined);
-      out.push({ ...h, amount });
+    const hs = await mine();
+    const out: (Mine & { amount: bigint })[] = [];
+    for (let i = 0; i < hs.length; i += 10) {
+      const part = hs.slice(i, i + 10);
+      const amounts = await Promise.all(part.map((h) => chain.balanceOf(h.token, h.found.stealthAddress, h.partition ?? undefined)));
+      part.forEach((h, j) => out.push({ ...h, amount: amounts[j]! }));
     }
     return out;
   }
@@ -263,25 +282,39 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     return { status: 200, body: { kind, from: spender.stealthAddress, txHash, rawTx }, note: `tx=${txHash}` };
   }
 
+  const readCache = new Map<string, { amount: string; sender: string | null }>(); // memo decryption once per received payment
   async function history() {
     const rows = [];
     for (const h of await mine()) {
-      const r = read(cfg.chainId, h.ann, bank.viewKey, h.kind);
-      rows.push({ txHash: h.ann.txHash, blockNumber: h.ann.blockNumber, stealthAddress: h.found.stealthAddress, token: h.token, amount: r.amount.toString(), sender: r.sender, partition: h.partition });
+      const key = `${h.ann.txHash}:${h.found.stealthAddress}`.toLowerCase();
+      let r = readCache.get(key);
+      if (!r) { const x = read(cfg.chainId, h.ann, bank.viewKey, h.kind); r = { amount: x.amount.toString(), sender: x.sender }; readCache.set(key, r); }
+      rows.push({ txHash: h.ann.txHash, blockNumber: h.ann.blockNumber, stealthAddress: h.found.stealthAddress, token: h.token, amount: r.amount, sender: r.sender, partition: h.partition });
     }
     return rows;
   }
 
   // BI's detective view (S10, DELTA 3): every payment resolved to a bank by that bank's VIEW-key copy, with amount and authenticated sender. Never a spend key.
+  // Per kind: rows of the announcements already scanned with THIS view-copy set; a changed set (PUT /viewcopy) rescans from the start.
+  type LedgerRow = { bank: string; amount: string; sender: string | null; tx: string; blockNumber: number | null };
+  const ledgerCache = new Map<string, { copies: string; n: number; rows: LedgerRow[] }>();
   async function ledger(kind: 'rd' | 'bond') {
     const token = kind === 'rd' ? cfg.rd : cfg.bond;
-    const anns = (await chain.announcements(cfg.fromBlock)).filter((a) => {
+    const all = await chain.announcements(cfg.fromBlock);
+    const copies = JSON.stringify(bi.viewCopies.map((c) => [c.id, c.metaAddress, c.viewKey.length]));
+    let c = ledgerCache.get(kind);
+    if (!c || c.copies !== copies || all.length < c.n) c = { copies, n: 0, rows: [] };
+    const fresh = all.slice(c.n).filter((a) => {
       const bond = parseBondMetadata(a.metadata);
       const m = bond ?? parseTokenMetadata(a.metadata);
       return m && (kind === 'bond') === !!bond && sameAddr(m.token, token);
     });
-    const block = new Map(anns.map((a) => [a.txHash.toLowerCase(), a.blockNumber]));
-    return biRows(cfg.chainId, anns, bi.viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx, blockNumber: block.get(String(r.tx).toLowerCase()) ?? null }));
+    const block = new Map(fresh.map((a) => [a.txHash.toLowerCase(), a.blockNumber]));
+    const viewCopies = bi.viewCopies;
+    const rows = await chunked(fresh, (part) => biRows(cfg.chainId, part, viewCopies, kind).map((r) => ({ bank: r.bank, amount: r.amount.toString(), sender: r.sender, tx: r.tx, blockNumber: block.get(String(r.tx).toLowerCase()) ?? null })));
+    c = { copies, n: all.length, rows: [...c.rows, ...rows] };
+    ledgerCache.set(kind, c);
+    return c.rows;
   }
 
   // S11 rework: a bank pushes ITS OWN view-key copy (never a spend key) through BI's gateway; OPA already limited the caller to its own slot. Validate, check against the
