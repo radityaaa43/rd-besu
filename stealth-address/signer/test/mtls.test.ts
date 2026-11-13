@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createMtlsFetch } from '../src/mtls.ts';
+import { createProvider } from '../src/chainPort.ts';
 
 function pki(srvSan = 'subjectAltName=DNS:localhost,IP:127.0.0.1') {
   const d = mkdtempSync(join(tmpdir(), 'mtls-'));
@@ -39,6 +40,26 @@ describe('createMtlsFetch (node:https, client cert)', () => {
       const noCert = createMtlsFetch({ key: '', cert: '', ca: k.ca });
       await expect(noCert(url)).rejects.toThrow();
     } finally { await new Promise<void>((r) => server.close(() => r())); }
+  });
+
+  it('createProvider with tls: JSON-RPC to the own bank-gw Besu door over mTLS, server verified by servername (bank-c dials an LB IP)', async () => {
+    const k = pki('subjectAltName=DNS:bank-gw-2');
+    const server = createServer({ key: k.srvKey, cert: k.srvCrt, ca: k.ca, requestCert: true, rejectUnauthorized: true }, (req, res) => {
+      let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => {
+        const calls = [JSON.parse(b)].flat() as { id: number }[];
+        const out = calls.map((c) => ({ jsonrpc: '2.0', id: c.id, result: '0x7' }));
+        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(Array.isArray(JSON.parse(b)) ? out : out[0]));
+      });
+    });
+    server.on('tlsClientError', () => {});
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const url = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const p = createProvider(url, 1337n, undefined, { key: k.cliKey, cert: k.cliCrt, ca: k.ca, servername: 'bank-gw-2' });
+      expect(await p.getBlockNumber()).toBe(7);
+      const noCert = createProvider(url, 1337n, undefined, { key: '', cert: '', ca: k.ca, servername: 'bank-gw-2' });
+      await expect(noCert.getBlockNumber()).rejects.toThrow();
+    } finally { server.close(); }
   });
 
   it('servername sets the SNI and the identity the server cert is verified against (gateway passthrough: dial an IP or gateway host, name the custodian)', async () => {

@@ -1,4 +1,6 @@
+import { Agent } from 'node:https';
 import { Contract, FetchRequest, Interface, JsonRpcProvider, zeroPadValue, type Provider } from 'ethers';
+import type { MtlsOptions } from './mtls.ts';
 import { LOG_RANGE, type LoggedAnnouncement } from '../../ts/chain.ts';
 import { SCHEME_ID } from '../../ts/stealth.ts';
 import type { ChainPort } from './types.ts';
@@ -23,9 +25,12 @@ export type ChainPortOptions = {
 };
 
 // JSON-RPC provider for the party's own Besu node; `token` (see rpcToken.ts) is called per request, so a short-lived JWT never goes stale.
-export function createProvider(url: string, chainId: bigint, token?: () => string): JsonRpcProvider {
+// `tls` (S17, 2026-11-12 topology): the node is reached through the party's own bank-gw-N Besu door (mTLS + OPA method allowlist); the client cert is
+// signed by that party's bank-gw CA, `servername` = bank-gw-N because bank-c dials an LB IP that is not in the gateway cert's SAN.
+export function createProvider(url: string, chainId: bigint, token?: () => string, tls?: MtlsOptions): JsonRpcProvider {
   const req = new FetchRequest(url);
   if (token) req.preflightFunc = async (r) => { r.setHeader('Authorization', `Bearer ${token()}`); return r; };
+  if (tls) req.getUrlFunc = FetchRequest.createGetUrlFunc({ agent: new Agent({ key: tls.key || undefined, cert: tls.cert || undefined, ca: tls.ca, servername: tls.servername }) });
   return new JsonRpcProvider(req, chainId, { staticNetwork: true });
 }
 
