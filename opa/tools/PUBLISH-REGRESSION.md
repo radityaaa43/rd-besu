@@ -3,7 +3,7 @@ The first bundle (S17) shipped without the Kebijakan documents and passed a regr
 Rule: **a publish is not done until an in-hours WRITE per function passes under the party's own identity.**
 
 Before (offline, on the candidate tar.gz files, nothing published):
-1. `opa/tools/regress.sh <bi.tar.gz> <bank-a.tar.gz> <bank-b.tar.gz> <bank-c.tar.gz> --pub-dir <dir with the PUBLIC keys> --ref opa/tools/live-docs-2026-11-12.json`
+1. `opa/tools/regress.sh <bi.tar.gz> <bank-a.tar.gz> <bank-b.tar.gz> <bank-c.tar.gz> --pub-dir <dir with the PUBLIC keys> --ref opa/tools/live-docs-2026-11-13.json`
    = signatures verify with the public keys, the Kebijakan documents equal the reference hashes (`policy-docs.py diff`), and `test/regress/regression_test.rego` passes against the candidate data: in-hours write per function with the own identity (transfer, createLock, spendLock via ptx_prepareTransaction, public delegateLock, cancelLock; mint by BI only), another party's identity = deny, `max_per_tx` exact = allow and +1 = deny, a non-participant recipient = deny, the report group of the own node = allow and another node's = deny, unknown function / contract = deny, the documents exist.
 After (live, each quoted with a host `date`):
 2. The new revision is active on all 4 gateways (OPA status / decision log: revision = the sink's published hash, no signature error), bank-c on cluster 2 included.

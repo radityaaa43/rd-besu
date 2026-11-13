@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run the publish regression template (test/regress/regression_test.rego) against CANDIDATE bundles before and after a publish.
-#   regress.sh <bi.tar.gz> <bank-a.tar.gz> <bank-b.tar.gz> <bank-c.tar.gz> [--ref tools/live-docs-2026-11-12.json] [--pub-dir DIR]
+#   regress.sh <bi.tar.gz> <bank-a.tar.gz> <bank-b.tar.gz> <bank-c.tar.gz> [--ref tools/live-docs-2026-11-13.json] [--pub-dir DIR]
 # --pub-dir: DIR/<bi|bank-a|bank-b|bank-c>.pub (PUBLIC keys only) -> each bundle's signature is verified first.
 # --ref: the Kebijakan documents of the candidate must equal the reference hashes (policy-docs.py diff; set POLICY_DOCS_AS per bundle).
 # Needs opa, python3, openssl. Stops at the first error. The live checks (outsider C sealed, live 4/4 read) are in PUBLISH-REGRESSION.md.

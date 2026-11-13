@@ -1,0 +1,58 @@
+{
+ "old-1-bank.tar.gz": {
+  "docs": {
+   "policy": "ff39c64ff05d0a9424f4de685384349471c13b470ef1a3fb5682a085c17af3f2",
+   "policy.fabricx": "1053aa6ff3470a09e32f8dffa2ff03022845ae01f0df744e3f92130c227ff4a3",
+   "policy.iroha3": "1053aa6ff3470a09e32f8dffa2ff03022845ae01f0df744e3f92130c227ff4a3",
+   "policy.noto": "1053aa6ff3470a09e32f8dffa2ff03022845ae01f0df744e3f92130c227ff4a3",
+   "policy.stealth": "1053aa6ff3470a09e32f8dffa2ff03022845ae01f0df744e3f92130c227ff4a3",
+   "policy.zeto": "1053aa6ff3470a09e32f8dffa2ff03022845ae01f0df744e3f92130c227ff4a3"
+  },
+  "kind": "bank"
+ },
+ "old-1-bi.tar.gz": {
+  "docs": {
+   "platforms": "be719e60095bda9fbd7eb1041891521c453c5fac9d320446e1fdbcc0300894f8",
+   "policy": "e1cc4618ccea1697c26f84c7d69ceb2409a16016db0ad4d02879f9e58598c399",
+   "policy.fabricx": "03b5151e6625c38a733ac76bb9829c67fb23227f1458d54d181531dff0775acb",
+   "policy.iroha3": "13737fed945ddb0597f7e959303a84e01fc0e35840bae224befa917b93652381",
+   "policy.noto": "dcb62cb0b52b6aebdd172983da673fc42472d3bb63c6454097360d30b9ae67c0",
+   "policy.stealth": "13737fed945ddb0597f7e959303a84e01fc0e35840bae224befa917b93652381",
+   "policy.zeto": "dcb62cb0b52b6aebdd172983da673fc42472d3bb63c6454097360d30b9ae67c0"
+  },
+  "kind": "bi"
+ },
+ "old-2-bank.tar.gz": {
+  "docs": {
+   "policy": "18bc9f8d92fe05ddad7d1fd72af51123d01dce3f360525f46bc3b3a83689a1d7",
+   "policy.fabricx": "42b53286b459e38e91c6b48d07d6b08a26e7cc051b16b1e13ea7da221c594be1",
+   "policy.iroha3": "42b53286b459e38e91c6b48d07d6b08a26e7cc051b16b1e13ea7da221c594be1",
+   "policy.noto": "42b53286b459e38e91c6b48d07d6b08a26e7cc051b16b1e13ea7da221c594be1",
+   "policy.stealth": "42b53286b459e38e91c6b48d07d6b08a26e7cc051b16b1e13ea7da221c594be1",
+   "policy.zeto": "42b53286b459e38e91c6b48d07d6b08a26e7cc051b16b1e13ea7da221c594be1"
+  },
+  "kind": "bank"
+ },
+ "old-3-bank.tar.gz": {
+  "docs": {
+   "policy": "a044c12100912ce3aa9528ec7a6375a380b86143c90996942ab85b9c22d51a86",
+   "policy.fabricx": "f092c6ac0dfd0c0d941718ba49ee3e89d3f7d3e647ae467029abc24047ead7b6",
+   "policy.iroha3": "f092c6ac0dfd0c0d941718ba49ee3e89d3f7d3e647ae467029abc24047ead7b6",
+   "policy.noto": "f092c6ac0dfd0c0d941718ba49ee3e89d3f7d3e647ae467029abc24047ead7b6",
+   "policy.stealth": "f092c6ac0dfd0c0d941718ba49ee3e89d3f7d3e647ae467029abc24047ead7b6",
+   "policy.zeto": "f092c6ac0dfd0c0d941718ba49ee3e89d3f7d3e647ae467029abc24047ead7b6"
+  },
+  "kind": "bank"
+ },
+ "old-4-bank.tar.gz": {
+  "docs": {
+   "policy": "d9f997d581ef462290ff375992fc5a4e6d522f7c0bf9e308aabcf1b72945dc72",
+   "policy.fabricx": "6c6a8f964c8b814e45e9a63614248d942990bbe7c01fab4c6d54547401959b6b",
+   "policy.iroha3": "6c6a8f964c8b814e45e9a63614248d942990bbe7c01fab4c6d54547401959b6b",
+   "policy.noto": "6c6a8f964c8b814e45e9a63614248d942990bbe7c01fab4c6d54547401959b6b",
+   "policy.stealth": "6c6a8f964c8b814e45e9a63614248d942990bbe7c01fab4c6d54547401959b6b",
+   "policy.zeto": "6c6a8f964c8b814e45e9a63614248d942990bbe7c01fab4c6d54547401959b6b"
+  },
+  "kind": "bank"
+ }
+}
