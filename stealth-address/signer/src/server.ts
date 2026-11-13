@@ -86,8 +86,12 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   }
   type Mine = { found: ReturnType<typeof scan>[number]; ann: Awaited<ReturnType<typeof chain.announcements>>[number]; token: string; kind: 'bond' | 'rd'; partition: string | null };
   const mineCache = { n: 0, out: [] as Mine[] };
+  // One cache update at a time (live 2026-11-13: concurrent /holdings + /history both appended the same slice -> duplicated holdings).
+  const lock = () => { let chain: Promise<unknown> = Promise.resolve(); return <T>(f: () => Promise<T>): Promise<T> => { const r = chain.then(f); chain = r.catch(() => undefined); return r; }; };
+  const mineLock = lock(), ledgerLock = lock();
   // Everything this party owns, from its own RPC: scan() result joined with its announcement.
-  async function mine() {
+  const mine = () => mineLock(mineUnlocked);
+  async function mineUnlocked() {
     const anns = await chain.announcements(cfg.fromBlock);
     if (anns.length < mineCache.n) { mineCache.n = 0; mineCache.out = []; } // the log source was reset: start over
     const fresh = anns.slice(mineCache.n);
@@ -298,7 +302,8 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
   // Per kind: rows of the announcements already scanned with THIS view-copy set; a changed set (PUT /viewcopy) rescans from the start.
   type LedgerRow = { bank: string; amount: string; sender: string | null; tx: string; blockNumber: number | null };
   const ledgerCache = new Map<string, { copies: string; n: number; rows: LedgerRow[] }>();
-  async function ledger(kind: 'rd' | 'bond') {
+  const ledger = (kind: 'rd' | 'bond') => ledgerLock(() => ledgerUnlocked(kind));
+  async function ledgerUnlocked(kind: 'rd' | 'bond') {
     const token = kind === 'rd' ? cfg.rd : cfg.bond;
     const all = await chain.announcements(cfg.fromBlock);
     const copies = JSON.stringify(bi.viewCopies.map((c) => [c.id, c.metaAddress, c.viewKey.length]));

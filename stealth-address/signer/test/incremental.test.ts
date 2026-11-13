@@ -33,3 +33,23 @@ describe('incremental scan', () => {
     expect((await call('GET', '/ledger?kind=rd')).json.rows).toEqual([]);
   });
 });
+
+describe('incremental scan under concurrent calls (live 2026-11-13: duplicated holdings inflated balances)', () => {
+  it('parallel /holdings + /history + /ledger never append the same announcements twice', async () => {
+    const chain = new FakeChain();
+    const addrs = Array.from({ length: 60 }, (_, i) => fund(chain, 'rd', BigInt(i + 1), i + 1)); // > SCAN_CHUNK: the scan yields mid-way
+    const { call } = await run(chain);
+    await Promise.all([call('GET', '/holdings'), call('GET', '/history'), call('GET', '/holdings'), call('GET', '/history')]);
+    const h = (await call('GET', '/holdings')).json.holdings.map((x: any) => x.stealthAddress);
+    expect(h).toEqual(addrs);
+    expect((await call('GET', '/history')).json.history).toHaveLength(60);
+  });
+  it('parallel /ledger calls never duplicate rows', async () => {
+    const chain = new FakeChain();
+    for (let i = 0; i < 40; i++) fund(chain, 'rd', 1n, i + 1);
+    const keys = { issuerKey: '0x' + '99'.repeat(32), spendKey: '0x' + '31'.repeat(32), viewKey: '0x' + '32'.repeat(32), viewCopies: [{ id: 'bank-a', viewKey: A.viewKey, metaAddress: A.metaAddress }] };
+    const { call } = await run(chain, { cfg: { role: 'bi', party: 'BI' }, keys: keys as any });
+    await Promise.all([call('GET', '/ledger?kind=rd'), call('GET', '/ledger?kind=rd'), call('GET', '/ledger?kind=rd')]);
+    expect((await call('GET', '/ledger?kind=rd')).json.rows).toHaveLength(40);
+  });
+});
