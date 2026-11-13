@@ -316,9 +316,13 @@ for bad in ("Reg_Cred", "-x", "x.", ""):
 
 # S11 rework D3: bi --viewcopy-store = ServiceAccount stealth-bi-signer with a mounted token (the Role on ONE Secret is rbac/render.sh); without the flag nothing changes
 base_bi = docs(*bi_args())
-vs = docs(*bi_args(), "--viewcopy-store")
+vs = docs(*bi_args(), "--viewcopy-store", "--registry", REGISTRY)
 if len(vs) == 2 and len(base_bi) == 2:
     vpod = vs[0]["spec"]["template"]["spec"]
+    # S17 2026-11-13: PUT /viewcopy checks the pushed copy against the ERC-6538 registry, so the store needs REGISTRY
+    venv = {e["name"]: e["value"] for e in vpod["containers"][0]["env"]}
+    check(venv.get("REGISTRY") == REGISTRY, f"bi --viewcopy-store --registry: env REGISTRY set (got {venv.get('REGISTRY')})")
+    vpod["containers"][0]["env"] = [e for e in vpod["containers"][0]["env"] if e["name"] != "REGISTRY"]
     check(vpod.get("serviceAccountName") == "stealth-bi-signer" and vpod["automountServiceAccountToken"] is True, f"bi --viewcopy-store: serviceAccountName stealth-bi-signer + automountServiceAccountToken true (got {vpod.get('serviceAccountName')}, {vpod.get('automountServiceAccountToken')})")
     vs_norm = yaml.safe_load(yaml.dump(vs))
     vs_norm[0]["spec"]["template"]["spec"].pop("serviceAccountName", None)
@@ -330,6 +334,8 @@ check("serviceAccountName" not in base_bi[0]["spec"]["template"]["spec"] and bas
 for a in (bank_args(), cust_args(), compare_args()):
     rejects(f"{a[0]} with --viewcopy-store", *a, "--viewcopy-store")
 rejects("bi --viewcopy-store with a value", *bi_args(), "--viewcopy-store", "yes")
+rejects("bi --viewcopy-store without --registry", *bi_args(), "--viewcopy-store")
+rejects("bi --registry without --viewcopy-store", *bi_args(), "--registry", REGISTRY)
 
 # S11 rework D2: viewpush = the one-off Job that pushes THIS bank's view key to BI's door
 DOOR = "https://st-gw-1.rd-stealth-bi.svc.cluster.local:8550"
