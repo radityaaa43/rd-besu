@@ -370,7 +370,9 @@ YAML
   else
     netpol st-gw-ingress "$ns" "$p" "    matchLabels: {app: st-gw}" "    - ports: [{protocol: TCP, port: 8550}]"
   fi
-  netpol stealth-signer-ingress "$ns" "$p" $'    matchLabels: {app: stealth-signer}\n    matchExpressions:\n    - {key: role, operator: In, values: [bank, bi]}' $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}\n      ports: [{protocol: TCP, port: 8080}]'
+  # S11 (live 2026-11-13): a bank's own viewpush Job reads its signer's /meta-address before pushing the view-key copy; BI has no viewpush
+  local vp=""; [[ "$p" == bi ]] || vp=$'\n      - podSelector: {matchLabels: {app: stealth-viewpush, role: viewpush}}'
+  netpol stealth-signer-ingress "$ns" "$p" $'    matchLabels: {app: stealth-signer}\n    matchExpressions:\n    - {key: role, operator: In, values: [bank, bi]}' $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}'"$vp"$'\n      ports: [{protocol: TCP, port: 8080}]'
   if [[ "$p" == bi ]]; then
     netpol stealth-custodian-ingress "$ns" "$p" "    matchLabels: {app: stealth-signer, role: custodian}" $'    - from:\n      - podSelector: {matchLabels: {app: st-gw}}\n      ports: [{protocol: TCP, port: 9443}]'
   fi
