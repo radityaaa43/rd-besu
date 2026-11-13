@@ -57,9 +57,11 @@ denied if {
 	not policy
 }
 
+# A recipient that is the gateway's own party (DFABI issued to BI itself) is not a counterparty transfer.
 denied if {
 	some o in outflows
 	o.to != ""
+	o.to != input.attributes.contextExtensions.node
 	not o.to in counterparty_nodes
 }
 
