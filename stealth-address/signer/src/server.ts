@@ -298,6 +298,22 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     return rows;
   }
 
+  // Stealth daily limit (2026-11-14): what this party sent at or after `since` (unix s), per token: ERC20 Transfers from its own stealth addresses.
+  // Mints/issues come from the issuer account, so they never count. Newest first, stop at the first own send before `since` (block time only grows).
+  // ponytail: an escrow refund is not subtracted (Paladin and Fabric-X count on submit too); subtract cancels if a refunded trade must free the limit.
+  async function outflow(since: bigint) {
+    const own = new Set((await mine()).map((h) => h.found.stealthAddress.toLowerCase()));
+    const { upTo, rows } = await chain.transfers(cfg.fromBlock);
+    const sum = { RD: 0n, DFABI: 0n };
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const x = rows[i]!;
+      if (!own.has(x.from.toLowerCase())) continue;
+      if ((await chain.blockTime(x.blockNumber)) < since) break;
+      sum[sameAddr(x.token, cfg.rd) ? 'RD' : 'DFABI'] += x.value;
+    }
+    return { blockNumber: upTo, RD: sum.RD.toString(), DFABI: sum.DFABI.toString() };
+  }
+
   // BI's detective view (S10, DELTA 3): every payment resolved to a bank by that bank's VIEW-key copy, with amount and authenticated sender. Never a spend key.
   // Per kind: rows of the announcements already scanned with THIS view-copy set; a changed set (PUT /viewcopy) rescans from the start.
   type LedgerRow = { bank: string; amount: string; sender: string | null; tx: string; blockNumber: number | null };
@@ -377,7 +393,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     const { pathname } = new URL(req.url ?? '/', 'http://x');
     const r = `${req.method} ${pathname}`;
     if (r === 'GET /health') return { status: 200, body: { ok: true } };
-    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /meta-address', 'GET /ledger', 'POST /intent', 'POST /dvp/offer', 'POST /dvp/bid', 'POST /dvp/escrow', 'POST /dvp/settle', 'POST /dvp/cancel'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
+    if (cfg.role === 'custodian' && ['GET /holdings', 'GET /history', 'GET /outflow', 'GET /meta-address', 'GET /ledger', 'POST /intent', 'POST /dvp/offer', 'POST /dvp/bid', 'POST /dvp/escrow', 'POST /dvp/settle', 'POST /dvp/cancel'].includes(r)) throw new HttpError(403, 'role_forbidden', 'the custodian holds no spend/view key');
     if (r === 'GET /holdings') {
       const hs = await holdings();
       return { status: 200, body: { party: cfg.party, holdings: hs.map((h) => ({ stealthAddress: h.found.stealthAddress, token: h.token, amount: h.amount.toString(), partition: h.partition })) } };
@@ -394,6 +410,11 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
       return { status: 200, body: { kind, rows: await ledger(kind) } };
     }
     if (r === 'GET /history') return { status: 200, body: { party: cfg.party, history: await history() } };
+    if (r === 'GET /outflow') {
+      const since = new URL(req.url ?? '/', 'http://x').searchParams.get('since');
+      if (!since || !/^[0-9]{1,12}$/.test(since)) throw new HttpError(422, 'bad_request', 'since must be unix seconds');
+      return { status: 200, body: { party: cfg.party, since: Number(since), ...(await outflow(BigInt(since))) } };
+    }
     if (req.method === 'PUT' && pathname.startsWith('/viewcopy/')) {
       if (cfg.role !== 'bi') throw new HttpError(403, 'role_forbidden', 'view copies are stored by the BI signer only');
       const id = pathname.slice('/viewcopy/'.length);

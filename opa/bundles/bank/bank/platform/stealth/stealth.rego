@@ -1,7 +1,10 @@
 # The gateway bank's own rules for target `stealth` (S17): same caller and routes as bi.platform.stealth (reads, and the writes BI's document
 # allows), plus this bank's own Stealth document (data.bank.config.policy.stealth, the zeto/noto/fabricx bank schema): an outflow must go to
 # one of its counterparties, within its own max_per_tx and inside its own hours. Recipients are named by stealth meta-address in the body and
-# mapped to a node by data.bi.config.stealth_meta. Daily limits are not enforced on stealth (no outflow ledger the gateway can ask yet).
+# mapped to a node by data.bi.config.stealth_meta. Daily limit (2026-11-14): when the document sets daily_limit for a token, today's outflow
+# (GET /outflow on this party's own signer, same namespace as this gateway) plus the request stays under it. Counted: rd-/bond-transfer and
+# dvp-leg (what moves value out of a stealth address); not mints/issues (Paladin and Fabric-X count transfers only too). Fails closed: no
+# answer, non-200 or a bad body means deny. Counted on submit, no lock: two requests in the same instant can both pass.
 # A copy of the caller/route rules of bi.platform.stealth: this bundle builds alone (gw needs both to allow).
 package bank.platform.stealth
 
@@ -48,8 +51,15 @@ default allow := false
 
 allow if {
 	caller in lensa
-	[http.method, http.path] in routes
+	route_ok
 	not denied
+}
+
+route_ok if [http.method, http.path] in routes
+
+route_ok if {
+	http.method == "GET"
+	regex.match(`^/outflow\?since=(0|[1-9][0-9]{0,11})$`, http.path)
 }
 
 denied if {
@@ -82,6 +92,29 @@ denied if {
 	http.path == "/intent"
 	body.kind in {"rd-transfer", "bond-transfer", "rd-mint", "bond-issue"}
 	not node_of_meta(body.to.metaAddress)
+}
+
+denied if {
+	some t, _ in daily_request
+	not daily_used[t]
+}
+
+denied if {
+	some t, n in daily_request
+	daily_used[t] + n > policy.daily_limit[t]
+}
+
+# The value this request moves out of a stealth address, per token with a daily_limit.
+daily_request[o.token] := to_number(o.amount) if {
+	http.path == "/intent"
+	body.kind in {"rd-transfer", "bond-transfer", "dvp-leg"}
+	some o in outflows
+	policy.daily_limit[o.token]
+}
+
+daily_used[t] := to_number(data.bank.stealth_usage.today[t]) if {
+	some t, _ in daily_request
+	regex.match(`^(0|[1-9][0-9]{0,30})$`, data.bank.stealth_usage.today[t])
 }
 
 amount_within(a, cap) if {

@@ -50,6 +50,11 @@ export class FakeChain implements ChainPort {
   predicted = '0x' + '00'.repeat(20);
   async predictEscrow() { return this.predicted; }
   async sendRawTransaction(raw: string) { this.sent.push(raw); return keccak256(raw); }
+  xfers: Array<{ token: string; from: string; to: string; value: bigint; blockNumber: number }> = []; // ERC20 Transfer events of RD + bond
+  times = new Map<number, bigint>(); // block -> timestamp (default NOW)
+  head = 0;
+  async transfers() { return { upTo: this.head, rows: this.xfers }; }
+  async blockTime(n: number) { return this.times.get(n) ?? NOW; }
 }
 
 // Fund party A with `amount` RD (partition undefined) or bond (TRANCHE_A) at a fresh stealth address; return that address.

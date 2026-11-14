@@ -1,6 +1,7 @@
 # BI rules for target `stealth` (S17): the stealth gateway st-gw-<N>'s door :8550 -> the party's signer (context_extensions {target: "stealth", node}).
 # Lensa (relay and read model, no keys) may call only these routes, and only with its own mTLS client certificate:
-#   reads   GET /health, /holdings, /history, /meta-address; GET /ledger?kind=rd|bond (exact query; the signer serves it on BI only)
+#   reads   GET /health, /holdings, /history, /meta-address; GET /ledger?kind=rd|bond (exact query; the signer serves it on BI only);
+#           GET /outflow?since=<unix seconds> (today's outflow for the policy usage view; the bank side enforces daily_limit with it)
 #   writes  POST /intent, /dvp/offer, /dvp/bid, /dvp/escrow, /dvp/settle, /dvp/cancel, checked against BI's Stealth document
 #           (data.bi.config.policy.stealth: max_per_tx, max_mint_per_tx, hours, holidays, frozen; the same schema as zeto/noto/fabricx)
 #           from the request body Envoy sends (with_request_body):
@@ -50,6 +51,11 @@ allow if {
 }
 
 permitted if [http.method, http.path] in reads
+
+permitted if {
+	http.method == "GET"
+	regex.match(`^/outflow\?since=(0|[1-9][0-9]{0,11})$`, http.path)
+}
 
 post(path) if {
 	http.method == "POST"

@@ -78,3 +78,27 @@ describe('registryMetaAddress (mocked provider)', () => {
     expect(seen).toEqual([]);
   });
 });
+
+// Stealth daily limit (2026-11-14): RD + bond ERC20 Transfer events (incremental, like announcements) and memoized block timestamps.
+describe('transfers + blockTime (mocked provider)', () => {
+  const erc20 = new Interface(['event Transfer(address indexed from, address indexed to, uint256 value)']);
+  it('reads Transfer logs of both tokens up to the head, parses them; a block time is read once', async () => {
+    const seen: any[] = [];
+    let blocks = 0;
+    const e = erc20.encodeEventLog('Transfer', [stealth, '0x' + 'ee'.repeat(20), 9n]);
+    const p = {
+      getBlockNumber: async () => 1200,
+      getLogs: async (f: any) => { seen.push(f); return f.fromBlock === 0 ? [{ address: BOND, topics: e.topics, data: e.data, blockNumber: 5 }] : []; },
+      getBlock: async (n: number) => { blocks++; return { timestamp: 1000 + n }; },
+    } as unknown as Provider;
+    const c = createChainPort({ provider: p, announcer: '0x' + 'a1'.repeat(20), validator: '0x' + 'a2'.repeat(20), dvpFactory: '0x' + 'a3'.repeat(20), rd: RD, bond: BOND, fromBlock: 0 });
+    const t = await c.transfers(0);
+    expect(t.upTo).toBe(1200);
+    expect(t.rows).toEqual([{ token: BOND, from: expect.stringMatching(/^0x5a/i), to: expect.stringMatching(/^0xee/i), value: 9n, blockNumber: 5 }]);
+    expect(seen[0].address).toEqual([RD, BOND]);
+    expect(seen[0].topics).toEqual([erc20.getEvent('Transfer')!.topicHash]);
+    expect(await c.blockTime(5)).toBe(1005n);
+    expect(await c.blockTime(5)).toBe(1005n);
+    expect(blocks).toBe(1);
+  });
+});
