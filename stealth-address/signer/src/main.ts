@@ -58,5 +58,7 @@ if (role === 'custodian') {
   createHttps({ key: file(tls, 'server.key'), cert: file(tls, 'server.crt'), ca: file(tls, 'ca.crt'), requestCert: true, rejectUnauthorized: true },
     (req, res) => app.emit('request', req, res)).listen(port, () => log(`stealth-signer custodian ${cfg.party} on ${port}`));
 } else {
+  // Warm before listening (Recreate: no pod serves meanwhile; liveness allows 60 s). A failed warm-up is logged; the first calls fill the caches then.
+  await app.warm().catch((e) => log(`warm-up failed err=${(e as Error).name}`));
   app.listen(port, () => log(`stealth-signer bank ${cfg.party} on ${port}`));
 }

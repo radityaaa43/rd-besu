@@ -63,7 +63,7 @@ function parseAmount(v: unknown): bigint {
 }
 
 // Returns an http.Server that is not listening yet. One instance serves one party; keys stay in this closure.
-export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
+export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server & { warm(): Promise<void> } {
   const { keys, chain, log } = deps;
   const ttl = BigInt(cfg.certTtlSeconds ?? 600);
   const names = Object.keys(keys).sort().join(',');
@@ -442,7 +442,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     throw new HttpError(404, 'not_found');
   }
 
-  return createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     let status: number, body: unknown, note: string | undefined;
     try {
       ({ status, body, note } = (await route(req)) as { status: number; body: unknown; note?: string });
@@ -456,4 +456,6 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server {
     res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(text) });
     res.end(text);
   });
+  // Fill the scan and transfer-log caches (main.ts awaits this before listening): a cold /outflow took ~9 s live, past OPA's 1.5 s.
+  return Object.assign(server, { warm: async () => { await outflow(0n); } });
 }
