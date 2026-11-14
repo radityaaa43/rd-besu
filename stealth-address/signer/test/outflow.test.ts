@@ -53,3 +53,21 @@ describe('GET /outflow', () => {
     expect((await c.call('GET', '/outflow?since=0')).status).toBe(403);
   });
 });
+
+// Live 2026-11-14: the first /outflow after a start took ~9 s (logs from FROM_BLOCK + the EC scan), past OPA's 1.5 s: a daily-limited request
+// right after a roll was denied. main.ts awaits warm() before it listens, so the pod is Ready only with both caches filled.
+describe('warm()', () => {
+  it('fills the announcement scan and the transfer log cache before any request', async () => {
+    const chain = new FakeChain();
+    fund(chain, 'rd', 5n, 1);
+    const ann = vi.spyOn(chain, 'announcements');
+    const xf = vi.spyOn(chain, 'transfers');
+    const { createSigner } = await import('../src/server.ts');
+    const { A: keys } = await import('./fixtures.ts');
+    const { metaAddress: _m, ...k } = keys;
+    const app = createSigner({ party: 'A', role: 'bank', chainId: 1337n, rd: RD, bond: BOND, fromBlock: 0 }, { keys: k, chain, log: () => {} });
+    await app.warm();
+    expect(ann).toHaveBeenCalled();
+    expect(xf).toHaveBeenCalled();
+  });
+});
