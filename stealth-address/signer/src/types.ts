@@ -45,6 +45,9 @@ export interface ChainPort {
   // S11: the ERC-6538 registry value stealthMetaAddressOf(identity, 1), the same read as the compare job; null = nothing registered
   registryMetaAddress(identity: string): Promise<string | null>;
   predictEscrow(t: Terms): Promise<string>; // DvPFactory.predict(t): the CREATE2 address, computed by the chain, never taken from a request
+  // Stealth daily limit: every ERC20 Transfer of RD and the bond from `fromBlock` up to the head (upTo), and a block's timestamp (unix seconds)
+  transfers(fromBlock: number): Promise<{ upTo: number; rows: Array<{ token: string; from: string; to: string; value: bigint; blockNumber: number }> }>;
+  blockTime(block: number): Promise<bigint>;
 }
 
 export type CertRequest = { sender: string; token: string; payload: string; expiry: bigint };

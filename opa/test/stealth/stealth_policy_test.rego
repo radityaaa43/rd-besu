@@ -135,3 +135,58 @@ test_no_stealth_document_denies_writes_not_reads if {
 
 # A flow to the gateway's own party (DFABI issued to BI itself) is not a transfer to a counterparty: bank-bi's seed lists only the banks.
 test_issue_to_self_needs_no_self_counterparty if allowed_with("node1", "/intent", intent("bond-issue", "BI", "node1", "3"), {}, {"counterparties": ["bankA@node2", "bankB@node3", "bankC@node4"]})
+
+# --- daily limit (2026-11-14, "pastikan semua kebijakan berjalan"): today's outflow from the own signer's GET /outflow plus the request ---
+
+# Thursday 2026-11-05 00:00 WIB = 2026-11-04T17:00:00Z
+midnight := time.parse_rfc3339_ns("2026-11-04T17:00:00Z") / 1000000000
+
+used_rd_90(req) := {"status_code": 200, "body": {"RD": "90", "DFABI": "3"}} if req.url == sprintf("http://stealth-signer:8080/outflow?since=%d", [midnight])
+
+daily(node, path, body) if {
+	bi.allow with input as door(node, path, body) with data.bi.config as bi_cfg({}) with time.now_ns as now_ns
+	bank.allow with input as door(node, path, body) with data.bi.config as bi_cfg({})
+		with data.bank.config as bank_cfg({"daily_limit": {"RD": 100, "DFABI": 4}}) with time.now_ns as now_ns
+}
+
+test_daily_rd_transfer_within_allowed_over_denied if {
+	daily("node2", "/intent", intent("rd-transfer", "A", "node3", "10")) with http.send as used_rd_90
+	not daily("node2", "/intent", intent("rd-transfer", "A", "node3", "11")) with http.send as used_rd_90
+}
+
+test_daily_dfabi_transfer_and_dvp_legs_counted if {
+	daily("node3", "/intent", intent("bond-transfer", "B", "node4", "1")) with http.send as used_rd_90
+	not daily("node3", "/intent", intent("bond-transfer", "B", "node4", "2")) with http.send as used_rd_90
+	not daily("node3", "/intent", {"kind": "dvp-leg", "leg": "rd", "from": "B", "amount": "11", "escrow": "0xe5"}) with http.send as used_rd_90
+	not daily("node2", "/intent", {"kind": "dvp-leg", "leg": "bond", "from": "A", "amount": "2", "escrow": "0xe5"}) with http.send as used_rd_90
+}
+
+# fails closed: signer down, non-200, a malformed amount
+test_daily_no_trustworthy_answer_denied if {
+	not daily("node2", "/intent", intent("rd-transfer", "A", "node3", "1")) with http.send as {"status_code": 0, "error": {"message": "dial"}}
+	not daily("node2", "/intent", intent("rd-transfer", "A", "node3", "1")) with http.send as {"status_code": 503, "body": {}}
+	not daily("node2", "/intent", intent("rd-transfer", "A", "node3", "1")) with http.send as {"status_code": 200, "body": {"RD": "1e3", "DFABI": "0"}}
+}
+
+# no daily_limit, or a route that moves nothing yet (offer/bid quote, settle), or a mint/issue (Paladin/Fabric-X count transfers only): signer not asked
+test_daily_not_asked_when_not_gated if {
+	allowed("node2", "/intent", intent("rd-transfer", "A", "node3", "7")) with http.send as {"status_code": 503}
+	daily("node2", "/dvp/offer", {"tradeId": "0x01", "amount": "1", "buyerMeta": meta.node3}) with http.send as {"status_code": 503}
+	daily("node3", "/dvp/bid", {"tradeId": "0x01", "price": "1000000", "sellerMeta": meta.node2}) with http.send as {"status_code": 503}
+	daily("node3", "/dvp/settle", {"escrow": "0xe5"}) with http.send as {"status_code": 503}
+	daily("node1", "/intent", intent("rd-mint", "BI", "node2", "3000000")) with http.send as {"status_code": 503}
+}
+
+get_outflow(p) := {"attributes": {"contextExtensions": {"target": "stealth", "node": "node2"}, "source": {"principal": "CN=lensa"}, "request": {"http": {"method": "GET", "path": p}}}}
+
+# Lensa reads the same counter through the door (policy usage): GET /outflow?since=<unix seconds> only
+test_outflow_read_route if {
+	every p in ["/outflow?since=0", "/outflow?since=1762275600"] {
+		bi.allow with input as get_outflow(p)
+		bank.allow with input as get_outflow(p)
+	}
+	every p in ["/outflow", "/outflow?since=", "/outflow?since=1&x=1", "/outflow?since=-1", "/outflow?since=1234567890123", "/outflow?since=01"] {
+		not bi.allow with input as get_outflow(p)
+		not bank.allow with input as get_outflow(p)
+	}
+}

@@ -14,6 +14,7 @@ export const termsTuple = (t: Terms) => ({ ...t, bondAmount: BigInt(t.bondAmount
 const abi = new Interface([
   'event Announcement(uint256 indexed schemeId, address indexed stealthAddress, address indexed caller, bytes ephemeralPubKey, bytes metadata)',
   'event EscrowCreated(bytes32 indexed tradeId, address indexed escrow)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)', // ERC20; ERC1400 emits it on every bond transfer too (ERC1400.sol:870)
   'function balanceOf(address holder) view returns (uint256)',
   'function balanceOfByPartition(bytes32 partition, address holder) view returns (uint256)',
   'function generateDomainSeparator() view returns (bytes32)',
@@ -47,15 +48,17 @@ export function createChainPort(o: ChainPortOptions): ChainPort {
   // eth_getLogs is capped (Besu: 1000 blocks), so read in LOG_RANGE chunks. Per filter, only the blocks after the last read are fetched again:
   // QBFT blocks are final (no reorg), so the earlier logs stay valid. ponytail: unbounded in-memory list, persist or prune if a party's logs grow large.
   const seen = new Map<string, { upTo: number; out: Log[] }>();
-  async function logs(address: string, topics: (string | string[] | null)[], fromBlock: number) {
+  async function logsUpTo(address: string | string[], topics: (string | string[] | null)[], fromBlock: number) {
     const key = JSON.stringify([address, topics, fromBlock]);
     const c = seen.get(key) ?? { upTo: fromBlock - 1, out: [] };
     const end = await p.getBlockNumber();
     const out = [...c.out];
     for (let from = c.upTo + 1; from <= end; from += LOG_RANGE) out.push(...(await p.getLogs({ address, topics, fromBlock: from, toBlock: Math.min(from + LOG_RANGE - 1, end) })));
     if (end > c.upTo) seen.set(key, { upTo: end, out });
-    return out;
+    return { upTo: Math.max(end, c.upTo), out };
   }
+  const logs = async (address: string, topics: (string | string[] | null)[], fromBlock: number) => (await logsUpTo(address, topics, fromBlock)).out;
+  const times = new Map<number, bigint>(); // block timestamps never change (QBFT final)
   const pad = (a: string) => zeroPadValue(a, 32);
   return {
     async announcements(fromBlock): Promise<LoggedAnnouncement[]> {
@@ -83,5 +86,14 @@ export function createChainPort(o: ChainPortOptions): ChainPort {
     },
     async predictEscrow(t) { return at(o.dvpFactory).predict(termsTuple(t)); },
     async sendRawTransaction(raw) { return (await p.broadcastTransaction(raw)).hash; },
+    async transfers(fromBlock) {
+      const { upTo, out } = await logsUpTo([o.rd, o.bond], [topic('Transfer')], fromBlock);
+      return { upTo, rows: out.map((l) => { const a = abi.parseLog(l)!.args; return { token: l.address, from: a.from, to: a.to, value: a.value, blockNumber: l.blockNumber }; }) };
+    },
+    async blockTime(n) {
+      let t = times.get(n);
+      if (t === undefined) { t = BigInt((await p.getBlock(n))!.timestamp); times.set(n, t); }
+      return t;
+    },
   };
 }
