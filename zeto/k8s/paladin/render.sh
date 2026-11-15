@@ -68,6 +68,9 @@ metadata:
 ${ann}spec:
   type: LoadBalancer
 ${lbsr}  externalTrafficPolicy: Cluster
+  # 2026-11-16: a restarted node resumes its txs ~1 s after gRPC listens, before the pod is Ready; a peer's reply to its verifier request was
+  # refused (no endpoint yet), dropped after the short retry, and the tx stayed Resolving. Publish the endpoint as soon as the pod has an IP.
+  publishNotReadyAddresses: true
   selector: {app: paladin, app.kubernetes.io/name: paladin-node${n}}
   ports:
     - {name: transport-grpc, port: 9000, targetPort: 9000, protocol: TCP}
