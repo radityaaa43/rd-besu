@@ -62,8 +62,9 @@ describe('verdict 4/5: holdings and no aggregation', () => {
     expect(r.json.holdings.map((h: { stealthAddress: string; amount: string }) => [h.stealthAddress, h.amount])).toEqual([[spent, '0']]);
   });
 
-  it('no single holding covers the amount -> 422 insufficient_holdings, no aggregation, nothing sent', async () => {
-    const chain = new FakeChain(); fund(chain, 'rd', 60n, 1); fund(chain, 'rd', 60n, 2);
+  // 2026-11-15: RD may now come from several own holdings (multiInput.test.ts); 422 only when their total is short.
+  it('own RD holdings short of the amount in total -> 422 insufficient_holdings, nothing sent', async () => {
+    const chain = new FakeChain(); fund(chain, 'rd', 60n, 1); fund(chain, 'rd', 30n, 2);
     const s = await start(chain); stop = s.stop;
     const r = await s.call('POST', '/intent', rdIntent);
     expect([r.status, r.json.error]).toEqual([422, 'insufficient_holdings']);
