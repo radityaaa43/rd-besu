@@ -51,6 +51,11 @@ test_noto_mint_by_bi_allowed if allowed(send("node1", noto(n_rd, "cashIssuer@nod
 
 test_noto_mint_by_bank_denied if not allowed(send("node2", noto(n_rd, "bankA@node2", "mint", {"to": "bankA@node2", "amount": "5", "data": "0x"})))
 
+# DFABI is issued to BI only (BondTracker.onMint also requires the custodian); a bank gets it by the award
+test_noto_mint_dfabi_to_custodian_allowed if allowed(send("node1", noto(n_dfabi, "bondIssuer@node1", "mint", {"to": "bondCustodian@node1", "amount": "5", "data": "0x"})))
+
+test_noto_mint_dfabi_to_bank_denied if not allowed(send("node1", noto(n_dfabi, "bondIssuer@node1", "mint", {"to": "investor1@node2", "amount": "5", "data": "0x"})))
+
 test_noto_unknown_contract_denied if not allowed(send("node2", object.union(noto("0x00000000000000000000000000000000000000cc", "bankA@node2", "transfer", {"to": "bankB@node3", "amount": "1"}), {"domain": "noto"})))
 
 test_noto_deploy_denied if not allowed(send("node1", {"type": "private", "domain": "noto", "from": "bi@node1", "function": "", "data": {}}))

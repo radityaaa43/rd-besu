@@ -111,6 +111,16 @@ test_mint_by_bank_denied if {
 	not allowed(send("node2", tx))
 }
 
+# DFABI is issued to BI only, then sold to a bank by the award (user 2026-11-15: "untuk dfabi hanya bi ke bi dulu lalu baru awarding bi ke bank")
+test_mint_dfabi_to_bi_allowed if allowed(send("node1", zeto(dfabi, "bi@node1", "mint", {"mints": [{"to": "bi@node1", "amount": 5}]})))
+
+test_mint_dfabi_to_bank_denied if not allowed(send("node1", zeto(dfabi, "bi@node1", "mint", {"mints": [{"to": "bankA@node2", "amount": 5}]})))
+
+test_mint_dfabi_one_output_to_bank_denied if {
+	mints := {"mints": [{"to": "bi@node1", "amount": 5}, {"to": "bankA@node2", "amount": 1}]}
+	not allowed(send("node1", zeto(dfabi, "bi@node1", "mint", mints)))
+}
+
 # --- Zeto DvP legs
 
 lock(from, to, amount) := zeto(dfabi, from, "createLock", {"from": from, "recipients": [{"to": to, "amount": amount}], "data": "0x"})
