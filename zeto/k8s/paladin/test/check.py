@@ -68,9 +68,7 @@ for party, n in PARTIES.items():
     item = lr["spec"]["limits"][0]
     check(lr["metadata"]["name"] == "paladin-defaults" and len(lr["spec"]["limits"]) == 1 and item["type"] == "Container", f"{party}: LimitRange paladin-defaults, one Container item")
     # 2026-11-13: Zeto proving OOM-killed node2/node4 (SystemOOM on the K8s node) while the pods were BestEffort: 1 CPU / 3Gi requested, 3 / 6Gi cap
-    # 2026-11-16: node2 OOM-killed again under the Lensa stress test (SystemOOM, victim java) at 3Gi requested: the K8s nodes (6.2-7 Gi) were already
-    # ~80% requested by other pods. 5Gi (peak ~4.8 Gi) places Paladin only where that memory is free and makes the kernel pick other victims first.
-    check(item.get("defaultRequest") == {"cpu": "1", "memory": "5Gi"} and item.get("default") == {"cpu": "3", "memory": "6Gi"}, f"{party}: LimitRange defaults {item}")
+    check(item.get("defaultRequest") == {"cpu": "1", "memory": "3Gi"} and item.get("default") == {"cpu": "3", "memory": "6Gi"}, f"{party}: LimitRange defaults {item}")
     # operator: namespaced only, one namespace watched, image pinned, fork digest in its ConfigMap
     role = by["Role"]
     seen = {r for rule in role["rules"] if "core.paladin.io" in rule["apiGroups"] for r in rule["resources"] if "/" not in r}
@@ -203,7 +201,7 @@ for party, n in PARTIES.items():
     check(len(pp) == 1 and pp[0]["kind"] == "Pod" and pp[0]["metadata"]["namespace"] == f"rd-zeto-{party}" and pp[0]["metadata"]["labels"].get("throwaway") == "zeto-s9-placement", f"{party}: probe-placement pod")
     if pp:
         c0 = pp[0]["spec"]["containers"][0]
-        check(c0["resources"]["requests"] == {"cpu": "1", "memory": "5Gi"}, f"{party}: placement pod requests = the LimitRange defaultRequest: {c0['resources']}")
+        check(c0["resources"]["requests"] == {"cpu": "1", "memory": "3Gi"}, f"{party}: placement pod requests = the LimitRange defaultRequest: {c0['resources']}")
         check(pp[0]["metadata"]["labels"].get("app") != "paladin", f"{party}: placement pod must not carry app=paladin (no netpol/service effect)")
 
 # gen-certs: own CA per node, CN node<N>, SAN = the LB IP; keys never inside the repo
