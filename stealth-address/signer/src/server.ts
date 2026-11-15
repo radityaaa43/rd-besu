@@ -121,13 +121,40 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server & { wa
     return out;
   }
 
-  // One address, one transfer (verdict 5): the first holding that covers the amount, or exactly `source` when given.
+  // One address, one transfer (verdict 5), now for the bond only (RD: cover() below): the first holding that covers the amount, or exactly `source`.
   async function pick(token: string, partition: string | undefined, amount: bigint, source?: string) {
     for (const h of await holdings()) {
       if (source !== undefined && !sameAddr(h.found.stealthAddress, source)) continue;
       if (sameAddr(h.token, token) && (partition === undefined || h.partition === partition) && h.amount >= amount) return h.found;
     }
     throw new HttpError(422, 'insufficient_holdings', 'no single holding covers the amount');
+  }
+
+  // RD may come from several own addresses (user 2026-11-15, analyst ruling; live: 2,012,022 RD in 68 addresses, the largest 999,999, failed a
+  // 1,000,000 bid): one holding if one covers (`source` first, else the first that covers, as pick()); otherwise the largest first, as few as
+  // possible, the last paying only the remainder. A DvP escrow counts its balance and refunds all RD to the buyer, so k transfers into it are safe;
+  // the bond never does this (cancel refunds the bond only when fully funded). 422 only when the total is short.
+  async function cover(amount: bigint, source?: string): Promise<{ found: Mine['found']; part: bigint }[]> {
+    const hs = (await holdings()).filter((h) => sameAddr(h.token, cfg.rd) && h.amount > 0n);
+    const first = source === undefined ? hs.find((h) => h.amount >= amount) : hs.find((h) => sameAddr(h.found.stealthAddress, source));
+    if (source !== undefined && !first) throw new HttpError(422, 'insufficient_holdings', 'source is not an own RD holding');
+    if (first && first.amount >= amount) return [{ found: first.found, part: amount }];
+    const order = [...(first ? [first] : []), ...hs.filter((h) => h !== first).sort((x, y) => (y.amount > x.amount ? 1 : y.amount < x.amount ? -1 : 0))];
+    const out: { found: Mine['found']; part: bigint }[] = [];
+    let rest = amount;
+    for (const h of order) {
+      if (rest === 0n) break;
+      const part = h.amount < rest ? h.amount : rest;
+      out.push({ found: h.found, part });
+      rest -= part;
+    }
+    if (rest > 0n) throw new HttpError(422, 'insufficient_holdings', 'own RD holdings do not cover the amount');
+    return out;
+  }
+
+  async function signFrom(h: { stealthAddress: string; privateKey: string }, to: string, data: string) {
+    const [nonce, gasPrice, gasLimit] = await Promise.all([chain.nonce(h.stealthAddress), chain.gasPrice(), chain.estimateGas({ from: h.stealthAddress, to, data })]);
+    return new Wallet(h.privateKey).signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to, data, value: 0n });
   }
 
   // S17 DvP, seller or buyer side: the holding this party will fund from, and the leg it pays to the counterparty's meta-address (sender = own identity key).
@@ -139,7 +166,7 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server & { wa
     let p: ReturnType<typeof pay>;
     try { p = pay(cfg.chainId, side === 'offer' ? body.buyerMeta : body.sellerMeta, bank.identityKey, token, amount, partition); }
     catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
-    const src = await pick(token, partition, amount);
+    const src = side === 'offer' ? await pick(token, partition, amount) : (await cover(amount))[0]!.found; // the buyer = the largest RD input
     return side === 'offer'
       ? { status: 200, body: { tradeId: body.tradeId, seller: src.stealthAddress, bondLeg: legOf(p) } }
       : { status: 200, body: { tradeId: body.tradeId, buyer: src.stealthAddress, rdLeg: legOf(p) } };
@@ -236,34 +263,49 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server & { wa
       return { status: 200, body: { kind, from: issuer.address, txHash, rawTx }, note: `tx=${txHash}` };
     }
 
-    // What to send: token + partition the funds must sit in, and a builder for the calldata (cert is the last bond argument).
-    let token: string, partition: string | undefined, build: (cert?: string) => string;
-    if (kind === 'dvp-leg') {
-      if (!isAddress(body.escrow)) throw new HttpError(422, 'bad_request', 'escrow must be an address');
-      if (body.leg === 'bond') {
-        token = cfg.bond; partition = TRANCHE_A;
-        build = (cert = hexlify(new Uint8Array(CERTIFICATE_LENGTH))) => bondAbi.encodeFunctionData('transferByPartition', [TRANCHE_A, body.escrow, amount, cert]);
-      } else if (body.leg === 'rd') {
-        token = cfg.rd;
-        build = () => rdAbi.encodeFunctionData('transfer', [body.escrow, amount]);
-      } else throw new HttpError(422, 'bad_request', 'leg must be bond or rd');
-    } else {
-      if (kind === 'bond-transfer' && body.partition !== undefined && !(typeof body.partition === 'string' && isHexString(body.partition, 32))) {
-        throw new HttpError(422, 'bad_request', 'partition must be 32 bytes hex');
+    if (kind === 'dvp-leg' && !isAddress(body.escrow)) throw new HttpError(422, 'bad_request', 'escrow must be an address');
+    if (kind === 'dvp-leg' && body.leg !== 'bond' && body.leg !== 'rd') throw new HttpError(422, 'bad_request', 'leg must be bond or rd');
+    // dvp-leg names the holding it offered (/dvp/offer, /dvp/bid): the escrow refunds to that address, so the funds must come from it (first).
+    if (kind === 'dvp-leg' && body.source !== undefined && !isAddress(body.source)) throw new HttpError(422, 'bad_request', 'source must be an address');
+
+    // RD (rd-transfer, dvp-leg rd): one or more own addresses (cover()). Every tx is signed before the first is sent, so a bad meta-address sends nothing.
+    // rd-transfer pays each part to a fresh address of the receiver; dvp-leg pays each part into the escrow. txHash = the last, txHashes = all.
+    if (kind === 'rd-transfer' || kind === 'dvp-leg' && body.leg === 'rd') {
+      const inputs = await cover(amount, kind === 'dvp-leg' ? body.source : undefined);
+      const raws: string[] = [];
+      for (const { found, part } of inputs) {
+        let data: string;
+        if (kind === 'dvp-leg') data = rdAbi.encodeFunctionData('transfer', [body.escrow, part]);
+        else {
+          let p: ReturnType<typeof pay>;
+          try { p = pay(cfg.chainId, body?.to?.metaAddress, bank.identityKey, cfg.rd, part); }
+          catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
+          data = rdAbi.encodeFunctionData('sendStealth', [p.s.stealthAddress, part, p.s.ephemeralPubKey, p.s.viewTag, p.memo]);
+        }
+        raws.push(await signFrom(found, cfg.rd, data));
       }
-      token = kind === 'rd-transfer' ? cfg.rd : cfg.bond;
-      partition = kind === 'bond-transfer' ? (body.partition ?? TRANCHE_A) : undefined;
-      let p: ReturnType<typeof pay>;
-      try { p = pay(cfg.chainId, body?.to?.metaAddress, bank.identityKey, token, amount, partition); }
-      catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
-      build = kind === 'rd-transfer'
-        ? () => rdAbi.encodeFunctionData('sendStealth', [p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo])
-        : (cert = hexlify(new Uint8Array(CERTIFICATE_LENGTH))) =>
-            bondAbi.encodeFunctionData('transferByPartitionStealth', [partition, p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo, cert]);
+      const txHashes: string[] = [];
+      for (const raw of raws) txHashes.push(await chain.sendRawTransaction(raw));
+      return { status: 200, body: { kind, from: inputs[0]!.found.stealthAddress, txHash: txHashes.at(-1)!, txHashes, rawTx: raws.at(-1)! }, note: `tx=${txHashes.join(',')}` };
     }
 
-    // dvp-leg names the holding it offered (/dvp/offer, /dvp/bid): the escrow refunds to that address, so the funds must come from it.
-    if (kind === 'dvp-leg' && body.source !== undefined && !isAddress(body.source)) throw new HttpError(422, 'bad_request', 'source must be an address');
+    // The bond: one holding (cert is the last argument of the calldata).
+    let partition: string | undefined, build: (cert?: string) => string;
+    if (kind === 'dvp-leg') {
+      partition = TRANCHE_A;
+      build = (cert = hexlify(new Uint8Array(CERTIFICATE_LENGTH))) => bondAbi.encodeFunctionData('transferByPartition', [TRANCHE_A, body.escrow, amount, cert]);
+    } else {
+      if (body.partition !== undefined && !(typeof body.partition === 'string' && isHexString(body.partition, 32))) {
+        throw new HttpError(422, 'bad_request', 'partition must be 32 bytes hex');
+      }
+      partition = body.partition ?? TRANCHE_A;
+      let p: ReturnType<typeof pay>;
+      try { p = pay(cfg.chainId, body?.to?.metaAddress, bank.identityKey, cfg.bond, amount, partition); }
+      catch { throw new HttpError(422, 'bad_meta_address', 'meta-address is not valid'); }
+      build = (cert = hexlify(new Uint8Array(CERTIFICATE_LENGTH))) =>
+        bondAbi.encodeFunctionData('transferByPartitionStealth', [partition, p.s.stealthAddress, amount, p.s.ephemeralPubKey, p.s.viewTag, p.memo, cert]);
+    }
+    const token = cfg.bond;
     const spender = await pick(token, partition, amount, kind === 'dvp-leg' ? body.source : undefined);
 
     let data = build();
@@ -278,12 +320,9 @@ export function createSigner(cfg: SignerConfig, deps: SignerDeps): Server & { wa
       } catch { throw new HttpError(502, 'cert_unavailable', 'custodian refused or unreachable'); }
       data = build(certificate);
     }
-    const [nonce, gasPrice, gasLimit] = await Promise.all([
-      chain.nonce(spender.stealthAddress), chain.gasPrice(), chain.estimateGas({ from: spender.stealthAddress, to: token, data }),
-    ]);
-    const rawTx = await new Wallet(spender.privateKey).signTransaction({ type: 0, chainId: cfg.chainId, nonce, gasPrice, gasLimit, to: token, data, value: 0n });
+    const rawTx = await signFrom(spender, token, data);
     const txHash = await chain.sendRawTransaction(rawTx);
-    return { status: 200, body: { kind, from: spender.stealthAddress, txHash, rawTx }, note: `tx=${txHash}` };
+    return { status: 200, body: { kind, from: spender.stealthAddress, txHash, txHashes: [txHash], rawTx }, note: `tx=${txHash}` };
   }
 
   const readCache = new Map<string, { amount: string; sender: string | null }>(); // memo decryption once per received payment

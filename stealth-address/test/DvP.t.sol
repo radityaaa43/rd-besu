@@ -317,6 +317,40 @@ contract DvPTest {
 
     // ---- cancel ----
 
+    // ---- multi-input RD leg (user 2026-11-15, analyst ruling: the buyer funds the RD leg from several own stealth addresses when no
+    // single one covers the price; the escrow only counts its balance, so no contract change) ----
+
+    function _fundRdFrom(address escrow, address from, uint256 amount) internal {
+        rd.mint(from, amount);
+        vm.prank(from);
+        rd.transfer(escrow, amount);
+    }
+
+    function test_settle_with_the_rd_leg_funded_from_three_addresses() public {
+        DvPEscrow e = _create(_terms(TRADE_ID)); // RD_AMOUNT = 5,000,000 = 2,000,000 + 2,000,000 + 1,000,000
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRdFrom(address(e), BUYER, 2_000_000);
+        _fundRdFrom(address(e), address(0xB0E3), 2_000_000);
+        vm.expectRevert(DvPEscrow.NotFunded.selector);
+        e.settle(); // 4,000,000 < price
+        _fundRdFrom(address(e), address(0xB0E4), 1_000_000);
+        e.settle();
+        require(rd.balanceOf(RD_RECV) == RD_AMOUNT, "seller side gets exactly the price");
+        require(bond.balanceOfByPartition(TRANCHE_A, BOND_RECV) == BOND_AMOUNT, "buyer side gets the bond");
+        require(rd.balanceOf(address(e)) == 0, "nothing left in the escrow");
+    }
+
+    function test_cancel_after_one_of_three_rd_inputs_refunds_that_input_to_the_buyer() public {
+        DvPEscrow e = _create(_terms(TRADE_ID));
+        _fundBond(address(e), BOND_AMOUNT);
+        _fundRdFrom(address(e), address(0xB0E3), 2_000_000); // inputs 2 and 3 never arrive
+        vm.warp(expiry);
+        e.cancel();
+        require(rd.balanceOf(BUYER) == 2_000_000, "the partial RD goes to the buyer address of the terms");
+        require(bond.balanceOfByPartition(TRANCHE_A, SELLER) == BOND_AMOUNT, "bond back to the seller");
+        require(rd.balanceOf(address(e)) == 0, "escrow empty");
+    }
+
     function test_cancel_before_expiry_reverts_and_at_expiry_works() public {
         DvPEscrow e = _create(_terms(TRADE_ID));
         _fundBond(address(e), BOND_AMOUNT);
