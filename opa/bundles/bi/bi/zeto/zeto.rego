@@ -27,6 +27,7 @@ allow if {
 	outputs_ok(tx.data.mints)
 	frozen_ok(tx.data.mints)
 	within_limit(tx.data.mints, policy.max_mint_per_tx[token])
+	issued_to_issuer(tx.data.mints)
 }
 
 allow if {
@@ -66,6 +67,14 @@ outputs_ok(outs) if {
 frozen_ok(outs) if {
 	own := input.attributes.contextExtensions.node
 	count(ident.frozen_nodes("zeto") & ({ident.node_of(o.to) | some o in outs} | {own})) == 0
+}
+
+# DFABI is issued to BI only (every output on the issuer's own node) and reaches a bank by the award (user 2026-11-15); RD is minted to banks.
+issued_to_issuer(outs) if token == "RD"
+
+issued_to_issuer(outs) if {
+	token == "DFABI"
+	every o in outs { ident.node_of(o.to) == input.attributes.contextExtensions.node }
 }
 
 within_limit(outs, cap) if sum([to_number(o.amount) | some o in outs]) <= cap

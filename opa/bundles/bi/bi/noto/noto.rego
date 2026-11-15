@@ -28,6 +28,15 @@ allow if {
 	outputs_ok(single)
 	frozen_ok(single)
 	within_limit(single, caps.max_mint_per_tx[token])
+	issued_to_issuer
+}
+
+# DFABI is issued to BI only (BondTracker.onMint also requires the custodian) and reaches a bank by the award (user 2026-11-15); RD is minted to banks.
+issued_to_issuer if token == "RD"
+
+issued_to_issuer if {
+	token == "DFABI"
+	ident.node_of(tx.data.to) == input.attributes.contextExtensions.node
 }
 
 allow if {
