@@ -171,6 +171,9 @@ for party, n in PARTIES.items():
     check(svc["spec"]["selector"] == {"app": "paladin", "app.kubernetes.io/name": f"paladin-node{n}"}, f"{party}: selector {svc['spec']['selector']}")
     check("annotations" not in svc["metadata"] and "loadBalancerSourceRanges" not in svc["spec"], f"{party}: no cloud-specific field without --acl-id")
     check(svc["spec"].get("externalTrafficPolicy") == "Cluster", f"{party}: externalTrafficPolicy Cluster must be explicit (Local broke the p2p CLB health check)")
+    # 2026-11-16: node2 restarted, resumed a transfer and asked node4 for a verifier at 17:25:02 (gRPC up 17:25:01.6, pod Ready 17:25:07). node4's
+    # reply was refused (no endpoint behind the LB yet), dropped after its short retry, and the tx stayed Resolving, blocking node2's RD contract.
+    check(svc["spec"].get("publishNotReadyAddresses") is True, f"{party}: publishNotReadyAddresses must be true (replies reach a restarting node before Ready)")
     np = [d for d in net if d["kind"] == "NetworkPolicy"][0]
     check(np["metadata"]["name"] == "paladin-transport-ingress" and np["spec"]["podSelector"] == {"matchLabels": {"app": "paladin"}} and np["spec"]["policyTypes"] == ["Ingress"], f"{party}: policy selects app=paladin, Ingress")
     ing = np["spec"]["ingress"]
