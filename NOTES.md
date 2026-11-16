@@ -2,7 +2,10 @@
 
 ## Paladin (ns paladin), updated 2026-11-03 04:10Z
 
-1. RESOLVED 2026-11-03 04:19Z (S8): the paladin-operator is back at 1 replica. ConfigMap `paladin-operator`
+1. UPDATED 2026-11-16 12:33-12:44Z: all 4 rd-zeto nodes run the SMT fix image
+   `ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77` (fork `89e34e2c8`,
+   zeto/docs/fork-commits.md F), rolled ConfigMap-first per namespace (CM, operator restart, StatefulSet); rollback digest below.
+   RESOLVED 2026-11-03 04:19Z (S8): the paladin-operator is back at 1 replica. ConfigMap `paladin-operator`
    `paladin.image` = `ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71`,
    byte-identical to all 4 StatefulSets; the 5-min watch showed no pod restart and no StatefulSet update. Operator v1.0.0
    copies that string verbatim into every StatefulSet on reconcile, so any future image change goes ConfigMap first
@@ -19,6 +22,12 @@
 5. Restart rule: restart a Paladin node only when no node has an in-flight transaction. A node that resumes a transaction
    needing a remote verifier right after start can lose the ResolveVerifier response (PD030015, no retry); the transaction
    then stays `Resolving` and blocks later ones on the same contract.
+6. RESOLVED 2026-11-16 13:12Z: node1 (rd-zeto-bi) had 2 prepare-only DFABI spendLock txs from two failed awards
+   (db9f5a3c, d3bc3d90, bi@node1, 01:41-01:42Z), holding 2 x 1000 DFABI locked. cancelLock failed first (PD011615
+   input state not found: the pending prepared tx marks the locked coin as spent). Fix order: back up rows
+   (besu/zeto/out/stuck-tx-backup-20261116T131143Z/), delete them in one checked transaction (prepared_txn_states 4,
+   prepared_txns 2, transaction_history 2, transactions 2), restart node1, then cancelLock both locks (blocks 2566694/5).
+   BI unlocked DFABI 69168 -> 71168; node1 pending 0; SMT roots = chain.
 
 ## Besu validators and Paladin registry (added 2026-11-11, from the analyst reviews)
 

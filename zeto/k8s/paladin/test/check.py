@@ -7,7 +7,7 @@ import json, os, re, subprocess, sys, yaml
 render = sys.argv[1]
 here = os.path.dirname(os.path.abspath(__file__))
 PARTIES = {"bi": 1, "bank-a": 2, "bank-b": 3, "bank-c": 4}  # party -> Paladin node number (Zeto owner key names bi@node1 ...)
-FORK = "ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71"
+FORK = "ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77"
 OPERATOR = "docker.io/lfdecentralizedtrust/paladin-operator:v1.0.0@sha256:e778ee8123e0ce1e6a9efea9aacd64e139b0229cd2e112b1d3b30973cefcd9c3"
 CRDS = {"besugeneses", "besus", "paladindomains", "paladinregistrations", "paladinregistries", "paladins", "smartcontractdeployments", "transactioninvokes"}
 FORBIDDEN_KINDS = {"Namespace", "ClusterRole", "ClusterRoleBinding", "CustomResourceDefinition", "PaladinDomain", "PaladinRegistry",
@@ -228,7 +228,7 @@ with tempfile.TemporaryDirectory() as td:
     check(subprocess.run([gen, "bank-z", "1.2.3.4"], env={**os.environ, "PALADIN_MTLS_DIR": os.path.join(td, "z")}, capture_output=True).returncode != 0, "gen-certs: unknown party refused")
 
 # ---- pull-secret / pull-test: the node pods run as SA `default` of rd-zeto-<party> (the Paladin CRD has no imagePullSecrets), so the fix is an SA patch, not the CR
-DIGEST = "ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71"
+DIGEST = "ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77"
 for party, n in PARTIES.items():
     ns = f"rd-zeto-{party}"
     check("imagePullSecrets" not in run(party).stdout, f"{party}: operator/CR rendering must not carry imagePullSecrets (the fix is the default-SA patch)")

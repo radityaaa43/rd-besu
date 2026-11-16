@@ -50,7 +50,7 @@ metadata:
   namespace: ${NS}
 data:
   config.json: |
-    {"paladin":{"image":"ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71","imagePullPolicy":"Always","labels":{"app":"paladin"},"annotations":null,"envs":null,"tolerations":null,"affinity":{"podAntiAffinity":__ANTI__},"nodeSelector":null,"securityContext":null},"besu":{"image":"hyperledger/besu:25.8.0","imagePullPolicy":"IfNotPresent","labels":{"app":"besu"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"postgres":{"image":"postgres:17.6","imagePullPolicy":"IfNotPresent","labels":null,"annotations":null,"envs":null}}
+    {"paladin":{"image":"ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77","imagePullPolicy":"Always","labels":{"app":"paladin"},"annotations":null,"envs":null,"tolerations":null,"affinity":{"podAntiAffinity":__ANTI__},"nodeSelector":null,"securityContext":null},"besu":{"image":"hyperledger/besu:25.8.0","imagePullPolicy":"IfNotPresent","labels":{"app":"besu"},"annotations":null,"envs":null,"tolerations":null,"affinity":null,"nodeSelector":null,"securityContext":null},"postgres":{"image":"postgres:17.6","imagePullPolicy":"IfNotPresent","labels":null,"annotations":null,"envs":null}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -128,7 +128,7 @@ spec:
     spec:
       containers:
         - name: paladin
-          image: ghcr.io/radityaaa43/paladin@sha256:6f113f3829fefd7f954d3377935d7613ab78a90ba89c6af8e79159617b339f71
+          image: ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77
 ---
 # Domains and the registry are static node config (PLAN S9 DELTA): the operator would otherwise deploy NEW factory/registry
 # contracts from PaladinDomain/PaladinRegistry/SmartContractDeployment CRs. "A domain is either wholely defined in the static config of
