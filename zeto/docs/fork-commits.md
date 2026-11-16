@@ -1,6 +1,6 @@
 # Fork commits not in upstream (tracking table)
 
-Our Paladin fork: `radityaaa43/paladin` branch `lensa/prepare-dispatch-flush` at `0da5af7b6`, origin `LFDT-Paladin/paladin`. It is the image the cluster runs (`ghcr.io/radityaaa43/paladin@sha256:6f113f38…`; the image-to-commit link is from project notes, [unverified] against the registry).
+Our Paladin fork: `radityaaa43/paladin` branch `lensa/smt-one-root-per-batch` at `89e34e2c8` (= `lensa/prepare-dispatch-flush` at `0da5af7b6` + F below), origin `LFDT-Paladin/paladin`. It is the image the cluster runs since 2026-11-16 12:44Z: `ghcr.io/radityaaa43/paladin@sha256:3c8681149cfa37eb6d4e9312e61a704dbd2c179901f01d2b3ae17713c2711c77`, tag `main-zeto-v1-rsfix-1d600fc6f-prepfix2-smt1`, built with `docker build` from a clean worktree at `89e34e2c8`. The previous image `sha256:6f113f38…` (`…-prepfix2`, `0da5af7b6`) is the rollback.
 Base: upstream `main` merge base `559567e38` (2026-10-06, PR #1377). Counted with `git log origin/main..HEAD` on 2026-11-10 (`origin/main` = `66a554f5e`): **68 commits = 50 + 13 merges (PR #1189 branch) + 5 fork-only**. Diff: 175 files, +21,949 / -11,699.
 Goal of this file: track upstream status so the fork can shrink when upstream catches up. States read with `gh` on 2026-11-10.
 
@@ -13,6 +13,7 @@ Goal of this file: track upstream status so the fork can shrink when upstream ca
 | C. Failure receipts for stuck private txs | `1d600fc6f` (part 1 and 2) | none. Related but different scope: LFDT-Paladin/paladin#820 "bug: Verifier resolution errors do not result in a failure receipt" | #820 OPEN (last update 2025-10-03) | Upstream status monitored; nothing filed (user decision 2026-11-10). Why we carry it: assemble errors repeat forever without a receipt and hold the contract's assembly slot. |
 | D. Batch circuit for more than 2 outputs | `1d600fc6f` (part 3) | LFDT-Paladin/paladin#1393 "Use both inputs and outputs size to determine the circuit" (commit `7e140f063`) | **MERGED** 2026-11-02 to main; not in v1.0.0 / v1.0.1-rc.1 | Drop our part when we rebase onto a main that has #1393. |
 | E. Prepare-only dispatch must not hold the epoch/step-down flush | `1953f5dff`, `ca2418e94`, `0da5af7b6` | none found (searched: prepare, Active_Flush, dispatched) | - | Upstream `main` still counts every `State_Dispatched` tx in `guard_HasUnconfirmedDispatchedTransactions` (`core/go/internal/sequencer/coordinator/state_transition_guards.go:27-33` at 66a554f5e). Upstream status monitored; nothing filed (user decision 2026-11-10). |
+| F. One SMT root state per event batch | `89e34e2c8` | none filed. Upstream `82fcc9410` writes one MerkleTreeRoot state per event; a batch with >= 2 tree events of one token leaves roots with identical created time and the next batch can load an intermediate root (node SMT diverges from chain, UTXORootNotFound) | - | Live 2026-11-15 (block 2532856). Verified live 2026-11-16: 3 Zeto transfers from node2/3/4 in one block (2565877), all 4 node roots = chain. |
 
 ## A. PR #1189 commits (50 non-merge, in order)
 
