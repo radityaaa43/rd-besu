@@ -193,10 +193,13 @@ spec:
     # blockRange (default 100, min 10, must be equal on all nodes) is the coordinator epoch; COORDINATOR_ENDORSER (Pente) rotates its
     # submitter key at each epoch. Under load the RD hooks group rotated while old-key hooks were unconfirmed, new-key hooks ran first
     # and reverted PenteInputNotAvailable, wedging the chain (blocks 2656301, 2658904; 2026-11-18). 100000 (~55 h) = rare rotations.
+    # maxDispatchAhead (default 50) caps dispatched-but-unconfirmed txs per coordinator (dispatch_loop.go). Every Noto RD transfer runs a
+    # chained Pente hook on node1, so blocks carried exactly 50 hooks and RD plateaued at ~23 TPS at C=96..288 (2026-11-18).
     sequencerManager:
       stateTimeout: 60s
       maxInflightTransactions: 2000
       blockRange: 100000
+      maxDispatchAhead: 200
     db:
       type: postgres
       # statementCache false (official db.postgres.statementCache, default true for postgres) + role plan_cache_mode=force_custom_plan
