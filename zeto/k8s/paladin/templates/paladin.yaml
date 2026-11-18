@@ -187,8 +187,12 @@ spec:
       disableSignRPC: true
     # The assemble request (Zeto proof inside) expires at now + stateTimeout (sequencer/coordinator/transaction/assembling.go:150). The 10s
     # default cancelled proofs of many-input locks and re-pooled them; the retries piled up until the K8s node ran out of memory (2026-11-12).
+    # maxInflightTransactions caps the coordinator's in-memory transactions per contract. A confirmed tx stays there for
+    # closingGracePeriod+1 heartbeats (~26 s at the 10s default), so the default 500 capped one Noto contract at ~12 TPS
+    # (PD012642 on the notary node1, 2026-11-18). Official sequencerManager key, default 500.
     sequencerManager:
       stateTimeout: 60s
+      maxInflightTransactions: 2000
     db:
       type: postgres
       # statementCache false (official db.postgres.statementCache, default true for postgres) + role plan_cache_mode=force_custom_plan
