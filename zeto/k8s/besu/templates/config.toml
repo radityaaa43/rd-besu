@@ -43,6 +43,9 @@ rpc-ws-host="0.0.0.0"
 rpc-ws-port=8546
 rpc-ws-api=["ETH","NET","WEB3"]
 rpc-ws-authentication-enabled=false
+# Default 80. Besu < 26.10.2 leaked this counter (besu-eth/besu#11453); at 80 it rejected every new WS client, so Paladin
+# node1 could not reconnect (2026-11-18). 26.10.2 has the fix; the higher cap is headroom for many Paladin reconnects.
+rpc-ws-max-active-connections=1000
 
 
 

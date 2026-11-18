@@ -74,6 +74,9 @@ check(run(static, "--new-validators", short, "--party", "bi").returncode != 0, "
 # WS (Paladin) keeps ETH/NET/WEB3; DEBUG/TRACE/TXPOOL/PERM are gone (16 h of besu_rpc_request_time on all 4 validators: never called).
 live = open(os.path.join(fx, "live-config.toml")).read().splitlines()
 tpl = open(os.path.join(base, "templates", "config.toml")).read().splitlines() if os.path.exists(os.path.join(base, "templates", "config.toml")) else []
+# 2026-11-18: the WS connection cap (+ its 2 comment lines) is added after the snapshot; Besu 26.10.2 fixes the counter leak (#11453)
+check("rpc-ws-max-active-connections=1000" in tpl, "config template must set rpc-ws-max-active-connections=1000")
+tpl = [l for l in tpl if not (l.startswith("rpc-ws-max-active-connections=") or "besu-eth/besu#11453" in l or "26.10.2 has the fix" in l)]
 diff = [(a, b) for a, b in zip(live, tpl) if a != b]
 check(len(live) == len(tpl) and diff == [("discovery-enabled=true", "discovery-enabled=false"), ('p2p-host="0.0.0.0"', 'p2p-host="${P2P_HOST}"'),
                                          ('rpc-http-api=["ETH","NET","WEB3","QBFT","ADMIN","TXPOOL","DEBUG","TRACE","PERM"]', 'rpc-http-api=["ETH","NET","WEB3","QBFT","ADMIN"]'),
@@ -154,7 +157,7 @@ for party, ns in PARTIES.items():
         s = sts[0]["spec"]
         pod = s["template"]["spec"]
         c = pod["containers"][0]
-        check(c["image"] == "hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042" and s["replicas"] == 1, f"{party}: image hyperledger/besu:26.8.1, 1 replica")
+        check(c["image"] == "hyperledger/besu:26.10.2@sha256:bc599f5ef95a3d5d03f966cd2c1f7dfd7353834c84bc5651ffb4af884860a2c7" and s["replicas"] == 1, f"{party}: image hyperledger/besu:26.10.2, 1 replica")
         argv = " ".join(c["args"] if "args" in c else []) + " ".join(c.get("command", []))
         check("--Xdns" not in argv and "--nat-method=NONE" in argv and "--min-gas-price=0" in argv, f"{party}: args: no Xdns, nat NONE, min-gas-price 0: {argv}")
         check({p["name"] for p in c["ports"]} == {"json-rpc", "ws", "rlpx", "metrics"} and all(p["protocol"] == "TCP" for p in c["ports"]), f"{party}: ports TCP only (no UDP discovery)")

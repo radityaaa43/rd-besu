@@ -22,7 +22,7 @@ case "$party" in
   bank-c) ns="rd-zeto-bank-c"; lbl="part-of: rd-zeto, party: bank-c, cluster: \"2\""; cpu_req=500m; mem_req=3Gi; cpu_lim='"3"'; mem_lim=6Gi ;;
   *) die "unknown party '$party' (allowed: bi bank-a bank-b bank-c)" ;;
 esac
-image="hyperledger/besu:26.8.1@sha256:6f3f21ce533383fcc8db3bce02252b59d5a9e776b72b5a1c8ecd2db011600042"
+image="hyperledger/besu:26.10.2@sha256:bc599f5ef95a3d5d03f966cd2c1f7dfd7353834c84bc5651ffb4af884860a2c7"
 sel='{app.kubernetes.io/name: besu-validator}'
 
 net() {
