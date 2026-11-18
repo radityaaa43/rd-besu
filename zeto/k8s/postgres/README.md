@@ -76,10 +76,12 @@ Resource sizes (50m / 256Mi requests since the 2026-11-12 resize, from idle samp
 
 Paladin caches prepared statements, so after 5 runs Postgres may use a generic plan. For the Zeto SMT label lookup that plan
 scanned every MerkleTreeNode state on node2/node3 (76-94 ms instead of 0.04 ms); their HandleEventBatch then ran 23-59 s and receipts
-lagged the chain by 100-220 s. Three parts, all needed together (user decision 2026-11-18):
+lagged the chain by 100-220 s. Two parts (user decision 2026-11-18):
 
 - Paladin config `db.postgres.statementCache: false` (zeto/k8s/paladin/templates/paladin.yaml, official config key).
-- DSN query `default_query_exec_mode=exec` (pgx: unnamed statements, planned per execution), written by `rotate/rotate.sh`.
+- NOT the DSN query `default_query_exec_mode=exec`: tried 2026-11-18 and reverted. pgx then encoded JSON as bytea hex
+  (`\x7b...`) into Paladin's text columns; 276 rows written 06:02:53-59Z were unreadable (SMT root unmarshal failed) until
+  repaired with `convert_from(decode(substr(col,3),'hex'),'UTF8')`, and the RD SMT diverged from the chain (RD redeployed).
 - Role setting, run once per database (it survives restarts; new sessions pick it up):
   `ALTER ROLE paladin SET plan_cache_mode = 'force_custom_plan';` Undo: `ALTER ROLE paladin RESET plan_cache_mode;`
 

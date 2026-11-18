@@ -191,8 +191,9 @@ spec:
       stateTimeout: 60s
     db:
       type: postgres
-      # statementCache false (official db.postgres.statementCache, default true for postgres) + default_query_exec_mode=exec in the dsn
-      # (written by zeto/k8s/postgres/rotate) + role plan_cache_mode=force_custom_plan: the Zeto SMT label lookup otherwise falls to
+      # statementCache false (official db.postgres.statementCache, default true for postgres) + role plan_cache_mode=force_custom_plan
+      # (zeto/k8s/postgres/README.md). NEVER put default_query_exec_mode=exec in the DSN (pgx then sent JSON as bytea hex into
+      # text columns and corrupted 276 rows, 2026-11-18 06:02Z). Without these the Zeto SMT label lookup falls to
       # a generic plan (LFDT-Paladin/paladin#1073) that took 76-94 ms on node2/node3 vs 0.04 ms, so their HandleEventBatch ran 23-59 s
       # and receipts lagged the chain by 100-220 s (2026-11-18).
       postgres:
