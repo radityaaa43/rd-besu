@@ -126,7 +126,7 @@ for party, n in PARTIES.items():
     # the 10s default cancels proofs of many-input locks and re-pools them, so retries pile up until the node runs out of memory
     # maxInflightTransactions 2000: the default 500 capped one Noto contract at ~12 TPS (confirmed txs linger ~26 s in the coordinator)
     # blockRange 100000: Pente key rotation per epoch wedged the RD hook chain under load (PenteInputNotAvailable); must be equal on all nodes
-    check(conf.get("sequencerManager") == {"stateTimeout": "60s", "maxInflightTransactions": 2000, "blockRange": 100000}, f"{party}: sequencerManager stateTimeout 60s + maxInflightTransactions 2000 + blockRange 100000: {conf.get('sequencerManager')}")
+    check(conf.get("sequencerManager") == {"stateTimeout": "60s", "maxInflightTransactions": 2000, "blockRange": 100000, "maxDispatchAhead": 200}, f"{party}: sequencerManager stateTimeout 60s + maxInflightTransactions 2000 + blockRange 100000 + maxDispatchAhead 200: {conf.get('sequencerManager')}")
     check(conf.get("log", {}).get("level") == "info", f"{party}: log.level info")
     pg = conf.get("db", {}).get("postgres", {})
     check(conf.get("db", {}).get("type") == "postgres", f"{party}: db.type must be postgres (preConfigured does not set it)")
