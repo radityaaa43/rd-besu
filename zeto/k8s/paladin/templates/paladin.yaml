@@ -191,7 +191,12 @@ spec:
       stateTimeout: 60s
     db:
       type: postgres
+      # statementCache false (official db.postgres.statementCache, default true for postgres) + default_query_exec_mode=exec in the dsn
+      # (written by zeto/k8s/postgres/rotate) + role plan_cache_mode=force_custom_plan: the Zeto SMT label lookup otherwise falls to
+      # a generic plan (LFDT-Paladin/paladin#1073) that took 76-94 ms on node2/node3 vs 0.04 ms, so their HandleEventBatch ran 23-59 s
+      # and receipts lagged the chain by 100-220 s (2026-11-18).
       postgres:
+        statementCache: false
     domains:
       noto:
         plugin: {type: c-shared, library: /app/domains/libnoto.so}

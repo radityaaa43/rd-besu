@@ -71,3 +71,15 @@ kubectl -n rd-zeto-bank-a create secret generic paladin-pg-credentials \
 Rollback (PLAN S8): delete the Service, StatefulSet and PVC `data-paladin-pg-0` of the party (reclaim Delete: this destroys the copy; the old database is only read).
 Backup schedule: not defined here (decision 27 picks the product; a managed service would own it); S22 requires a named backup before any delete [open].
 Resource sizes (50m / 256Mi requests since the 2026-11-12 resize, from idle samples; 1 CPU / 1Gi limits) and the 20Gi volume are first guesses: today's sidecar usage was not read [unverified].
+
+## Generic-plan workaround (LFDT-Paladin/paladin#1073), applied live 2026-11-18
+
+Paladin caches prepared statements, so after 5 runs Postgres may use a generic plan. For the Zeto SMT label lookup that plan
+scanned every MerkleTreeNode state on node2/node3 (76-94 ms instead of 0.04 ms); their HandleEventBatch then ran 23-59 s and receipts
+lagged the chain by 100-220 s. Three parts, all needed together (user decision 2026-11-18):
+
+- Paladin config `db.postgres.statementCache: false` (zeto/k8s/paladin/templates/paladin.yaml, official config key).
+- DSN query `default_query_exec_mode=exec` (pgx: unnamed statements, planned per execution), written by `rotate/rotate.sh`.
+- Role setting, run once per database (it survives restarts; new sessions pick it up):
+  `ALTER ROLE paladin SET plan_cache_mode = 'force_custom_plan';` Undo: `ALTER ROLE paladin RESET plan_cache_mode;`
+
