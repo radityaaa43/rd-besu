@@ -78,7 +78,9 @@ spec:
           # Sizes are a first guess: today's sidecar usage was not read [unverified]; tune before S9.
           resources:
             requests: {cpu: 50m, memory: 256Mi}
-            limits: {cpu: "1", memory: 2Gi}  # 1Gi -> 2Gi 2026-11-18 (user, with the Lensa Zeto caps removed)
+            limits: {cpu: "4", memory: 2Gi}  # 1Gi -> 2Gi, then cpu 1 -> 4 on 2026-11-18 (user): at 1 CPU the pod was CFS-throttled
+            # 19-20% under Zeto load and state queries took 80-244 ms (0.03 ms in psql), stretching the single assembly slot.
+            # The official paladin-operator sidecar Postgres has no resources at all; 4 = a whole worker.
           startupProbe:
             exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}
             periodSeconds: 5
