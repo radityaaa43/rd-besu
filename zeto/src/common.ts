@@ -25,9 +25,13 @@ const mtlsFor = (node: number) => {
   return { ca: fs.readFileSync(path.join(dir, "ca.crt")), cert: fs.readFileSync(path.join(dir, "lensa.crt")), key: fs.readFileSync(path.join(dir, "lensa.key")) };
 };
 
+// ZETO_NODE_URLS=url1,url2,url3,url4 overrides the node URLs (e.g. port-forwards straight to svc/paladin-nodeN:8548, no gateway).
+// An http:// override is used as is, without mTLS.
+const urlOverride = (process.env.ZETO_NODE_URLS ?? "").split(",").filter(Boolean);
 export const nodeConnections: NodeConnection[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, "..", "config.json"), "utf8"),
 ).map((n: { name: string; id: string; client: { url: string } }, i: number) => {
+  if (urlOverride[i]) return { name: n.name, id: n.id, clientOptions: { url: urlOverride[i] } };
   const mtls = mtlsFor(i);
   return {
     name: n.name,
