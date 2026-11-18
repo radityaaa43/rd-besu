@@ -65,7 +65,8 @@
     },
     "snarkProver": {
      "circuitsDir": "/app/domains/zeto/zkp",
-     "provingKeysDir": "/app/domains/zeto/zkp"
+     "provingKeysDir": "/app/domains/zeto/zkp",
+     "maxProverPerCircuit": 3
     }
    },
    "defaultGasLimit": 30000000,
