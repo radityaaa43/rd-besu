@@ -190,9 +190,13 @@ spec:
     # maxInflightTransactions caps the coordinator's in-memory transactions per contract. A confirmed tx stays there for
     # closingGracePeriod+1 heartbeats (~26 s at the 10s default), so the default 500 capped one Noto contract at ~12 TPS
     # (PD012642 on the notary node1, 2026-11-18). Official sequencerManager key, default 500.
+    # blockRange (default 100, min 10, must be equal on all nodes) is the coordinator epoch; COORDINATOR_ENDORSER (Pente) rotates its
+    # submitter key at each epoch. Under load the RD hooks group rotated while old-key hooks were unconfirmed, new-key hooks ran first
+    # and reverted PenteInputNotAvailable, wedging the chain (blocks 2656301, 2658904; 2026-11-18). 100000 (~55 h) = rare rotations.
     sequencerManager:
       stateTimeout: 60s
       maxInflightTransactions: 2000
+      blockRange: 100000
     db:
       type: postgres
       # statementCache false (official db.postgres.statementCache, default true for postgres) + role plan_cache_mode=force_custom_plan
