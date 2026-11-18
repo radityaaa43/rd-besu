@@ -78,7 +78,7 @@ spec:
           # Sizes are a first guess: today's sidecar usage was not read [unverified]; tune before S9.
           resources:
             requests: {cpu: 50m, memory: 256Mi}
-            limits: {cpu: "1", memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}  # 1Gi -> 2Gi 2026-11-18 (user, with the Lensa Zeto caps removed)
           startupProbe:
             exec: {command: [sh, -c, 'pg_isready -h 127.0.0.1 -p 5432']}
             periodSeconds: 5

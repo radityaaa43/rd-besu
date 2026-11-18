@@ -59,7 +59,7 @@ for party, ns in PARTIES.items():
         check(c["securityContext"].get("allowPrivilegeEscalation") is False, f"{party}: allowPrivilegeEscalation false")
         res = c["resources"]
         check(set(res.get("requests", {})) >= {"cpu", "memory"} and set(res.get("limits", {})) >= {"cpu", "memory"}, f"{party}: requests and limits for cpu and memory")
-        check(res["requests"] == {"cpu": "50m", "memory": "256Mi"} and res["limits"] == {"cpu": "1", "memory": "1Gi"}, f"{party}: paladin-pg requests 50m / 256Mi (resize 2026-11-12), limits unchanged 1 / 1Gi")
+        check(res["requests"] == {"cpu": "50m", "memory": "256Mi"} and res["limits"] == {"cpu": "1", "memory": "2Gi"}, f"{party}: paladin-pg requests 50m / 256Mi (resize 2026-11-12), limits 1 / 2Gi (raised 2026-11-18)")
         check(all(p in c for p in ("startupProbe", "livenessProbe", "readinessProbe")), f"{party}: startup, liveness and readiness probes")
         check(pod.get("automountServiceAccountToken") is False, f"{party}: no API token for the database pod")
         aff = pod.get("affinity", {})
