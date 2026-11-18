@@ -98,6 +98,8 @@ spec:
 # (JVM default heap = 25% of the limit = 1.5Gi; it was 25% of the K8s node, ~1.6Gi).
 # 2026-11-18 (user): limit raised 6Gi -> 8Gi with the Lensa Zeto concurrency caps removed; request unchanged. Member workers have
 # 6.2Gi allocatable and run 70-91% requested, so the worker, not this limit, is the real ceiling until unused pods are removed.
+# 2026-11-18 (user "naikkan cpu"): CPU limit 3 -> 4 = a whole worker (ecs.c8a.xlarge, 4 vCPU, the largest in both clusters).
+# A Zeto transfer costs ~4 CPU-s (mostly the ZK proof) and node1/node4 were CFS-throttled 18% of periods at 3; request unchanged.
 apiVersion: v1
 kind: LimitRange
 metadata:
@@ -107,7 +109,7 @@ spec:
   limits:
     - type: Container
       defaultRequest: {cpu: "1", memory: 3Gi}
-      default: {cpu: "3", memory: 8Gi}
+      default: {cpu: "4", memory: 8Gi}
 ---
 # Paused stub (orchestrator deviation: no rehearsal start; PLAN S9 "scaled to 0"). The Paladin CR has no replicas field. The operator creates
 # its StatefulSet only if none exists (paladin_controller.go:287-292) and on update touches only containers, volumes and template annotations/
