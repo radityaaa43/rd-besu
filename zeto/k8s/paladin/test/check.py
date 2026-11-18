@@ -68,7 +68,7 @@ for party, n in PARTIES.items():
     item = lr["spec"]["limits"][0]
     check(lr["metadata"]["name"] == "paladin-defaults" and len(lr["spec"]["limits"]) == 1 and item["type"] == "Container", f"{party}: LimitRange paladin-defaults, one Container item")
     # 2026-11-13: Zeto proving OOM-killed node2/node4 (SystemOOM on the K8s node) while the pods were BestEffort: 1 CPU / 3Gi requested, 3 / 6Gi cap
-    check(item.get("defaultRequest") == {"cpu": "1", "memory": "3Gi"} and item.get("default") == {"cpu": "3", "memory": "6Gi"}, f"{party}: LimitRange defaults {item}")
+    check(item.get("defaultRequest") == {"cpu": "1", "memory": "3Gi"} and item.get("default") == {"cpu": "3", "memory": "8Gi"}, f"{party}: LimitRange defaults {item}")
     # operator: namespaced only, one namespace watched, image pinned, fork digest in its ConfigMap
     role = by["Role"]
     seen = {r for rule in role["rules"] if "core.paladin.io" in rule["apiGroups"] for r in rule["resources"] if "/" not in r}
