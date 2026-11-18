@@ -226,9 +226,12 @@ spec:
                   transfer: {name: anon_nullifier_transfer, usesNullifiers: true}
                   transferLocked: {name: anon}
                   withdraw: {name: withdraw_nullifier, usesNullifiers: true}
+          # maxProverPerCircuit (official SnarkProverConfig, default 10): proofs that may run at once per circuit. 3 on a 4 vCPU worker
+          # (2026-11-18, user): at 10, up to 10 proofs shared 4 cores and Signing took 8-9 s per tx instead of 1.67 s.
           snarkProver:
             circuitsDir: /app/domains/zeto/zkp
             provingKeysDir: /app/domains/zeto/zkp
+            maxProverPerCircuit: 3
         registryAddress: '0x753a64eac771adff2ff9d879585fa3bdde76cf91'
         allowSigning: true
         defaultGasLimit: 30000000
