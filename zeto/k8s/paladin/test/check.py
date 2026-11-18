@@ -128,7 +128,7 @@ for party, n in PARTIES.items():
     check(conf.get("log", {}).get("level") == "info", f"{party}: log.level info")
     pg = conf.get("db", {}).get("postgres", {})
     check(conf.get("db", {}).get("type") == "postgres", f"{party}: db.type must be postgres (preConfigured does not set it)")
-    check(not pg, f"{party}: db.postgres must be empty in git: no dsn, no dsnParams (option D, the Job writes the dsn into the live CR): {pg}")
+    check(pg == {"statementCache": False}, f"{party}: db.postgres in git holds only statementCache false (#1073): no dsn, no dsnParams (option D, the Job writes the dsn into the live CR): {pg}")
     raw = "\n".join(l for l in run(party).stdout.splitlines() if not l.lstrip().startswith("#"))  # comments may name the fields
     check(all(x not in raw for x in ("postgres://", "dsnParams", "passwordSecret", "{{", "/db-creds", "paladin-pg-credentials")), f"{party}: the render must carry no dsn, no dsnParams, no passwordSecret, no credentials reference (option D, R14)")
     # the static domain/registry config must equal what the operator generates from the live PaladinDomain/PaladinRegistry CRs

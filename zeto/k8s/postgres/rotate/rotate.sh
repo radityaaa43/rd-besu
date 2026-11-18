@@ -1,6 +1,6 @@
 #!/bin/bash
 # S21 R1/D: replace the Paladin DB password of ONE party with a hex value generated here, inside the cluster, and put it where the node needs it:
-#   - the live Paladin CR node<N> `spec.config` gets `db.postgres.dsn: postgres://<user>:<hex>@paladin-pg.<ns>.svc.cluster.local:5432/<db>?sslmode=disable`
+#   - the live Paladin CR node<N> `spec.config` gets `db.postgres.dsn: postgres://<user>:<hex>@paladin-pg.<ns>.svc.cluster.local:5432/<db>?sslmode=disable&default_query_exec_mode=exec`
 #     (option D: no spec.database.passwordSecret and no dsnParams, so the fork never prints its `REMOVE: DSN=` WARN line; the git render has NO dsn);
 #   - the Secret paladin-pg-credentials key `password` (kept consistent, so a re-init cannot diverge).
 # The value never leaves this process: not in argv, not in a log, not on the host. Only step names, status codes and counts are printed. NO `set -x`.
@@ -75,10 +75,11 @@ oldcfg=$(printf '%s' "$BODY" | grep -o -E '"config":"([^"\\]|\\.)*"' | head -1 |
 n_pg=$(printf '%s' "$oldcfg" | grep -o -F '\n  postgres:\n' | wc -l)
 [ "$n_pg" = 1 ] || fail "spec.config must contain exactly one '  postgres:' line under db (found $n_pg)"
 if printf '%s' "$oldcfg" | grep -q -E 'dsnParams|\{\{\.password\}\}|passwordSecret'; then fail "spec.config still has the templated DSN (dsnParams/{{.password}}): apply the option-D CR render first"; fi
-dsn_line='    dsn: postgres://'"$PGUSER"':%s@paladin-pg.'"$NS"'.svc.cluster.local:5432/'"$PGDATABASE"'?sslmode=disable'
+dsn_line='    dsn: postgres://'"$PGUSER"':%s@paladin-pg.'"$NS"'.svc.cluster.local:5432/'"$PGDATABASE"'?sslmode=disable&default_query_exec_mode=exec'
 # drop a dsn line left by an earlier run, then insert the new one right after `  postgres:`; the sed script comes from a pipe, so the value is not in argv
 base=$(printf '%s' "$oldcfg" | sed -e 's/\\n    dsn: [^\\]*//')
-newcfg=$(printf '%s' "$base" | sed -f <(printf 's#\\\\n  postgres:\\\\n#\\\\n  postgres:\\\\n%s\\\\n#\n' "$(printf "$dsn_line" "$new")"))
+# `&` in the dsn (query params) means "the whole match" in a sed replacement: escape it
+newcfg=$(printf '%s' "$base" | sed -f <(printf 's#\\\\n  postgres:\\\\n#\\\\n  postgres:\\\\n%s\\\\n#\n' "$(printf "$dsn_line" "$new" | sed 's/&/\\&/g')"))
 [ "$newcfg" != "$base" ] || fail "inserting the dsn line changed nothing"
 
 echo "step 2: ALTER ROLE (SQL on stdin)"

@@ -159,7 +159,7 @@ check(pc[0] == "PATCH /apis/core.paladin.io/v1alpha1/namespaces/rd-zeto-bank-a/p
 check(pc[1].get("authorization") == "Bearer " + TOKEN and pc[1].get("content-type") == "application/merge-patch+json" and pc[1].get("content-length") == str(len(pc[2].encode())), f"ok: CR PATCH headers {pc[1]}")
 check(list(json.loads(pc[2])) == ["spec"] and list(json.loads(pc[2])["spec"]) == ["config"], "ok: the CR PATCH touches spec.config only")
 newcfg = api.cr["spec"]["config"]
-dsn = f"    dsn: postgres://paladin:{final}@paladin-pg.rd-zeto-bank-a.svc.cluster.local:5432/paladin?sslmode=disable"
+dsn = f"    dsn: postgres://paladin:{final}@paladin-pg.rd-zeto-bank-a.svc.cluster.local:5432/paladin?sslmode=disable&default_query_exec_mode=exec"
 added = [l for l in cfg_lines(newcfg) if l not in cfg_lines(OLDCFG)]
 check(added == [dsn] and [l for l in cfg_lines(OLDCFG) if l not in cfg_lines(newcfg)] == [], f"ok: the ONLY change in spec.config is the dsn line (added {len(added)} line(s))")
 i = cfg_lines(newcfg).index(dsn); check(cfg_lines(newcfg)[i - 1] == "  postgres:", "ok: the dsn line sits right under `  postgres:`")
