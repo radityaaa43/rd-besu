@@ -118,7 +118,7 @@ for party in NUM:
 # ---- schemas mode (analyst follow-up on the node4 outsider finding; STRUCTURE only): per receipt the domainReceipt KEY names, per confirmed/spent/read/info the entries grouped by schema (name via
 # pstate_listSchemas + 8-char id) with/without `data`, contractAddress = a given Zeto token (zeto/other/absent), the 4 unavailable counts, and a verdict: COIN-DATA (data in a coin/lock schema = R1 break),
 # OTHER-DATA (data in another non-MerkleTree schema), OK (data only in MerkleTree schemas). Never a state id, hash, amount, owner or value.
-TOK = "0x0b91f511a3c9ca8144a5422734a2db42bb86e8f6"
+TOK = "0xb098fa62dc69a5259a92699798e4b3a7a68b3ba2"
 SCH_COIN, SCH_LOCK, SCH_ROOT, SCH_NODE, SCH_TXD = ("0x" + c * 64 for c in "abcde")
 LIST = {"jsonrpc": "2.0", "id": 1, "result": [{"id": SCH_COIN, "definition": {"name": "ZetoCoin_V1"}}, {"id": SCH_LOCK, "definition": {"name": "ZetoLockInfo_V1"}}, {"id": SCH_ROOT, "definition": {"name": "MerkleTreeRoot"}}, {"id": SCH_NODE, "definition": {"name": "MerkleTreeNode"}}, {"id": SCH_TXD, "definition": {"name": "ZetoTransactionData_V1"}}]}
 def schemas(party, receipts, full, listing=LIST):
